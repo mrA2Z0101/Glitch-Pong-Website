@@ -1,0 +1,25 @@
+{
+  "name": "Glitch Pong",
+  "short_name": "Glitch Pong",
+  "description": "The game fights you. You fight back.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#03040a",
+  "theme_color": "#03040a",
+  "icons": [
+    {
+      "src": "icons/icon192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
