@@ -400,6 +400,7 @@ body.game-starting #gpLanding {
   border: none; cursor: pointer;
   transition: outline-color 0.2s, box-shadow 0.2s, transform 0.15s;
 }
+a.btn-ghost { display: inline-block; text-decoration: none; }
 .btn-ghost:hover {
   outline-color: var(--pink);
   box-shadow: 0 0 22px var(--pink);
@@ -1132,6 +1133,7 @@ canvas#pong-canvas { display: none; }
       <a href="#boss-section">The Eye</a>
       <a href="#rules">How to Play</a>
       <a href="#changelog">Intel</a>
+      <a href="glitchcade.html">Glitchcade</a>
     </div>
     <button id="playNowTop" class="nav-play-btn" type="button">PLAY NOW</button>
   </nav>
@@ -1166,6 +1168,7 @@ canvas#pong-canvas { display: none; }
       <div class="hero-ctas">
         <button id="playNowHero" class="btn-primary" type="button">⚡ Play Now</button>
         <button class="btn-ghost" onclick="document.getElementById('features').scrollIntoView({behavior:'smooth'})">How It Works</button>
+        <a class="btn-ghost" href="glitchcade.html">🕹 Enter the Glitchcade</a>
       </div>
 
       <!-- chips -->

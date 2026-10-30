@@ -1635,6 +1635,7 @@ function injectGameById(gameId, options = {}) {
         .gp-mobile-ui .gp-corner-action span { display:none !important; }
         .gp-mobile-ui #gp-stats-action { right:11% !important; }
         .gp-mobile-ui #gp-store-action { right:2.5% !important; }
+        .gp-mobile-ui #gp-exit-action { left:2.5% !important; }
         .gp-mobile-ui #gp-pause-menu button { min-width:44px; min-height:44px; }
         .gp-mobile-ui #gp-tab-bar {
           display:grid !important;
@@ -7996,6 +7997,26 @@ function injectGameById(gameId, options = {}) {
       "box-shadow:0 0 14px rgba(103,239,255,.12)", "pointer-events:auto"
     ].join(";");
 
+    // Hosted inside the Glitchcade: give the main menu a way back out to the arcade floor.
+    const onExit = typeof options.onExit === "function" ? options.onExit : null;
+    let exitBtn = null;
+    if (onExit) {
+      exitBtn = document.createElement("button");
+      exitBtn.id = "gp-exit-action";
+      exitBtn.classList.add("gp-corner-action");
+      exitBtn.type = "button";
+      exitBtn.setAttribute("aria-label", "Exit to arcade");
+      exitBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 6l-6 6 6 6"/><path d="M21 4v16"/></svg><span>EXIT TO ARCADE</span>';
+      exitBtn.style.cssText = [
+        "position:absolute", "left:3.2%", "top:4.2%", "z-index:4",
+        "display:flex", "align-items:center", "gap:7px", "padding:9px 12px",
+        "border:1px solid rgba(255,88,217,.52)", "border-radius:10px",
+        "background:rgba(9,14,26,.84)", "color:#ff58d9",
+        "font:bold 11px monospace", "letter-spacing:.10em", "cursor:pointer",
+        "box-shadow:0 0 14px rgba(255,88,217,.12)", "pointer-events:auto"
+      ].join(";");
+    }
+
     mainMenuImg.style.zIndex = "1";
     playBtn.style.zIndex = "3";
     settingsBtn.style.zIndex = "3";
@@ -8005,6 +8026,7 @@ function injectGameById(gameId, options = {}) {
     mainMenu.appendChild(settingsBtn);
     mainMenu.appendChild(statsBtn);
     mainMenu.appendChild(storeBtn);
+    if (exitBtn) mainMenu.appendChild(exitBtn);
     overlay.appendChild(mainMenu);
     overlay.appendChild(settingsPanel);
     overlay.appendChild(storePanel);
@@ -8380,11 +8402,11 @@ function injectGameById(gameId, options = {}) {
       // both pointerdown and touchstart caused one tap to unlock/start audio
       // several times. Use touchstart only as a legacy fallback.
       if (window.PointerEvent) {
-        document.addEventListener("pointerdown", unlockAppAudio, { capture: true });
+        addListener(document, "pointerdown", unlockAppAudio, { capture: true });
       } else {
-        document.addEventListener("touchstart", unlockAppAudio, { capture: true, passive: true });
+        addListener(document, "touchstart", unlockAppAudio, { capture: true, passive: true });
       }
-      document.addEventListener("keydown", unlockAppAudio, { capture: true });
+      addListener(document, "keydown", unlockAppAudio, { capture: true });
     }
 
     bindMenuAudioUnlock();
@@ -8538,6 +8560,23 @@ function injectGameById(gameId, options = {}) {
       currentScreen = "main";
       syncUiForScreen();
       showMainMenu();
+    }
+
+    function exitToHost() {
+      if (!onExit) return;
+      disconnectOnline();
+      const arena = getArena();
+      if (arena.cleanup) arena.cleanup();
+      pongAudio.stopAll();
+      shell.clearScene();
+      onExit();
+    }
+
+    if (exitBtn) {
+      exitBtn.addEventListener("click", () => {
+        pongAudio.primeFromGesture();
+        exitToHost();
+      });
     }
 
     playBtn.addEventListener("click", () => {
@@ -9302,7 +9341,8 @@ function injectGameById(gameId, options = {}) {
       if (currentScreen === "difficulty") { showArenaMenu();   return; }
       if (currentScreen === "online-lobby") { disconnectOnline(); showModeMenu(); return; }
       if (currentScreen === "multiplayer" || currentScreen === "online-join") { showModeMenu(); return; }
-      if (currentScreen === "settings" || currentScreen === "stats" || currentScreen === "store" || currentScreen === "mode") { showMainMenu(); }
+      if (currentScreen === "settings" || currentScreen === "stats" || currentScreen === "store" || currentScreen === "mode") { showMainMenu(); return; }
+      if (currentScreen === "main") exitToHost();
     }
 
     addListener(document, "keydown", (e) => {
@@ -9465,7 +9505,7 @@ function injectGameById(gameId, options = {}) {
         p1HintShown = true;
         showP1Hint();
       }
-      requestAnimationFrame(watchForGameScreen);
+      if (overlay.isConnected) requestAnimationFrame(watchForGameScreen);
     }
     requestAnimationFrame(watchForGameScreen);
 
@@ -10519,18 +10559,46 @@ function injectGameById(gameId, options = {}) {
 
 
 (function initGlitchPongSite() {
-  function bootGlitchPongSite() {
-    if (window.__glitchcadeCleanup) return;
-    injectGameById('true-dom-pong', {
+  function bootGlitchPongSite(extraOptions = {}) {
+    if (window.__glitchcadeCleanup) return false;
+    injectGameById('true-dom-pong', Object.assign({
       glitchFx: true,
       safetyMode: false,
       audioUserInitiated: true,
       introVoiceDelayMs: 3000,
       introVoiceStartAtMs: Date.now()
-    });
+    }, extraOptions));
+    return true;
   }
 
+  // Must run inside the user-gesture handler (iOS requires this).
+  function unlockGestureAudio() {
+    try {
+      const existing = window.__glitchPongAudioContext;
+      const ctx = existing && existing.state !== 'closed' ? existing : new (window.AudioContext || window.webkitAudioContext)();
+      window.__glitchPongAudioContext = ctx;
+      const buf = ctx.createBuffer(1, 1, 22050);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(ctx.destination);
+      src.start(0);
+      ctx.resume().catch(() => {});
+    } catch (e) {}
+  }
+
+  // Lets a host page (the Glitchcade) start the game and get control back on exit.
+  window.GlitchPong = {
+    unlockAudio: unlockGestureAudio,
+    launch(options = {}) {
+      return bootGlitchPongSite(options);
+    },
+    isRunning() {
+      return !!window.__glitchcadeCleanup;
+    }
+  };
+
   function initLandingPage() {
+    if (document.getElementById('glitchcade')) return;
     const landing = document.getElementById('gpLanding');
     if (!landing) {
       bootGlitchPongSite();
@@ -10541,17 +10609,7 @@ function injectGameById(gameId, options = {}) {
     function startFromLanding() {
       if (started) return;
       started = true;
-      // Unlock audio immediately inside the user-gesture handler (iOS requires this).
-      try {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        window.__glitchPongAudioContext = ctx;
-        const buf = ctx.createBuffer(1, 1, 22050);
-        const src = ctx.createBufferSource();
-        src.buffer = buf;
-        src.connect(ctx.destination);
-        src.start(0);
-        ctx.resume().catch(() => {});
-      } catch (e) {}
+      unlockGestureAudio();
       document.body.classList.add('game-starting');
       setTimeout(() => {
         landing.style.display = 'none';
