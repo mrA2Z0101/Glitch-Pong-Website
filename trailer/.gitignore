@@ -4,3 +4,4 @@ fx/
 seq/
 out/
 seq_*/
+__pycache__/
