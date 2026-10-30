@@ -3419,8 +3419,14 @@ function injectGameById(gameId, options = {}) {
       return countdownGoImage;
     }
 
+    // Online matches use the server's win score; local matches use WIN_SCORE.
+    function getActiveWinScore() {
+      return (onlineState.active && onlineState.snapshot && onlineState.snapshot.winScore) || WIN_SCORE;
+    }
+
     function isMatchPoint() {
-      return !gameOver && (leftScore >= WIN_SCORE - 1 || rightScore >= WIN_SCORE - 1);
+      const winScore = getActiveWinScore();
+      return !gameOver && (leftScore >= winScore - 1 || rightScore >= winScore - 1);
     }
 
     function startRoundCountdown() {
@@ -4651,7 +4657,7 @@ function injectGameById(gameId, options = {}) {
     }
 
     function updateClutchMode() {
-      const shouldClutch = Math.abs(leftScore - rightScore) <= 1 && (leftScore >= 8 || rightScore >= 8);
+      const shouldClutch = isMatchPoint();
       if (shouldClutch && !clutchMode) {
         clutchMode = true;
         glitchPulse = Math.max(glitchPulse, 18);
@@ -7288,7 +7294,7 @@ function injectGameById(gameId, options = {}) {
           ctx.shadowBlur = 0;
           ctx.fillStyle = "#f4fbff";
           ctx.font = "bold 22px monospace";
-          ctx.fillText(`FIRST TO ${WIN_SCORE}`, canvas.width / 2, canvas.height / 2 + 22);
+          ctx.fillText(`FIRST TO ${getActiveWinScore()}`, canvas.width / 2, canvas.height / 2 + 22);
           ctx.fillStyle = "#ffd27a";
           ctx.font = `bold ${isMobileDevice ? 14 : 18}px monospace`;
           ctx.fillText(isMobileDevice ? "TAP TO RETURN TO MENU" : "PRESS R TO RESTART", canvas.width / 2, canvas.height / 2 + 58);
