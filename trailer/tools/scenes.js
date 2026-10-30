@@ -514,7 +514,8 @@ const SCENES = {
         layers.push({ type: 'logo', t: i, d: 999, scale: 0.6, y: 29 });
         if (i >= 18) layers.push({ type: 'strip', text: 'THE ARENA BREAKS. YOU FIGHT BACK.', t: i - 18, y: 55, size: 44, color: '#f4fbff', weight: 900 });
         if (i >= 40) layers.push({ type: 'strip', text: '1P VS AI /// LOCAL 2P /// ONLINE /// 4 ARENAS /// BOSS FIGHTS /// 50 LEVELS /// 15 PERKS', t: i - 40, y: 65, size: 19 });
-        if (i >= 62) layers.push({ type: 'strip', text: 'PLAY NOW — GLITCHPONG.COM', t: i - 62, y: 79, size: 58, color: '#ffd166', weight: 900 });
+        if (i >= 62) layers.push({ type: 'strip', text: 'PLAY NOW ON ITCH.IO', t: i - 62, y: 77, size: 54, color: '#ffd166', weight: 900 });
+        if (i >= 70) layers.push({ type: 'strip', text: 'noodlecometstudios.itch.io/glitch-pong', t: i - 70, y: 85, size: 34, color: '#9ff3ff' });
         const fx = i < 6 ? { rgb: 18 - i * 3, slices: 6 - i } : (i === 62 || i === 63) ? { rgb: 10 } : (i >= 172 ? { rgb: (i - 171) * 4, slices: i - 170 } : null);
         return { layers, fx };
       }

@@ -163,7 +163,7 @@ This is the payoff, so give it the most screen time.
   - Tagline: **THE ARENA BREAKS. YOU FIGHT BACK.**
   - Feature strip (small, monospace, separated by `///` like the site ticker):
     `1P VS AI /// LOCAL 2P /// ONLINE /// 4 ARENAS /// BOSS FIGHTS /// 50 LEVELS /// 15 PERKS`
-  - Call to action: **PLAY NOW — GLITCHPONG.COM**
+  - Call to action: **PLAY NOW ON ITCH.IO**, with **noodlecometstudios.itch.io/glitch-pong** underneath
 - **Audio:** The music ends on one hard hit, followed by a short `Clapping Crowd` swell that cuts off sharply.
 
 ### Scene 13 · Stinger (1:56–1:58)
