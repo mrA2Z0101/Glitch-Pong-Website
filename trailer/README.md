@@ -68,3 +68,9 @@ Output goes to `trailer/out/shorts/`. `python3 vsheet.py out.jpg ../vframes/v_ju
 portrait contact sheet. Each frame's camera hint (`f` focus, `z` zoom, `snap`) is recorded in
 `shorts.js`; `compose.js` smooths it. Each short's music bed, ducking and sound accents live in
 the `CFG` table in `mix_short.py`.
+
+## YouTube thumbnail
+
+`trailer/thumbnail/` holds two 1280×720 thumbnails (A: "PONG HAS A BOSS.", B: "THE ARENA FIGHTS
+BACK.") as PNG and JPG, built from `thumbnail.html` with the game's own logo, Eye art and trailer
+frames. Re-render with `node trailer/thumbnail/render.js`.

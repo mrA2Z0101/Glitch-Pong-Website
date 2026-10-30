@@ -1,0 +1,54 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+  html,body{margin:0;width:1280px;height:720px;overflow:hidden;background:#000}
+  .t{position:absolute;inset:0;overflow:hidden}
+  .bg{position:absolute;inset:-20px;background-size:cover;background-position:center}
+  .scan{position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(0,0,0,.35) 0 2px,transparent 2px 4px);opacity:.35}
+  .vig{position:absolute;inset:0;background:radial-gradient(ellipse at center,rgba(0,0,0,0) 35%,rgba(0,0,0,.85) 100%)}
+  .logo{position:absolute;background:url('../../assets/glitch_pong_main_menu.png') no-repeat;filter:drop-shadow(0 0 18px rgba(0,217,255,.7)) drop-shadow(0 0 40px rgba(255,79,216,.55)) drop-shadow(0 6px 0 #000)}
+  .big{position:absolute;left:0;right:0;text-align:center;font:900 96px/1 Orbitron,sans-serif;color:#fff;letter-spacing:.02em;
+    text-shadow:-6px 0 0 rgba(255,30,190,.95),6px 0 0 rgba(0,230,255,.95),0 0 30px rgba(255,255,255,.35),0 8px 0 #000,0 10px 30px rgba(0,0,0,.9)}
+  .paddle{position:absolute;width:30px;height:230px;border-radius:6px}
+  .p1{background:#00d9ff;box-shadow:0 0 18px #00d9ff,0 0 50px #00d9ff,0 0 90px rgba(0,217,255,.6)}
+  .p2{background:#ff4fd8;box-shadow:0 0 18px #ff4fd8,0 0 50px #ff4fd8,0 0 90px rgba(255,79,216,.6)}
+  .orb{position:absolute;width:34px;height:34px;margin:-17px 0 0 -17px;border-radius:50%;background:#fff6f0;box-shadow:0 0 14px #fff,0 0 34px #ff5a5a,0 0 70px rgba(255,60,60,.8)}
+  .eye{position:absolute;filter:drop-shadow(0 0 30px rgba(255,40,70,.9)) drop-shadow(0 0 80px rgba(255,0,60,.6)) saturate(1.25) contrast(1.1)}
+  .ball{position:absolute;width:30px;height:30px;margin:-15px 0 0 -15px;border-radius:50%;background:#fff;box-shadow:0 0 16px #fff,0 0 40px #9ff3ff}
+</style></head><body>
+<!-- A: PONG HAS A BOSS -->
+<div class="t" id="A" style="display:none">
+  <div class="bg" style="background-image:url('bg_boss.jpg');filter:blur(2px) saturate(1.35) brightness(.85)"></div>
+  <div class="scan"></div><div class="vig"></div>
+  <div style="position:absolute;inset:0;background:radial-gradient(circle at 640px 330px,rgba(255,40,40,.35),transparent 45%)"></div>
+  <div class="paddle p1" style="left:46px;top:210px"></div>
+  <div class="paddle p2" style="right:46px;top:250px"></div>
+  <div id="orbs"></div>
+  <img class="eye" src="../../assets/boss_eye_neutral.png" style="left:640px;top:318px;width:1150px;transform:translate(-50%,-50%)">
+  <div class="logo" style="left:24px;top:14px;width:330px;height:150px;background-size:590px 332px;background-position:-130px -14px"></div>
+  <div class="big" style="top:556px">PONG HAS A BOSS.</div>
+</div>
+<!-- B: THE ARENA FIGHTS BACK -->
+<div class="t" id="B" style="display:none">
+  <div class="bg" style="background-image:url('bg_bh.jpg');background-size:2100px auto;background-position:-130px -230px;filter:saturate(1.45) brightness(1.1)"></div>
+  <div class="scan"></div>
+  <div style="position:absolute;inset:0;background:linear-gradient(90deg,rgba(0,0,0,.78) 0%,rgba(0,0,0,.45) 42%,rgba(0,0,0,0) 65%)"></div>
+  <div class="vig" style="opacity:.7"></div>
+  <div class="logo" style="left:96px;top:44px;width:560px;height:251px;background-size:1001px 563px;background-position:-220px -25px"></div>
+  <svg style="position:absolute;inset:0" width="1280" height="720"><defs>
+    <linearGradient id="tr" gradientUnits="userSpaceOnUse" x1="1180" y1="690" x2="900" y2="340"><stop offset="0" stop-color="#9ff3ff" stop-opacity="0"/><stop offset="1" stop-color="#ffffff" stop-opacity=".95"/></linearGradient>
+    <filter id="gl"><feGaussianBlur stdDeviation="6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+    <path d="M 1180 690 C 1210 470, 1080 330, 900 340" fill="none" stroke="url(#tr)" stroke-width="14" stroke-linecap="round" filter="url(#gl)"/>
+  </svg>
+  <div class="ball" style="left:900px;top:340px;width:34px;height:34px;margin:-17px 0 0 -17px"></div>
+  <div class="paddle p1" style="left:40px;top:330px;height:200px"></div>
+  <div class="paddle p2" style="right:40px;top:120px;height:200px"></div>
+  <div class="big" style="left:96px;right:auto;text-align:left;top:350px;font-size:78px;line-height:1.08">THE ARENA<br>FIGHTS<br>BACK.</div>
+</div>
+<script>
+  const o = document.getElementById('orbs');
+  for (let k = 0; k < 6; k++) { const a = -Math.PI / 2 + k * Math.PI / 3, d = document.createElement('div'); d.className = 'orb';
+    d.style.left = (640 + Math.cos(a) * 365) + 'px'; d.style.top = (318 + Math.sin(a) * 200) + 'px'; o.appendChild(d); }
+  document.getElementById(new URLSearchParams(location.search).get('v') || 'A').style.display = 'block';
+</script>
+</body></html>
