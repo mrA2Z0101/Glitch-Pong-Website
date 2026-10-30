@@ -1,29 +1,36 @@
-const SHELL_CACHE = "glitch-pong-shell-v16";
-const RUNTIME_CACHE = "glitch-pong-runtime-v16";
+const SHELL_CACHE = "glitch-pong-shell-v17";
+const RUNTIME_CACHE = "glitch-pong-runtime-v17";
 
 const SHELL_FILES = [
   "./",
   "./index.html",
+  "./glitch-pong.html",
   "./styles.css",
   "./glitchpong-site.js",
+  "./glitchpong-site.js?v=glitchcade-1",
+  "./glitchcade.js?v=glitchcade-1",
+  "./vendor/three.module.min.js",
   "./manifest.webmanifest",
   "./icons/apple-touch-icon.png",
-  "./icons/icon192.png",
-  "./icons/icon512.png",
+  "./icons/icon128.png",
   "./assets/glitch_pong_main_menu.png",
   "./assets/glitch_pong_menu_FINAL.png?v=mobile-menu-16",
   "./assets/blue_paddle.png",
   "./assets/red_paddle.png",
+  "./assets/boss_eye_left.png",
+  "./assets/boss_eye_right.png",
+  "./assets/boss_eye_neutral.png",
   "./assets/boss_eye_left.png?v=mobile-menu-16",
   "./assets/boss_eye_right.png?v=mobile-menu-16",
-  "./assets/boss_eye_neutral.png?v=mobile-menu-16",
-  "./assets/left_eye_blink.png?v=mobile-menu-16",
-  "./assets/right_eye_blink.png?v=mobile-menu-16",
-  "./assets/straight_eye_blink.png?v=mobile-menu-16"
+  "./assets/boss_eye_neutral.png?v=mobile-menu-16"
 ];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(SHELL_CACHE).then((cache) => cache.addAll(SHELL_FILES)));
+  // Cache files one by one: cache.addAll() rejects the whole install if a
+  // single file is missing, which left the site with no offline cache at all.
+  event.waitUntil(caches.open(SHELL_CACHE).then((cache) => Promise.all(
+    SHELL_FILES.map((file) => cache.add(file).catch((error) => console.warn("Glitch Pong SW: could not cache", file, error)))
+  )));
   self.skipWaiting();
 });
 
