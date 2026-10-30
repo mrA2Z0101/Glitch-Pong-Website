@@ -50,17 +50,21 @@ stops with an error instead of producing a broken capture.
 
 ## Vertical shorts (TikTok / Reels / Shorts)
 
-The first batch from `docs/short-form-plan.md`. The game renders natively in a 900×1600
-portrait window (everything stays upright and sharp) and is upscaled to 1080×1920.
+The first batch from `docs/short-form-plan.md`, in the **follow crop** layout: the game is
+captured as a normal 1920×1080 court, and a 9:16 window pans and zooms with the action (the
+ball by default, or the wall, the Eye or the goal line when a shot calls for it). The text is
+drawn upright on top at 1080×1920.
 
 ```bash
 cd trailer/tools
-node shorts.js v_tired v_grudge v_sides v_juke v_walls v_blackhole v_boss v_real
+node shorts.js v_tired v_grudge v_sides v_juke v_walls v_blackhole v_boss v_real   # landscape frames + camera track
 python3 postfx.py v_tired v_grudge v_sides v_juke v_walls v_blackhole v_boss v_real
+node compose.js v_tired v_grudge v_sides v_juke v_walls v_blackhole v_boss v_real  # 9:16 crop + overlays -> vframes/
 for s in v_tired v_grudge v_sides v_juke v_walls v_blackhole v_boss v_real; do python3 mix_short.py $s && ./render_short.sh $s; done
 python3 mix_short.py v_real teaser && ./render_short.sh v_real_teaser   # freeze-only version
 ```
 
-Output goes to `trailer/out/shorts/`. `python3 vsheet.py out.jpg ../fx/v_juke:60,120` makes a
-portrait contact sheet. Each short's music bed, ducking and sound accents live in the
-`CFG` table in `mix_short.py`.
+Output goes to `trailer/out/shorts/`. `python3 vsheet.py out.jpg ../vframes/v_juke:60,120` makes a
+portrait contact sheet. Each frame's camera hint (`f` focus, `z` zoom, `snap`) is recorded in
+`shorts.js`; `compose.js` smooths it. Each short's music bed, ducking and sound accents live in
+the `CFG` table in `mix_short.py`.

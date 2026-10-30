@@ -12,7 +12,7 @@ spec = json.load(open(f'{root}/out/shorts/{name}.json'))
 n = 0
 for a, b in spec['segments']:
     for f in range(a, b):
-        os.symlink(f"{root}/fx/{spec['scene']}/{f:05d}.jpg", f'{seq}/{n:05d}.jpg'); n += 1
+        os.symlink(f"{root}/vframes/{spec['scene']}/{f:05d}.jpg", f'{seq}/{n:05d}.jpg'); n += 1
 PY
 I=$(ffmpeg -v info -i "$OUT/$NAME.wav" -af ebur128 -f null - 2>&1 | grep -E "^\s+I:" | tail -1 | awk '{print $2}')
 GAIN=$(python3 -c "print(round(-14.0 - ($I), 2))")
