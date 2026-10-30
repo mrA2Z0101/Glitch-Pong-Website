@@ -179,6 +179,26 @@ body.gc-exploring #gcHud { opacity: 1; }
 }
 #gcHints span { color: var(--cyan); }
 
+/* ===== Sound toggle (always reachable, even on the start card) ===== */
+#gcMute {
+  position: absolute;
+  top: max(14px, env(safe-area-inset-top)); right: max(16px, env(safe-area-inset-right));
+  z-index: 30;
+  width: 44px; height: 44px;
+  display: grid; place-items: center;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--cyan);
+  cursor: pointer;
+  pointer-events: auto;
+  clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+}
+#gcMute:hover, #gcMute:focus-visible { border-color: var(--cyan); outline: none; }
+#gcMute .off { display: none; }
+#gcMute.muted { color: var(--pink); }
+#gcMute.muted .on { display: none; }
+#gcMute.muted .off { display: block; }
+
 /* ===== Touch controls ===== */
 .gc-touch-only { display: none; }
 body.gc-touch .gc-touch-only { display: block; }
@@ -366,6 +386,10 @@ body.gc-touch .gc-controls.touch { display: grid; }
 <div id="glitchcade">
   <canvas id="gcCanvas" tabindex="-1" aria-label="The Glitchcade, a 3D arcade you explore in first person"></canvas>
   <div id="gcSlices" aria-hidden="true"></div>
+  <button id="gcMute" type="button" aria-label="Mute arcade sound" aria-pressed="false" title="Sound (M)">
+    <svg class="on" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/><path d="M19.5 5.5a9 9 0 0 1 0 13"/></svg>
+    <svg class="off" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 9l5 6M22 9l-5 6"/></svg>
+  </button>
 
   <div id="gcHud">
     <div class="gc-badge">GLITCHCADE <b>//</b> <span id="gcOnline">1/10</span> ONLINE</div>
@@ -374,7 +398,7 @@ body.gc-touch .gc-controls.touch { display: grid; }
     <div id="gcToast" role="status" aria-live="polite"></div>
     <div id="gcHints">
       <span>WASD</span> move &nbsp;·&nbsp; <span>MOUSE</span> look &nbsp;·&nbsp; <span>SHIFT</span> run &nbsp;·&nbsp; <span>SPACE</span> jump<br>
-      <span>E</span> / <span>CLICK</span> interact &nbsp;·&nbsp; <span>ESC</span> pause
+      <span>E</span> / <span>CLICK</span> interact &nbsp;·&nbsp; <span>M</span> mute &nbsp;·&nbsp; <span>ESC</span> pause
     </div>
     <div id="gcJoy" class="gc-touch-only" aria-hidden="true"><div id="gcJoyKnob"></div></div>
     <button id="gcJump" class="gc-touch-only" type="button">JUMP</button>
@@ -396,7 +420,9 @@ body.gc-touch .gc-controls.touch { display: grid; }
         <div><b>Shift</b> — run</div>
         <div><b>Space</b> — jump</div>
         <div><b>E / Click</b> — use a cabinet</div>
+        <div><b>M</b> — mute sound</div>
         <div><b>Esc</b> — pause</div>
+        <div><b>Jukebox</b> — skip the music</div>
       </div>
       <div class="gc-controls touch">
         <div><b>Left stick</b> — walk</div>
@@ -445,7 +471,7 @@ body.gc-touch .gc-controls.touch { display: grid; }
 <!-- Served by the local multiplayer server. This 404s harmlessly in static-only mode. -->
 <script src="/socket.io/socket.io.js"></script>
 <script src="glitchpong-site.js?v=glitchcade-1"></script>
-<script type="module" src="glitchcade.js?v=glitchcade-1"></script>
+<script type="module" src="glitchcade.js?v=glitchcade-2"></script>
 
 <script>
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
