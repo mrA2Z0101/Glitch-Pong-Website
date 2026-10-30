@@ -4,9 +4,9 @@ const path = require('path');
 const ROOT = path.resolve(__dirname, '..');
 const W = 1600, H = 900;
 
-async function open({ url = 'http://127.0.0.1:8765/glitch-pong.html', storage } = {}) {
+async function open({ url = 'http://127.0.0.1:8765/glitch-pong.html', storage, width = W, height = H } = {}) {
   const browser = await chromium.launch({ args: ['--mute-audio', '--disable-gpu-vsync'] });
-  const context = await browser.newContext({ viewport: { width: W, height: H }, serviceWorkers: 'block' });
+  const context = await browser.newContext({ viewport: { width, height }, serviceWorkers: 'block' });
   if (storage) await context.addInitScript((s) => { for (const [k, v] of Object.entries(s)) localStorage.setItem(k, v); }, storage);
   await context.addInitScript({ path: path.join(__dirname, 'vclock.js') });
   await context.addInitScript({ path: path.join(__dirname, 'overlay.js') });

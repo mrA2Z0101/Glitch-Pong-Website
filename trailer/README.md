@@ -47,3 +47,20 @@ stops with an error instead of producing a broken capture.
 
 **Note:** in Scene 11 the script forces `clutchMode` on, because the game's
 `updateClutchMode()` currently needs a score of 8+ while matches end at 7.
+
+## Vertical shorts (TikTok / Reels / Shorts)
+
+The first batch from `docs/short-form-plan.md`. The game renders natively in a 900×1600
+portrait window (everything stays upright and sharp) and is upscaled to 1080×1920.
+
+```bash
+cd trailer/tools
+node shorts.js v_tired v_grudge v_sides v_juke v_walls v_blackhole v_boss v_real
+python3 postfx.py v_tired v_grudge v_sides v_juke v_walls v_blackhole v_boss v_real
+for s in v_tired v_grudge v_sides v_juke v_walls v_blackhole v_boss v_real; do python3 mix_short.py $s && ./render_short.sh $s; done
+python3 mix_short.py v_real teaser && ./render_short.sh v_real_teaser   # freeze-only version
+```
+
+Output goes to `trailer/out/shorts/`. `python3 vsheet.py out.jpg ../fx/v_juke:60,120` makes a
+portrait contact sheet. Each short's music bed, ducking and sound accents live in the
+`CFG` table in `mix_short.py`.

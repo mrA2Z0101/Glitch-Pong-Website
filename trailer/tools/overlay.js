@@ -15,6 +15,10 @@
   #__ovroot .logo{position:absolute;left:50%;top:50%;width:1000px;height:450px;background:url('assets/glitch_pong_main_menu.png') no-repeat;
     background-size:1778px 1000px;background-position:-389px -42px;transform:translate(-50%,-50%);filter:drop-shadow(0 0 30px rgba(0,217,255,.45)) drop-shadow(0 0 60px rgba(255,79,216,.35))}
   #__ovroot .eye{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)}
+  #__ovroot.vertical .word,#__ovroot.vertical .mono,#__ovroot.vertical .strip{left:36px;right:96px}
+  #__ovroot .hook{position:absolute;left:24px;right:84px;text-align:center;font-weight:900;color:#fff;font-size:54px;line-height:1.12;letter-spacing:.02em;
+    padding:18px 20px;background:rgba(2,6,14,.72);border:2px solid rgba(113,239,255,.45);border-radius:14px;
+    text-shadow:-2px 0 0 rgba(255,40,200,.8),2px 0 0 rgba(0,230,255,.8),0 0 24px rgba(0,217,255,.45)}
   #__ovroot .strip{position:absolute;left:0;right:0;text-align:center;font-family:'Share Tech Mono',monospace;color:#8fdcff;letter-spacing:.2em;font-size:21px}
   `;
   function rngFor(n) { let s = (n * 2654435761) >>> 0; return () => { s ^= s << 13; s ^= s >>> 17; s ^= s << 5; return ((s >>> 0) % 10000) / 10000; }; }
@@ -85,20 +89,27 @@
       const a = L.t < 5 ? L.t / 5 : 1, s = L.t < 5 ? 1.8 - 0.16 * L.t : 1 + 0.06 * Math.sin(L.t * 0.5);
       const c = L.color || '#ff4f6d';
       return `<div style="position:absolute;left:${L.x}px;top:${L.y}px;width:${L.r * 2}px;height:${L.r * 2}px;margin:-${L.r}px 0 0 -${L.r}px;border:3px solid ${c};border-radius:50%;opacity:${a};transform:scale(${s});box-shadow:0 0 18px ${c}"></div>` +
-        (L.label ? `<div style="position:absolute;left:${L.x + L.r + 12}px;top:${L.y - 12}px;font:20px 'Share Tech Mono',monospace;letter-spacing:.18em;color:${c};opacity:${a};text-shadow:0 0 10px ${c};white-space:nowrap">${esc(L.label)}</div>` : '');
+        (L.label ? `<div style="position:absolute;left:${L.x + L.r + 12}px;top:${L.y - (L.size || 20) * 0.6}px;font:${L.size || 20}px 'Share Tech Mono',monospace;letter-spacing:.18em;color:${c};opacity:${a};text-shadow:0 0 10px ${c};white-space:nowrap">${esc(L.label)}</div>` : '');
+    },
+    hook(L, r) {
+      const txt = L.text; // readable from the first frame: it doubles as the cover
+      const jx = L.t < 4 ? (r() - 0.5) * 18 : 0;
+      return `<div class="hook" style="top:${L.y ?? 14}%;font-size:${L.size || 54}px;transform:translateX(${jx}px)">${esc(txt)}</div>`;
     },
     heat(L) { // large heat readout bound to the real game heat value
       const v = Math.round(L.v), segs = 20, on = Math.round((v / 100) * segs);
       const col = v >= 80 ? '#ff4f6d' : v >= 50 ? '#ffb347' : '#71efff';
       let bars = '';
       for (let k = 0; k < segs; k++) bars += `<span style="display:inline-block;width:14px;height:26px;margin-right:4px;background:${k < on ? col : 'rgba(255,255,255,.08)'};box-shadow:${k < on ? '0 0 10px ' + col : 'none'}"></span>`;
-      return `<div style="position:absolute;left:40px;bottom:70px;font:22px 'Share Tech Mono',monospace;letter-spacing:.2em;color:${col};text-shadow:0 0 12px ${col}">HEAT ${String(v).padStart(3, ' ')}%<div style="margin-top:8px">${bars}</div></div>`;
+      const pos = L.top != null ? `top:${L.top}px` : 'bottom:70px';
+      return `<div style="position:absolute;left:${L.left ?? 40}px;${pos};font:22px 'Share Tech Mono',monospace;letter-spacing:.2em;color:${col};text-shadow:0 0 12px ${col}">HEAT ${String(v).padStart(3, ' ')}%<div style="margin-top:8px">${bars}</div></div>`;
     },
     scan(L) { // CRT scanlines + noise band
       return `<div class="fill" style="opacity:${L.alpha ?? 0.18};background:repeating-linear-gradient(0deg,rgba(0,0,0,.9) 0 2px,transparent 2px 4px)"></div>`;
     }
   };
   window.__ov = {
+    vertical(on) { ensure().classList.toggle('vertical', !!on); },
     render(layers, frame) {
       const root = ensure();
       const r = rngFor(frame + 1);
