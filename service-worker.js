@@ -1,5 +1,5 @@
-const SHELL_CACHE = "glitch-pong-shell-v17";
-const RUNTIME_CACHE = "glitch-pong-runtime-v17";
+const SHELL_CACHE = "glitch-pong-shell-v18";
+const RUNTIME_CACHE = "glitch-pong-runtime-v18";
 
 const SHELL_FILES = [
   "./",
@@ -8,7 +8,8 @@ const SHELL_FILES = [
   "./styles.css",
   "./glitchpong-site.js",
   "./glitchpong-site.js?v=glitchcade-1",
-  "./glitchcade.js?v=glitchcade-1",
+  "./glitchcade.js?v=glitchcade-2",
+  "./glitchcade-audio.js?v=glitchcade-2",
   "./vendor/three.module.min.js",
   "./manifest.webmanifest",
   "./icons/apple-touch-icon.png",
@@ -60,7 +61,8 @@ async function cacheFirst(request) {
   const cached = await caches.match(request);
   if (cached) return cached;
   const response = await fetch(request);
-  if (response && response.ok) {
+  // Only whole responses can be cached; a 206 partial makes cache.put() throw.
+  if (response && response.status === 200) {
     const cache = await caches.open(RUNTIME_CACHE);
     cache.put(request, response.clone());
   }
@@ -85,6 +87,8 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
   if (url.pathname.includes("/socket.io/") || url.pathname.includes("/api/")) return;
+  // Streaming media asks for byte ranges; let the browser handle those directly.
+  if (request.headers.has("range")) return;
 
   if (request.mode === "navigate") {
     event.respondWith(networkFirst(request));

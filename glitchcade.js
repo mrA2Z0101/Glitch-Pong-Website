@@ -7,6 +7,7 @@ import { EffectComposer } from './vendor/three-addons/postprocessing/EffectCompo
 import { RenderPass } from './vendor/three-addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from './vendor/three-addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from './vendor/three-addons/postprocessing/OutputPass.js';
+import { createArcadeAudio } from './glitchcade-audio.js?v=glitchcade-2';
 
 // ─── Palette (matches the site's design tokens) ─────────────────────────────
 const C = {
@@ -58,6 +59,9 @@ const joyEl = $('gcJoy');
 const joyKnob = $('gcJoyKnob');
 
 if (isTouch) document.body.classList.add('gc-touch');
+
+const audio = createArcadeAudio({ isTouch });
+const muteBtn = $('gcMute');
 
 // ─── Small helpers ──────────────────────────────────────────────────────────
 function makeCanvas(w, h) {
@@ -358,6 +362,7 @@ function createNeonSign(w, h) {
     ctx.textBaseline = 'middle';
     const widths = [...word].map((ch) => ctx.measureText(ch).width);
     const total = widths.reduce((a, b) => a + b, 0) + 10 * (word.length - 1);
+    let flickered = false;
     const scale = Math.min(1, 960 / total);
     ctx.save();
     ctx.translate(512 - (total * scale) / 2, 128);
@@ -367,6 +372,7 @@ function createNeonSign(w, h) {
       // The second C is the flickery tube, like every real neon sign.
       const dead = glitch ? rand() < 0.16 : false;
       const flicker = i === 6 && !glitch && rand() < 0.04;
+      if (flicker) flickered = true;
       if (!dead && !flicker) {
         const split = glitch ? 6 + rand() * 10 : 5;
         ctx.save();
@@ -391,6 +397,7 @@ function createNeonSign(w, h) {
     ctx.restore();
     if (glitch) sliceGlitch(ctx, cv.width, cv.height, rand, 5, 46);
     tex.needsUpdate = true;
+    return flickered;
   }
   draw(false);
   const mat = new THREE.MeshBasicMaterial({ map: tex, color: 0xb8b8b8, transparent: true, depthWrite: false, toneMapped: false });
@@ -670,7 +677,8 @@ function createComingSoonScreen() {
 }
 
 // Glitch Pong attract mode: an actual little rally on the cabinet screen.
-function createGlitchPongScreen() {
+// `onEvent('paddle' | 'wall' | 'score')` lets the cabinet make the real game's sounds.
+function createGlitchPongScreen(onEvent = () => {}) {
   const W = 512, H = 384;
   const cv = makeCanvas(W, H);
   const ctx = cv.getContext('2d');
@@ -692,23 +700,24 @@ function createGlitchPongScreen() {
     const b = s.ball;
     b.x += b.vx * dt;
     b.y += b.vy * dt;
-    if (b.y < 14 || b.y > H - 14) { b.vy *= -1; b.y = Math.max(14, Math.min(H - 14, b.y)); }
+    if (b.y < 14 || b.y > H - 14) { b.vy *= -1; b.y = Math.max(14, Math.min(H - 14, b.y)); onEvent('wall'); }
     // AI paddles with just enough lag to miss sometimes
     const track = (p, target, speed) => p + Math.max(-speed * dt, Math.min(speed * dt, target - p));
     s.left = track(s.left, b.vx < 0 ? b.y : H / 2, 250);
     s.right = track(s.right, b.vx > 0 ? b.y : H / 2, 250);
     const hit = (py) => Math.abs(b.y - py) < PAD_H / 2 + 6;
     if (b.vx < 0 && b.x < PAD_X + PAD_W + 6 && b.x > PAD_X) {
-      if (hit(s.left)) { b.vx = Math.abs(b.vx) * 1.06; b.vy += (b.y - s.left) * 3; s.heat += 0.12; }
+      if (hit(s.left)) { b.vx = Math.abs(b.vx) * 1.06; b.vy += (b.y - s.left) * 3; s.heat += 0.12; onEvent('paddle'); }
     }
     if (b.vx > 0 && b.x > W - PAD_X - PAD_W - 6 && b.x < W - PAD_X) {
-      if (hit(s.right)) { b.vx = -Math.abs(b.vx) * 1.06; b.vy += (b.y - s.right) * 3; s.heat += 0.12; }
+      if (hit(s.right)) { b.vx = -Math.abs(b.vx) * 1.06; b.vy += (b.y - s.right) * 3; s.heat += 0.12; onEvent('paddle'); }
     }
     b.vx = Math.sign(b.vx) * Math.min(Math.abs(b.vx), 620);
     b.vy = Math.max(-360, Math.min(360, b.vy));
     if (b.x < -20 || b.x > W + 20) {
       s.score[b.x < 0 ? 1 : 0] = (s.score[b.x < 0 ? 1 : 0] + 1) % 8;
       s.glitchFor = 0.45;
+      onEvent('score');
       s.heat = 0;
       Object.assign(b, { x: W / 2, y: H / 2, vx: (Math.random() < 0.5 ? -1 : 1) * 230, vy: (Math.random() - 0.5) * 300 });
     }
@@ -856,6 +865,8 @@ function createInfoBoard() {
 const colliders = [];        // AABBs on the floor plane: {minX,maxX,minZ,maxZ}
 const platforms = [];        // raised floor areas: {minX,maxX,minZ,maxZ,h}
 const cabinets = [];
+const interactables = [];    // cabinets + the jukebox
+let jukebox = null;
 const animated = [];         // fn(dt, t) called each frame
 let glowTex;
 let pongScreen;
@@ -1444,11 +1455,12 @@ function registerCabinet(cab, x, z, rotY, meta) {
     rotY
   });
   cabinets.push(entry);
+  interactables.push(entry);
   return entry;
 }
 
 function buildCabinets() {
-  pongScreen = createGlitchPongScreen();
+  pongScreen = createGlitchPongScreen((event) => audio.attract(event));
   soonScreen = createComingSoonScreen();
 
   // ── Glitch Pong: centre stage on a platform at the back wall ──
@@ -1585,6 +1597,7 @@ function buildBossEye(cab) {
       m.position.copy(src);
       scene.add(m);
       shot = { m, from: src, life: 0, dur: 0.9 };
+      audio.eyeShot(src);
       nextShot = 5 + Math.random() * 4;
       glitchT = 0.25;
     }
@@ -1598,10 +1611,113 @@ function buildBossEye(cab) {
         scene.remove(shot.m);
         shot.m.geometry.dispose();
         shot = null;
+        audio.eyeHit();
         worldGlitch(true);
       }
     }
   });
+}
+
+// A jukebox by the door plays the Glitch Pong soundtrack. Use it to skip tracks.
+function buildJukebox() {
+  const hx = ROOM_W / 2;
+  const group = new THREE.Group();
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0x150d2a, roughness: 0.4, metalness: 0.4 });
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.95, 1.25, 0.6), bodyMat);
+  body.position.y = 0.625;
+  const arch = new THREE.Mesh(new THREE.CylinderGeometry(0.475, 0.475, 0.6, 32, 1, false, Math.PI / 2, Math.PI), bodyMat);
+  arch.rotation.x = Math.PI / 2;
+  arch.position.y = 1.25;
+  group.add(body, arch);
+
+  // glowing window in the arch
+  const winCv = makeCanvas(128, 64);
+  const wctx = winCv.getContext('2d');
+  const wg = wctx.createLinearGradient(0, 64, 0, 0);
+  wg.addColorStop(0, '#ff58d9');
+  wg.addColorStop(1, '#9a5dff');
+  wctx.fillStyle = wg;
+  wctx.fillRect(0, 0, 128, 64);
+  for (let i = 0; i < 9; i++) {
+    wctx.fillStyle = 'rgba(255,255,255,0.35)';
+    wctx.beginPath();
+    wctx.arc(10 + i * 14, 54 - (i % 3) * 14, 3, 0, Math.PI * 2);
+    wctx.fill();
+  }
+  const win = new THREE.Mesh(new THREE.CircleGeometry(0.38, 32, 0, Math.PI), new THREE.MeshBasicMaterial({ map: canvasTexture(winCv), toneMapped: false }));
+  win.position.set(0, 1.25, 0.302);
+  group.add(win);
+
+  // neon tubes that cycle colour
+  const tubeMats = [0, 1, 2].map(() => neonMaterial(C.pink));
+  const outer = new THREE.Mesh(new THREE.TorusGeometry(0.455, 0.022, 8, 40, Math.PI), tubeMats[0]);
+  outer.position.set(0, 1.25, 0.3);
+  const inner = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.016, 8, 40, Math.PI), tubeMats[1]);
+  inner.position.set(0, 1.25, 0.305);
+  group.add(outer, inner);
+  [-1, 1].forEach((side) => {
+    const t = new THREE.Mesh(new THREE.BoxGeometry(0.04, 1.25, 0.04), tubeMats[2]);
+    t.position.set(side * 0.455, 0.625, 0.3);
+    group.add(t);
+  });
+
+  // front panel: title, now playing, speaker grille
+  const panelCv = makeCanvas(256, 320);
+  const pctx = panelCv.getContext('2d');
+  const panelTex = canvasTexture(panelCv);
+  function drawPanel(title) {
+    pctx.fillStyle = '#0a0716';
+    pctx.fillRect(0, 0, 256, 320);
+    pctx.textAlign = 'center';
+    pctx.textBaseline = 'middle';
+    pctx.font = '900 34px Orbitron, "Arial Black", sans-serif';
+    chromaText(pctx, 'JUKEBOX', 128, 34, 2, C.text);
+    pctx.fillStyle = 'rgba(0,0,0,0.6)';
+    pctx.fillRect(18, 62, 220, 52);
+    pctx.font = '13px "Share Tech Mono", monospace';
+    pctx.fillStyle = C.amber;
+    pctx.fillText('NOW PLAYING', 128, 76);
+    pctx.fillStyle = C.cyan;
+    pctx.fillText(title, 128, 98);
+    for (let y = 140; y < 300; y += 16) {
+      for (let x = 28; x < 236; x += 16) {
+        pctx.fillStyle = '#1c1430';
+        pctx.beginPath();
+        pctx.arc(x, y, 5, 0, Math.PI * 2);
+        pctx.fill();
+      }
+    }
+    pctx.strokeStyle = C.purple;
+    pctx.lineWidth = 4;
+    pctx.strokeRect(2, 2, 252, 316);
+    panelTex.needsUpdate = true;
+  }
+  drawPanel(audio.trackTitle);
+  audio.onTrack = drawPanel;
+  const panel = new THREE.Mesh(new THREE.PlaneGeometry(0.82, 1.025), new THREE.MeshStandardMaterial({ map: panelTex, emissiveMap: panelTex, emissive: 0xffffff, emissiveIntensity: 0.6 }));
+  panel.position.set(0, 0.64, 0.302);
+  group.add(panel);
+
+  const x = hx - 0.32, z = -2.2, rotY = -Math.PI / 2;
+  group.position.set(x, 0, z);
+  group.rotation.y = rotY;
+  scene.add(group);
+  group.updateMatrixWorld(true);
+  addCollider(x - 0.3, x + 0.3, z - 0.48, z + 0.48);
+  addFloorGlow(scene, new THREE.Color(C.pink), 1.8, 1.6, x - 0.8, z, 0.35);
+
+  animated.push((dt, t) => {
+    tubeMats.forEach((m, i) => m.color.setHSL((t * 0.07 + i * 0.22) % 1, 1, 0.62));
+  });
+
+  jukebox = {
+    kind: 'jukebox',
+    scale: 1,
+    position: new THREE.Vector3(x, 0, z),
+    forward: new THREE.Vector3(-1, 0, 0),
+    screenCenter: group.localToWorld(new THREE.Vector3(0, 1.0, 0.3))
+  };
+  interactables.push(jukebox);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1612,6 +1728,7 @@ const player = {
   vel: new THREE.Vector3(),
   vy: 0,
   camY: 0,
+  lastZ: 10.5,
   grounded: true,
   yaw: 0,
   pitch: -0.04,
@@ -1706,10 +1823,18 @@ function updatePlayer(dt) {
   player.pos.z += player.vel.z * dt;
   collide(player.pos);
 
+  // walking through the glitch curtain
+  if (Math.abs(player.pos.x) < DOOR_W / 2 && Math.sign(player.pos.z - WALL_T / 2) !== Math.sign(player.lastZ - WALL_T / 2)) {
+    audio.doorway(new THREE.Vector3(0, 1.6, WALL_T / 2));
+  }
+  player.lastZ = player.pos.z;
+
   const floorY = floorHeightAt(player.pos.x, player.pos.z);
+  const wasGrounded = player.grounded;
   player.vy -= GRAVITY * dt;
   player.pos.y += player.vy * dt;
   if (player.pos.y <= floorY) {
+    if (!wasGrounded && player.vy < -2) audio.land(player.vy < -7);
     player.pos.y = floorY;
     player.vy = 0;
     player.grounded = true;
@@ -1720,7 +1845,11 @@ function updatePlayer(dt) {
   player.camY = player.grounded ? player.camY + (player.pos.y - player.camY) * Math.min(1, dt * 14) : player.pos.y;
 
   const moving = Math.hypot(player.vel.x, player.vel.z);
-  if (player.grounded && moving > 0.3) player.bob += dt * moving * 2.4;
+  if (player.grounded && moving > 0.3) {
+    const step = Math.floor(player.bob / Math.PI);
+    player.bob += dt * moving * 2.4;
+    if (Math.floor(player.bob / Math.PI) !== step) audio.footstep(surfaceAt(player.pos));
+  }
   const bobY = player.grounded ? Math.sin(player.bob) * 0.035 * Math.min(1, moving / WALK_SPEED) : 0;
 
   camera.position.set(player.pos.x, player.camY + EYE_HEIGHT + bobY, player.pos.z);
@@ -1735,10 +1864,16 @@ function updatePlayer(dt) {
   }
 }
 
+function surfaceAt(pos) {
+  if (pos.z < WALL_T / 2 && Math.abs(pos.x) < ROOM_W / 2) return floorHeightAt(pos.x, pos.z) > 0 ? 'stage' : 'carpet';
+  return pos.z < 6 ? 'sidewalk' : 'asphalt';
+}
+
 function jump() {
   if (gameState !== 'explore' || !player.grounded) return;
   player.vy = JUMP_SPEED;
   player.grounded = false;
+  audio.jump();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1752,7 +1887,7 @@ function findFocus() {
   camera.getWorldDirection(look);
   let best = null;
   let bestScore = -Infinity;
-  for (const cab of cabinets) {
+  for (const cab of interactables) {
     const toCab = cab.screenCenter.clone().sub(camera.position);
     const dist = Math.hypot(player.pos.x - cab.position.x, player.pos.z - cab.position.z);
     if (dist > INTERACT_RANGE * cab.scale) continue;
@@ -1777,8 +1912,12 @@ function updateFocus() {
     promptEl.classList.remove('show');
     return;
   }
+  audio.hover();
   const key = isTouch ? 'USE' : 'E';
-  if (focused.playable) {
+  if (focused.kind === 'jukebox') {
+    promptEl.className = 'show';
+    promptEl.innerHTML = `<span class="key">${key}</span>NEXT TRACK<small>JUKEBOX // ${audio.trackTitle}</small>`;
+  } else if (focused.playable) {
     promptEl.className = 'show';
     promptEl.innerHTML = `<span class="key">${key}</span>PLAY GLITCH PONG<small>CABINET 01 // ONLINE</small>`;
   } else {
@@ -1794,25 +1933,21 @@ function toast(text) {
   toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2400);
 }
 
-let sfxCache = {};
-function sfx(name, volume = 0.5) {
-  try {
-    const a = sfxCache[name] || (sfxCache[name] = new Audio(encodeURI(`sounds/sfx/${name}.mp3`)));
-    a.volume = volume;
-    a.currentTime = 0;
-    a.play().catch(() => {});
-  } catch (e) {}
-}
-
 function interact() {
   if (gameState !== 'explore' || !focused) return;
   if (arms) arms.reach = 1;
+  if (focused.kind === 'jukebox') {
+    const title = audio.nextTrack();
+    if (title) toast(`NOW PLAYING: ${title}`);
+    focused = null;            // refresh the prompt with the new title
+    return;
+  }
   if (focused.playable) {
     launchGlitchPong(focused);
     return;
   }
   const cab = focused;
-  sfx('Glitch Pulse', 0.45);
+  audio.comingSoon(cab.screenCenter);
   toast(`CABINET ${String(cab.slot).padStart(2, '0')} IS COMING SOON — this machine is still compiling.`);
   // the screen freaks out for a moment
   const original = cab.screenMaterial.color.clone();
@@ -1828,6 +1963,7 @@ function interact() {
 // ═══════════════════════════════════════════════════════════════════════════
 let nextWorldGlitch = 8;
 function worldGlitch(small = false) {
+  audio.glitch(small);
   if (reducedMotion) return;
   root.classList.remove('gc-glitch');
   void root.offsetWidth;
@@ -1893,7 +2029,7 @@ function launchGlitchPong(cab) {
     cab,
     started: false
   };
-  sfx('Game Start', 0.5);
+  audio.launch();
 }
 
 function updateLaunch(dt) {
@@ -1940,6 +2076,8 @@ function onGameExit() {
   camera.position.set(player.pos.x, player.camY + EYE_HEIGHT, player.pos.z);
   camera.rotation.set(player.pitch, player.yaw, 0);
   resize();
+  audio.unlock(audioWorld);
+  audio.welcomeBack();
   worldGlitch();
   lastFrame = performance.now();
 
@@ -1972,7 +2110,27 @@ const KEYMAP = {
   ShiftLeft: 'run', ShiftRight: 'run'
 };
 
+function toggleMute() {
+  const m = audio.toggleMute();
+  muteBtn.classList.toggle('muted', m);
+  muteBtn.setAttribute('aria-pressed', String(m));
+  muteBtn.setAttribute('aria-label', m ? 'Unmute arcade sound' : 'Mute arcade sound');
+}
+muteBtn.classList.toggle('muted', audio.muted);
+muteBtn.setAttribute('aria-pressed', String(audio.muted));
+muteBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleMute(); });
+
+// Browsers only allow sound after a gesture; any click, tap or key wakes the arcade up.
+let audioWorld = null;
+function unlockAudio() {
+  if (gameState !== 'playing' && audioWorld) audio.unlock(audioWorld);
+}
+window.addEventListener('pointerdown', unlockAudio, true);
+window.addEventListener('keydown', unlockAudio, true);
+
 window.addEventListener('keydown', (e) => {
+  if (gameState === 'playing') return;
+  if (e.code === 'KeyM') { toggleMute(); return; }
   if (gameState !== 'explore') return;
   if (dragLook && e.code === 'Escape') {
     gameState = 'paused';
@@ -2022,7 +2180,7 @@ canvas.addEventListener('mousedown', (e) => {
 
 function enterWithoutLock() {
   dragLook = true;
-  $('gcHints').innerHTML = '<span>WASD</span> move &nbsp;·&nbsp; <span>DRAG</span> look &nbsp;·&nbsp; <span>SHIFT</span> run &nbsp;·&nbsp; <span>SPACE</span> jump<br><span>E</span> interact &nbsp;·&nbsp; <span>ESC</span> pause';
+  $('gcHints').innerHTML = '<span>WASD</span> move &nbsp;·&nbsp; <span>DRAG</span> look &nbsp;·&nbsp; <span>SHIFT</span> run &nbsp;·&nbsp; <span>SPACE</span> jump<br><span>E</span> interact &nbsp;·&nbsp; <span>M</span> mute &nbsp;·&nbsp; <span>ESC</span> pause';
   gameState = 'explore';
   setExploring(true);
   lastFrame = performance.now();
@@ -2163,8 +2321,18 @@ let elapsed = 0;
 let screenTimer = 0;
 let soonTimer = 0;
 
+const listenerDir = new THREE.Vector3();
+let audioMode = null;
+
+// 0 outside → 1 inside, blended across the doorway
+function insideFactor() {
+  if (Math.abs(camera.position.x) > ROOM_W / 2) return 0;
+  return Math.min(1, Math.max(0, (WALL_T + 0.6 - camera.position.z) / 1.6));
+}
+
 function frame(now) {
   requestAnimationFrame(frame);
+  if (gameState !== audioMode) { audioMode = gameState; audio.setMode(gameState); }
   if (gameState === 'playing') return;      // Glitch Pong has the screen; the arcade sleeps
   const dt = Math.min(0.05, (now - lastFrame) / 1000);
   lastFrame = now;
@@ -2188,8 +2356,14 @@ function frame(now) {
   soonTimer += dt;
   if (soonTimer > 1 / 12) { soonScreen.draw(soonTimer); soonTimer = 0; }
 
+  audio.update(dt, camera, listenerDir, insideFactor());
+
   // the neon sign's dodgy tube + random arcade-wide glitches
-  if (Math.random() < dt * 2) neonSigns.forEach((s) => s.draw(false));
+  if (Math.random() < dt * 2) {
+    const [outer, inner] = neonSigns;
+    if (outer.draw(false)) audio.signFlicker();
+    inner.draw(false);
+  }
   nextWorldGlitch -= dt;
   if (nextWorldGlitch <= 0 && gameState === 'explore') {
     worldGlitch();
@@ -2220,7 +2394,15 @@ function showFatal(msg) {
   await loadAssets();
   buildEnvironment();
   buildCabinets();
+  buildJukebox();
   buildArms();
+  audioWorld = {
+    signPos: new THREE.Vector3(0, ROOM_H + 1.85, 0.6),
+    doorPos: new THREE.Vector3(0, 1.6, WALL_T / 2),
+    soonCabinets: cabinets.filter((c) => !c.playable),
+    gpScreen: cabinets.find((c) => c.playable).screenCenter,
+    jukeboxPos: jukebox.screenCenter
+  };
   resize();
   requestAnimationFrame((t) => { lastFrame = t; frame(t); });
   enterBtn.disabled = false;
@@ -2239,6 +2421,7 @@ function showFatal(msg) {
       player.pitch = pitch;
     },
     start() { gameState = 'explore'; setExploring(true); },
-    interact
+    interact,
+    audio
   };
 })();
