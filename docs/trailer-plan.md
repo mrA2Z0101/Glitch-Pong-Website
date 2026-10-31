@@ -24,7 +24,7 @@ the trailer feels like the Heat meter filling up.
 | 6 | 0:40–0:52 | Heat Rising | Heat meter, Glitch Walls |
 | 7 | 0:52–1:02 | The Sentient Ball | Spite, Drowsy Ball, Memory |
 | 8 | 1:02–1:16 | Four Arenas | Classic, Matrix, Construct, Nexus |
-| 9 | 1:16–1:22 | Your Way, Your Level | Modes, online, XP & perks |
+| 9 | 1:16–1:22 | Your Way, Your Level | Modes, arena select, XP & perks |
 | 10 | 1:22–1:40 | THE EYE | Boss cinematic + fight |
 | 11 | 1:40–1:50 | Clutch Mode | Match point, final rally |
 | 12 | 1:50–1:56 | End Card | Title, features, call to action |
@@ -120,11 +120,11 @@ between cuts.
 Six quick 1-second shots:
 1. Menu: **1P vs AI**, cycling `EASY / MEDIUM / HARD`
 2. **Local 2P**: two pairs of hands on one keyboard (live action, or an over-the-shoulder shot)
-3. **Online**: a 6-digit join code being typed, then both players in the lobby showing `READY`
+3. **Arena select**: the four arenas on the selection screen
 4. The **Level-Up cinematic** firing
 5. The perk selection screen, with a card picked: `PERK UNLOCKED: OVERCLOCKED PADDLE`
 6. A paddle colour swap: Ion Cyan → Hot Magenta → Solar Gold
-- **On-screen text:** `SOLO. LOCAL. ONLINE.` → `50 LEVELS. 15 PERKS.`
+- **On-screen text:** `SOLO VS AI.` → `LOCAL 2P.` → `PICK YOUR ARENA.` → `50 LEVELS.` → `15 PERKS.`
 
 ---
 
@@ -162,7 +162,7 @@ This is the payoff, so give it the most screen time.
 - **Visual:** On black, the **GLITCH PONG** logo flickers on.
   - Tagline: **THE ARENA BREAKS. YOU FIGHT BACK.**
   - Feature strip (small, monospace, separated by `///` like the site ticker):
-    `1P VS AI /// LOCAL 2P /// ONLINE /// 4 ARENAS /// BOSS FIGHTS /// 50 LEVELS /// 15 PERKS`
+    `1P VS AI /// LOCAL 2P /// 4 ARENAS /// BOSS FIGHTS /// 50 LEVELS /// 15 PERKS`
   - Call to action: **PLAY NOW ON ITCH.IO**, with **noodlecometstudios.itch.io/glitch-pong** underneath
 - **Audio:** The music ends on one hard hit, followed by a short `Clapping Crowd` swell that cuts off sharply.
 
@@ -214,7 +214,6 @@ Pulse`, `3`/`2`/`1`/`GO`, `GLITCH PONG`, `Dash Activation`, `Dash Cooldown Ready
 - [ ] A 6–6 match point with Clutch Mode on and a long final rally.
 - [ ] A Level-Up cinematic and a perk selection screen (use a fresh browser profile to level
       up quickly).
-- [ ] An online lobby with two players and a visible join code.
 - [ ] Separate recordings of the music and SFX files, so audio can be mixed cleanly in the edit.
 
 ## Bonus cutdowns (from the same footage)

@@ -364,19 +364,18 @@ const SCENES = {
     const rec = g.recorder('s09_modes');
     const tag = (text, t) => L.word(text, t, 40, { y: 86, size: 70 });
     const cut = (i) => (i < 3 ? { rgb: 12 - i * 4, slices: 3 } : null);
-    // 1) Mode select -> SOLO.
-    await g.ev('showModeMenu(); 1');
+    // 1) Difficulty select -> SOLO VS AI.
+    await g.ev('showDifficultyMenu(); 1');
     await g.step(20);
-    await run(g, rec, 30, { each: async (i) => ({ layers: [L.scan(0.1), tag('SOLO.', i + 6)], fx: cut(i) }) });
-    // 2) Local multiplayer panel -> LOCAL.
-    await g.ev('currentScreen="multiplayer"; syncUiForScreen(); 1');
+    await run(g, rec, 30, { each: async (i) => ({ layers: [L.scan(0.1), tag('SOLO VS AI.', i + 6)], fx: cut(i) }) });
+    // 2) Player 1 / Player 2 menu -> LOCAL 2P.
+    await g.ev('showModeMenu(); 1');
     await g.step(10);
-    await run(g, rec, 30, { each: async (i) => ({ layers: [L.scan(0.1), tag('LOCAL.', i + 6)], fx: cut(i) }) });
-    // 3) Online lobby with a join code -> ONLINE.
-    await g.ev(`onlineState.session={side:"left"}; showOnlineLobby({code:"482916", joinLocked:false, players:[{side:"left",nickname:"BLUE_GHOST",connected:true},{side:"right",nickname:"RED_SIGNAL",connected:true}]}); 1`);
+    await run(g, rec, 30, { each: async (i) => ({ layers: [L.scan(0.1), tag('LOCAL 2P.', i + 6)], fx: cut(i) }) });
+    // 3) Arena select -> PICK YOUR ARENA.
+    await g.ev('showArenaMenu(); 1');
     await g.step(10);
-    await run(g, rec, 30, { each: async (i) => ({ layers: [L.scan(0.1), tag('ONLINE.', i + 6)], fx: cut(i) }) });
-    await g.ev('onlineState.session=null; 1');
+    await run(g, rec, 30, { each: async (i) => ({ layers: [L.scan(0.1), tag('PICK YOUR ARENA.', i + 6)], fx: cut(i) }) });
     // 4) Level-up cinematic -> 50 LEVELS.
     await startMatch(g, { arena: 'matrix', diff: 'hard' });
     await g.ev(`progScreen="levelUp"; progLevelData={level:25, title:GlitchProgression.getTitle(25)}; progScreenTimer=180;`);
@@ -513,7 +512,7 @@ const SCENES = {
         const layers = [L.fill('#02040a', 0.62), L.scan(0.12), { type: 'vignette', alpha: 0.6 }];
         layers.push({ type: 'logo', t: i, d: 999, scale: 0.6, y: 29 });
         if (i >= 18) layers.push({ type: 'strip', text: 'THE ARENA BREAKS. YOU FIGHT BACK.', t: i - 18, y: 55, size: 44, color: '#f4fbff', weight: 900 });
-        if (i >= 40) layers.push({ type: 'strip', text: '1P VS AI /// LOCAL 2P /// ONLINE /// 4 ARENAS /// BOSS FIGHTS /// 50 LEVELS /// 15 PERKS', t: i - 40, y: 65, size: 19 });
+        if (i >= 40) layers.push({ type: 'strip', text: '1P VS AI /// LOCAL 2P /// 4 ARENAS /// BOSS FIGHTS /// 50 LEVELS /// 15 PERKS', t: i - 40, y: 65, size: 19 });
         if (i >= 62) layers.push({ type: 'strip', text: 'PLAY NOW ON ITCH.IO', t: i - 62, y: 77, size: 54, color: '#ffd166', weight: 900 });
         if (i >= 70) layers.push({ type: 'strip', text: 'noodlecometstudios.itch.io/glitch-pong', t: i - 70, y: 85, size: 34, color: '#9ff3ff' });
         const fx = i < 6 ? { rgb: 18 - i * 3, slices: 6 - i } : (i === 62 || i === 63) ? { rgb: 10 } : (i >= 172 ? { rgb: (i - 171) * 4, slices: i - 170 } : null);
