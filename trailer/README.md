@@ -112,3 +112,9 @@ ffmpeg -loop 1 -framerate 30 -t 0.1 -i trailer/thumbnail/glitch-pong-short-cover
   -filter_complex "[0:v]scale=1080:1920,format=yuv420p,setsar=1[c];[1:v]setsar=1[v];[c][v]concat=n=2:v=1:a=0[vo];[1:a]adelay=100|100[ao]" \\
   -map "[vo]" -map "[ao]" -c:v libx264 -crf 18 -c:a aac -b:a 192k trailer/out/shorts/v_versus_with_cover.mp4
 ```
+
+### Shorts cover v2
+
+`trailer/thumbnail/short-v2/` is a rebuilt cover made only from the Short's own footage: the old-school court
+(redrawn from recorded game state) above, the real "angry speech bubble" frame below, and "IT FIGHTS BACK."
+at the seam. Re-render with `node trailer/thumbnail/short-v2/render.js`.

@@ -1,0 +1,39 @@
+<!doctype html><html><head><meta charset="utf-8">
+<!-- Glitch Pong Short cover v2. Sources: the Short's own footage. Bottom = frame 215 of the vs_bottom capture
+     (the ball freezing with its angry speech bubble). Top = the Short's old-school court, redrawn from the
+     game state recorded at frame 120 of the vs_top capture. Fonts: Orbitron (the game's UI font). -->
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@900&display=swap" rel="stylesheet">
+<style>
+  html,body{margin:0;width:1080px;height:1920px;overflow:hidden;background:#000}
+  #retro{position:absolute;left:0;top:0}
+  .scan{position:absolute;left:0;top:0;width:1080px;height:830px;background:repeating-linear-gradient(0deg,rgba(0,0,0,.3) 0 3px,transparent 3px 6px)}
+  /* Real frame, cropped to x 610-1280, y 140-661 of the 1280x720 capture (scale 1.612) */
+  #moment{position:absolute;left:0;top:1080px;width:1080px;height:840px;background:url('frame_vs_bottom_215.jpg') no-repeat;
+    background-size:2063px 1161px;background-position:-983px -226px}
+  #rule{position:absolute;left:0;top:1076px;width:1080px;height:4px;background:#f4f4f4}
+  .hook{position:absolute;left:0;right:0;text-align:center;font:900 118px/1 Orbitron,sans-serif;color:#fff;letter-spacing:.01em;
+    text-shadow:-4px 0 0 rgba(255,40,200,.9),4px 0 0 rgba(0,225,255,.9),0 6px 0 #000}
+</style></head><body>
+<canvas id="retro" width="1080" height="830"></canvas><div class="scan"></div>
+<div class="hook" style="top:828px">IT FIGHTS</div>
+<div class="hook" style="top:944px">BACK.</div>
+<div id="rule"></div>
+<div id="moment"></div>
+<script>
+  // Recorded state (frame 120): the game's real paddle and ball positions on the 1280x720 court.
+  const st = {lx:20, ly:369.5, rx:1238, ry:430.7, pw:22, ph:140, bx:943.8, by:488.7, br:10, ls:0, rs:0};
+  const DIGITS = ['111101101101111','010110010010111','111001111100111','111001111001111','101101111001001',
+                  '111100111001111','111100111101111','111001001001001','111101111101111','111101111001111'];
+  const c = document.getElementById('retro'), x = c.getContext('2d');
+  const S = 1080 / 1280, OY = 190;   // fit the court to the width, sit it in the upper band
+  x.fillStyle = '#000'; x.fillRect(0, 0, 1080, 830);
+  x.setTransform(S, 0, 0, S, 0, OY);
+  x.fillStyle = '#f4f4f4'; x.shadowColor = 'rgba(255,255,255,.55)'; x.shadowBlur = 10;
+  for (let y = 6; y < 720; y += 36) x.fillRect(636, y, 8, 18);
+  const num = (v, cx) => { const g = DIGITS[v], B = 16;
+    for (let p = 0; p < 15; p++) if (g[p] === '1') x.fillRect(cx - 24 + (p % 3) * B, 60 + Math.floor(p / 3) * B, B, B); };
+  num(st.ls, 640 - 130); num(st.rs, 640 + 130);
+  x.fillRect(st.lx, st.ly, st.pw, st.ph); x.fillRect(st.rx, st.ry, st.pw, st.ph);
+  x.fillRect(st.bx - st.br, st.by - st.br, st.br * 2, st.br * 2);
+</script>
+</body></html>
