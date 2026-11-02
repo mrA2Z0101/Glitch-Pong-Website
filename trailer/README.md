@@ -74,3 +74,16 @@ the `CFG` table in `mix_short.py`.
 `trailer/thumbnail/` holds two 1280×720 thumbnails (A: "PONG HAS A BOSS.", B: "THE ARENA FIGHTS
 BACK.") as PNG and JPG, built from `thumbnail.html` with the game's own logo, Eye art and trailer
 frames. Re-render with `node trailer/thumbnail/render.js`.
+
+## Teaser (26s)
+
+A cryptic landscape teaser: a dark rally ("Just a game." → "It never was.") with single-frame
+flashes of the boss and arenas, a double-speed Heat build, the pre-boss freeze, the Eye opening in
+the dark, then the music drop into the boss fight and the itch.io end card.
+
+```bash
+cd trailer/tools
+node teaser.js                      # records the tz_* clips
+python3 postfx.py tz_bh tz_matrix tz_calm tz_heat tz_boss tz_eye
+python3 teaser_edit.py              # edit list + soundtrack -> out/glitch-pong-teaser.mp4
+```
