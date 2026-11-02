@@ -25,9 +25,24 @@ def place(a, at, gain=1.0, rate=1.0, fade_in=0.0, fade_out=0.0):
     i = int(at * SR); e = min(len(buf), i + len(a))
     if e > i: buf[i:e] += a[:e - i]
 
-# Game sounds: the calm court sits under the chaotic one. (Countdown/serve sounds are skipped
+def blip(freq, dur):
+    # Plain square-wave beep with a short decay, like an old arcade cabinet.
+    t = np.arange(int(dur * SR)) / SR
+    w = np.sign(np.sin(2 * np.pi * freq * t)) * np.exp(-t * 6)
+    w[-int(0.004 * SR):] *= np.linspace(1, 0, int(0.004 * SR))
+    return np.stack([w, w], axis=1).astype(np.float32)
+
+# The old-school court gets simple blips instead of the game's neon sound effects.
+BLIPS = {'paddleHit': blip(480, 0.07), 'wallBounce': blip(240, 0.06), 'score': blip(150, 0.32)}
+seen = set()
+for e in json.load(open(os.path.join(ROOT, 'fx', 'vs_top', 'meta.json')))['sfx']:
+    if e['key'] in BLIPS and (e['key'], e['out']) not in seen and e['out'] < N:
+        seen.add((e['key'], e['out']))
+        place(BLIPS[e['key']], e['out'] / FPS, 0.16)
+
+# Glitch Pong's court keeps its real game sounds. (Countdown/serve sounds are skipped
 # because the capture jumps straight past the 3-2-1.)
-for clip, gain in [('vs_top', 0.55), ('vs_bottom', 1.0)]:
+for clip, gain in [('vs_bottom', 1.0)]:
     seen = set()
     for e in json.load(open(os.path.join(ROOT, 'fx', clip, 'meta.json')))['sfx']:
         if e['key'] not in SFX or (e['key'], e['out']) in seen or e['out'] >= N: continue

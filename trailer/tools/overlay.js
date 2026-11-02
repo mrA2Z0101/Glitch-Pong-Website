@@ -15,8 +15,8 @@
   #__ovroot .logo{position:absolute;left:50%;top:50%;width:1000px;height:450px;background:url('assets/glitch_pong_main_menu.png') no-repeat;
     background-size:1778px 1000px;background-position:-389px -42px;transform:translate(-50%,-50%);filter:drop-shadow(0 0 30px rgba(0,217,255,.45)) drop-shadow(0 0 60px rgba(255,79,216,.35))}
   #__ovroot .eye{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)}
-  #__ovroot.vertical .word,#__ovroot.vertical .mono,#__ovroot.vertical .strip{left:36px;right:96px}
-  #__ovroot .hook{position:absolute;left:24px;right:84px;text-align:center;font-weight:900;color:#fff;font-size:54px;line-height:1.12;letter-spacing:.02em;
+  #__ovroot.vertical .word,#__ovroot.vertical .mono,#__ovroot.vertical .strip{left:60px;right:60px}
+  #__ovroot .hook{position:absolute;left:44px;right:44px;text-align:center;font-weight:900;color:#fff;font-size:54px;line-height:1.12;letter-spacing:.02em;
     padding:18px 20px;background:rgba(2,6,14,.72);border:2px solid rgba(113,239,255,.45);border-radius:14px;
     text-shadow:-2px 0 0 rgba(255,40,200,.8),2px 0 0 rgba(0,230,255,.8),0 0 24px rgba(0,217,255,.45)}
   #__ovroot .strip{position:absolute;left:0;right:0;text-align:center;font-family:'Share Tech Mono',monospace;color:#8fdcff;letter-spacing:.2em;font-size:21px}
@@ -94,7 +94,7 @@
     hook(L, r) {
       const txt = L.text; // readable from the first frame: it doubles as the cover
       const jx = L.t < 4 ? (r() - 0.5) * 18 : 0;
-      return `<div class="hook" style="top:${L.y ?? 14}%;font-size:${L.size || 54}px;transform:translateX(${jx}px)">${esc(txt)}</div>`;
+      return `<div class="hook" style="top:${L.y ?? 14}%;font-size:${L.size || 54}px;transform:translateX(${jx}px)">${esc(txt).replace(/\n/g, '<br>')}</div>`;
     },
     heat(L) { // large heat readout bound to the real game heat value
       const v = Math.round(L.v), segs = 20, on = Math.round((v / 100) * segs);
