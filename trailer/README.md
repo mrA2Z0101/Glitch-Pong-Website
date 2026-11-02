@@ -87,3 +87,16 @@ node teaser.js                      # records the tz_* clips
 python3 postfx.py tz_bh tz_matrix tz_calm tz_heat tz_boss tz_eye
 python3 teaser_edit.py              # edit list + soundtrack -> out/glitch-pong-teaser.mp4
 ```
+
+## "Normal Pong vs Glitch Pong" (vertical, 14s)
+
+Two landscape courts stacked on a 1080×1920 frame: a calm 0% Heat rally on top, the same arena at
+max Heat below, where the ball freezes and becomes the Eye.
+
+```bash
+cd trailer/tools
+node versus.js capture
+python3 postfx.py vs_top vs_bottom
+node versus.js compose
+python3 versus_mix.py && ./render_short.sh v_versus
+```
