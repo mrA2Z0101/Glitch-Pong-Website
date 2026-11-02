@@ -1,0 +1,60 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@900&family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  html,body{margin:0;width:1080px;height:1920px;overflow:hidden;background:#000}
+  .abs{position:absolute}
+  /* Top: old-school court */
+  #retro{left:0;top:0;width:1080px;height:900px;background:#000}
+  .net{left:536px;width:8px;height:22px;background:#f4f4f4;box-shadow:0 0 10px rgba(255,255,255,.6)}
+  .wp{width:26px;height:190px;background:#f4f4f4;box-shadow:0 0 12px rgba(255,255,255,.6)}
+  .crt{inset:0;background:repeating-linear-gradient(0deg,rgba(0,0,0,.35) 0 3px,transparent 3px 6px),radial-gradient(ellipse at center,transparent 50%,rgba(0,0,0,.7) 100%)}
+  .px{font-family:'Press Start 2P',monospace;color:#fff}
+  /* Bottom: Glitch Pong boss alarm */
+  #glitch{left:0;top:1020px;width:1080px;height:900px;overflow:hidden}
+  #glitch .bg{position:absolute;inset:-30px;background:url('bg_boss.jpg') center/cover;filter:blur(2px) saturate(1.4) brightness(.9)}
+  .orb{width:40px;height:40px;margin:-20px 0 0 -20px;border-radius:50%;background:#fff6f0;box-shadow:0 0 16px #fff,0 0 40px #ff5a5a,0 0 80px rgba(255,60,60,.8)}
+  .np{width:30px;height:230px;border-radius:6px}
+  .p1{background:#00d9ff;box-shadow:0 0 18px #00d9ff,0 0 50px #00d9ff}
+  .p2{background:#ff4fd8;box-shadow:0 0 18px #ff4fd8,0 0 50px #ff4fd8}
+  .logo{background:url('../../assets/glitch_pong_main_menu.png') no-repeat;filter:drop-shadow(0 0 18px rgba(0,217,255,.7)) drop-shadow(0 0 40px rgba(255,79,216,.55)) drop-shadow(0 6px 0 #000)}
+  /* Middle: torn divider + title */
+  #tear{left:0;top:860px;width:1080px;height:200px;background:#05070d}
+  .slice{left:0;height:14px;width:1080px}
+  .big{left:0;right:0;text-align:center;font:900 112px/1 Orbitron,sans-serif;color:#fff;letter-spacing:.01em;
+    text-shadow:-6px 0 0 rgba(255,30,190,.95),6px 0 0 rgba(0,230,255,.95),0 0 30px rgba(255,255,255,.35),0 8px 0 #000,0 10px 30px rgba(0,0,0,.95)}
+</style></head><body>
+<div id="retro" class="abs">
+  <div id="net"></div>
+  <div class="abs wp" style="left:40px;top:300px"></div>
+  <div class="abs wp" style="right:40px;top:470px"></div>
+  <div class="abs" style="left:700px;top:430px;width:26px;height:26px;background:#fff;box-shadow:0 0 14px #fff"></div>
+  <div class="abs px" style="left:390px;top:120px;font-size:72px">3</div>
+  <div class="abs px" style="left:620px;top:120px;font-size:72px">5</div>
+  <div class="abs px" style="left:36px;top:36px;font-size:30px;padding:14px 18px;border:4px solid #fff;background:#000">NORMAL PONG</div>
+  <div class="abs crt"></div>
+</div>
+<div id="glitch" class="abs">
+  <div class="bg"></div>
+  <div class="abs" style="inset:0;background:radial-gradient(circle at 540px 380px,rgba(255,40,40,.4),transparent 50%),radial-gradient(ellipse at center,transparent 45%,rgba(0,0,0,.75) 100%)"></div>
+  <div class="abs np p1" style="left:34px;top:260px"></div>
+  <div class="abs np p2" style="right:34px;top:330px"></div>
+  <div id="orbs"></div>
+  <img class="abs" src="../../assets/boss_eye_neutral.png" style="left:540px;top:380px;width:1400px;transform:translate(-50%,-50%);filter:drop-shadow(0 0 30px rgba(255,40,70,.9)) drop-shadow(0 0 80px rgba(255,0,60,.6)) saturate(1.25) contrast(1.1)">
+  <div class="abs logo" style="left:50%;top:620px;width:440px;height:200px;transform:translateX(-50%);background-size:787px 443px;background-position:-173px -20px"></div>
+</div>
+<div id="tear" class="abs"></div>
+<div id="slices"></div>
+<div class="abs big" style="top:810px">PONG, BUT IT</div>
+<div class="abs big" style="top:940px">FIGHTS BACK</div>
+<script>
+  const net = document.getElementById('net');
+  for (let y = 10; y < 780; y += 44) { const d = document.createElement('div'); d.className = 'abs net'; d.style.top = y + 'px'; net.appendChild(d); }
+  const o = document.getElementById('orbs');
+  for (let k = 0; k < 6; k++) { const a = -Math.PI / 2 + k * Math.PI / 3, d = document.createElement('div'); d.className = 'abs orb';
+    d.style.left = (540 + Math.cos(a) * 420) + 'px'; d.style.top = (380 + Math.sin(a) * 230) + 'px'; o.appendChild(d); }
+  // Glitch tear: offset color slices along both edges of the divider.
+  const sl = document.getElementById('slices'), cols = ['rgba(0,230,255,.9)', 'rgba(255,40,200,.9)', '#ffffff'];
+  [[852, 120, 0], [868, -60, 1], [1050, 80, 1], [1066, -110, 0], [1036, 40, 2]].forEach(([y, dx, c]) => {
+    const d = document.createElement('div'); d.className = 'abs slice'; d.style.top = y + 'px'; d.style.background = cols[c]; d.style.transform = `translateX(${dx}px)`; d.style.opacity = .85; sl.appendChild(d); });
+</script>
+</body></html>

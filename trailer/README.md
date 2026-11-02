@@ -100,3 +100,15 @@ python3 postfx.py vs_top vs_bottom
 node versus.js compose
 python3 versus_mix.py && ./render_short.sh v_versus
 ```
+
+### Shorts cover
+
+`trailer/thumbnail/glitch-pong-short-cover.png` (1080×1920) is the cover for the "Normal Pong vs
+Glitch Pong" Short, built from `short_cover.html` (`node trailer/thumbnail/render_short_cover.js`).
+To bake it in as the first frame so it can be picked in YouTube's frame selector:
+
+```bash
+ffmpeg -loop 1 -framerate 30 -t 0.1 -i trailer/thumbnail/glitch-pong-short-cover.png -i trailer/out/shorts/v_versus.mp4 \\
+  -filter_complex "[0:v]scale=1080:1920,format=yuv420p,setsar=1[c];[1:v]setsar=1[v];[c][v]concat=n=2:v=1:a=0[vo];[1:a]adelay=100|100[ao]" \\
+  -map "[vo]" -map "[ao]" -c:v libx264 -crf 18 -c:a aac -b:a 192k trailer/out/shorts/v_versus_with_cover.mp4
+```
