@@ -308,6 +308,58 @@ const GlitchProgression = (function() {
 })();
 
 
+// ═══════════════════════════════════════════════════════════════════════════
+// GLITCHCADE WALLET — coins for winning, spent at the arcade's prize counter
+// Shared through localStorage so wins on any page count.
+// ═══════════════════════════════════════════════════════════════════════════
+const GlitchcadeWallet = (function() {
+  const KEY = "glitchcade_wallet_v1";
+  const COINS_PER_WIN = 10;
+
+  function read() {
+    try {
+      const d = JSON.parse(localStorage.getItem(KEY));
+      if (d && typeof d.coins === "number") {
+        return {
+          coins: Math.max(0, Math.floor(d.coins)),
+          earned: Math.max(0, Math.floor(d.earned || 0)),
+          wins: Math.max(0, Math.floor(d.wins || 0)),
+          prizes: Array.isArray(d.prizes) ? d.prizes.filter((p) => typeof p === "string") : []
+        };
+      }
+    } catch (e) {}
+    return { coins: 0, earned: 0, wins: 0, prizes: [] };
+  }
+
+  function write(d) {
+    try { localStorage.setItem(KEY, JSON.stringify(d)); } catch (e) {}
+    try { window.dispatchEvent(new CustomEvent("glitchcade:wallet", { detail: d })); } catch (e) {}
+    return d;
+  }
+
+  return {
+    COINS_PER_WIN,
+    get: read,
+    awardWin() {
+      const d = read();
+      d.coins += COINS_PER_WIN;
+      d.earned += COINS_PER_WIN;
+      d.wins += 1;
+      return write(d);
+    },
+    // Returns the updated wallet, or null when the prize is owned or unaffordable.
+    redeem(id, cost) {
+      const d = read();
+      if (d.prizes.includes(id) || d.coins < cost) return null;
+      d.coins -= cost;
+      d.prizes.push(id);
+      return write(d);
+    }
+  };
+})();
+window.GlitchcadeWallet = GlitchcadeWallet;
+
+
 function injectGameById(gameId, options = {}) {
   const glitchFx = !!options.glitchFx;
   const safetyMode = !!options.safetyMode;
@@ -2952,7 +3004,31 @@ function injectGameById(gameId, options = {}) {
       const playerScore = side === "left" ? snapshot.scores.left : snapshot.scores.right;
       const opponentScore = side === "left" ? snapshot.scores.right : snapshot.scores.left;
       GlitchProgression.endMatch(snapshot.winner === side, false, { arenaId: currentArenaId, playerScore, opponentScore });
+      if (snapshot.winner === side) showCoinReward(GlitchcadeWallet.awardWin());
       onlineState.statsRecorded = true;
+    }
+
+    // A short "+10 COINS" banner over the match summary.
+    function showCoinReward(wallet) {
+      const el = document.createElement("div");
+      el.className = "gp-coin-reward";
+      el.innerHTML = `<b>+${GlitchcadeWallet.COINS_PER_WIN} COINS</b><span>${wallet.coins} total // redeem prizes at the Glitchcade prize counter</span>`;
+      el.style.cssText = [
+        "position:absolute", "left:50%", "top:max(64px, calc(env(safe-area-inset-top) + 56px))",
+        "transform:translate(-50%,-12px)", "z-index:2147483647", "pointer-events:none",
+        "display:flex", "flex-direction:column", "align-items:center", "gap:4px",
+        "padding:10px 18px", "border:1px solid rgba(255,210,122,.7)", "border-radius:12px",
+        "background:rgba(14,10,4,.88)", "box-shadow:0 0 26px rgba(255,210,122,.35)",
+        "color:#ffd27a", "font:700 12px monospace", "letter-spacing:.08em", "text-align:center",
+        "opacity:0", "transition:opacity .35s, transform .35s"
+      ].join(";");
+      el.firstChild.style.cssText = "font:900 22px monospace;letter-spacing:.14em;text-shadow:0 0 14px rgba(255,210,122,.8)";
+      el.lastChild.style.cssText = "color:#c9b48a;font-weight:400";
+      overlay.appendChild(el);
+      requestAnimationFrame(() => { el.style.opacity = "1"; el.style.transform = "translate(-50%,0)"; });
+      addTimer(setTimeout(() => { el.style.opacity = "0"; }, 4200));
+      addTimer(setTimeout(() => el.remove(), 4700));
+      try { pongAudio.buttonHover(); } catch (e) {}
     }
 
     function getOwnerState(owner) {
@@ -8884,6 +8960,8 @@ function injectGameById(gameId, options = {}) {
           const playerWon = matchWinner === profileSide;
           const playerScore = profileSide === "left" ? leftScore : rightScore;
           const opponentScore = profileSide === "left" ? rightScore : leftScore;
+          // Beating the AI pays out arcade coins (local 2P and AI vs AI don't).
+          if (playerWon && !aiVsAiMode && !twoPlayerMode) showCoinReward(GlitchcadeWallet.awardWin());
           const summaryResult = aiVsAiMode
             ? { totalXP: 0, breakdown: {} }
             : GlitchProgression.endMatch(playerWon, clutchMode, {

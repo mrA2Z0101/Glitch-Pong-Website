@@ -111,6 +111,50 @@ body.gc-exploring #gcHud { opacity: 1; }
 }
 .gc-badge b { color: var(--pink); font-weight: 900; }
 
+#gcCoins {
+  position: absolute;
+  top: calc(max(14px, env(safe-area-inset-top)) + 40px); left: max(16px, env(safe-area-inset-left));
+  padding: 6px 12px;
+  background: rgba(20,12,4,0.82);
+  border: 1px solid rgba(255,210,122,.45);
+  font: 700 11px 'Orbitron', monospace;
+  letter-spacing: .14em;
+  color: #c9b48a;
+  clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+}
+#gcCoins b { color: var(--amber); font-weight: 900; text-shadow: 0 0 8px rgba(255,210,122,.6); }
+#gcCoins i { font-style: normal; color: var(--pink); }
+#gcCoins.pulse { animation: gcCoinPulse .7s ease-out 1; }
+@keyframes gcCoinPulse {
+  0% { transform: scale(1); box-shadow: 0 0 0 rgba(255,210,122,0); }
+  30% { transform: scale(1.12); box-shadow: 0 0 28px rgba(255,210,122,.7); }
+  100% { transform: scale(1); box-shadow: 0 0 0 rgba(255,210,122,0); }
+}
+
+#gcRobotSay {
+  position: absolute; left: 50%; bottom: calc(22% + 78px);
+  transform: translate(-50%, 6px);
+  width: min(620px, 92vw);
+  padding: 12px 18px;
+  background: rgba(3,18,26,0.88);
+  border: 1px solid rgba(95,232,255,.6);
+  box-shadow: 0 0 24px rgba(95,232,255,.25), inset 0 0 20px rgba(95,232,255,.08);
+  font: 14px 'Share Tech Mono', monospace;
+  letter-spacing: .06em;
+  line-height: 1.5;
+  color: #d8fbff;
+  opacity: 0;
+  transition: opacity .2s, transform .2s;
+}
+#gcRobotSay.show { opacity: 1; transform: translate(-50%, 0); }
+#gcRobotSay b {
+  display: block; margin-bottom: 4px;
+  font: 900 11px 'Orbitron', monospace;
+  letter-spacing: .2em;
+  color: #5fe8ff;
+  text-shadow: 0 0 8px #5fe8ff;
+}
+
 #gcCrosshair {
   position: absolute; left: 50%; top: 50%;
   width: 6px; height: 6px; margin: -3px 0 0 -3px;
@@ -311,6 +355,7 @@ body.gc-exploring #gcStart { opacity: 0; pointer-events: none; }
   color: var(--cyan);
 }
 .gc-chip.warn { color: var(--amber); border-color: rgba(255,210,122,.35); }
+.gc-chip.coin { color: var(--pink); border-color: rgba(255,88,217,.4); }
 .gc-controls {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -372,6 +417,7 @@ body.gc-touch .gc-controls.touch { display: grid; }
 
 @media (max-width: 640px) {
   .gc-card { padding: 24px 18px 20px; }
+  #gcRobotSay { font-size: 12px; bottom: calc(22% + 64px); }
   .gc-controls { grid-template-columns: 1fr; }
   #gcPrompt { font-size: 12px; padding: 10px 14px; }
 }
@@ -393,6 +439,8 @@ body.gc-touch .gc-controls.touch { display: grid; }
 
   <div id="gcHud">
     <div class="gc-badge">GLITCHCADE <b>//</b> <span id="gcOnline">1/10</span> ONLINE</div>
+    <div id="gcCoins" aria-live="polite"></div>
+    <div id="gcRobotSay" role="status" aria-live="polite"><b>PRIZETRON-80</b><span id="gcRobotText"></span></div>
     <div id="gcCrosshair"></div>
     <div id="gcPrompt" role="status" aria-live="polite"></div>
     <div id="gcToast" role="status" aria-live="polite"></div>
@@ -409,10 +457,11 @@ body.gc-touch .gc-controls.touch { display: grid; }
     <div class="gc-card">
       <p class="gc-eyebrow" id="gcEyebrow">Signal acquired</p>
       <h1 class="gc-title" id="gcTitle">GLITCHCADE</h1>
-      <p class="gc-sub" id="gcSub">The arcade where the machines fight back. Find the Glitch Pong cabinet.</p>
+      <p class="gc-sub" id="gcSub">The arcade where the machines fight back. Beat Glitch Pong, earn coins, and cash them in at the prize counter.</p>
       <div class="gc-status">
         <span class="gc-chip">1 CABINET ONLINE</span>
         <span class="gc-chip warn">9 COMING SOON</span>
+        <span class="gc-chip coin">WIN = 10 COINS // PRIZE COUNTER OPEN</span>
       </div>
       <div class="gc-controls desk">
         <div><b>W A S D</b> — walk</div>
@@ -470,8 +519,8 @@ body.gc-touch .gc-controls.touch { display: grid; }
 
 <!-- Served by the local multiplayer server. This 404s harmlessly in static-only mode. -->
 <script src="/socket.io/socket.io.js"></script>
-<script src="glitchpong-site.js?v=glitchcade-1"></script>
-<script type="module" src="glitchcade.js?v=glitchcade-2"></script>
+<script src="glitchpong-site.js?v=glitchcade-3"></script>
+<script type="module" src="glitchcade.js?v=glitchcade-3"></script>
 
 <script>
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {

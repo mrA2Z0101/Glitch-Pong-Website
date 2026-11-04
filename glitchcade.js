@@ -7,7 +7,7 @@ import { EffectComposer } from './vendor/three-addons/postprocessing/EffectCompo
 import { RenderPass } from './vendor/three-addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from './vendor/three-addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from './vendor/three-addons/postprocessing/OutputPass.js';
-import { createArcadeAudio } from './glitchcade-audio.js?v=glitchcade-2';
+import { createArcadeAudio } from './glitchcade-audio.js?v=glitchcade-3';
 
 // ─── Palette (matches the site's design tokens) ─────────────────────────────
 const C = {
@@ -37,12 +37,19 @@ const JUMP_SPEED = 5.6;
 const INTERACT_RANGE = 2.3;
 
 // Building interior: x ∈ [-ROOM_W/2, ROOM_W/2], z ∈ [-ROOM_D, 0]. Door in the front wall.
-const ROOM_W = 16;
-const ROOM_D = 26;
+const ROOM_W = 20;
+const ROOM_D = 32;
 const ROOM_H = 5.5;
 const WALL_T = 0.3;
 const DOOR_W = 3.2;
 const DOOR_H = 3.3;
+const PLAZA_X = ROOM_W / 2 + 5;   // street railings either side of the building
+const UP = new THREE.Vector3(0, 1, 0);
+// Back of the room: prize counter across the back wall facing the door,
+// Glitch Pong's stage in the back-left corner, the collection case back-right.
+const GP_STAGE = { x: -6.6, z: -26.6, rot: 0.5 };
+const CASE_SPOT = { x: 6.6, z: -26.6, rot: -0.5 };
+const COUNTER = { halfW: 3.8, front: -28.5, back: -29.4, h: 1.05 };
 
 // ─── DOM ────────────────────────────────────────────────────────────────────
 const $ = (id) => document.getElementById(id);
@@ -350,11 +357,11 @@ function makeSkylineWindows(seed) {
 }
 
 // ── The big neon "GLITCHCADE" sign (redrawn when it glitches) ──
-function createNeonSign(w, h) {
+// `flickerIndex` is the letter with the dodgy tube.
+function createNeonSign(w, h, word = 'GLITCHCADE', flickerIndex = 6) {
   const cv = makeCanvas(1024, 256);
   const ctx = cv.getContext('2d');
   const tex = canvasTexture(cv);
-  const word = 'GLITCHCADE';
   const rand = Math.random;
   function draw(glitch) {
     ctx.clearRect(0, 0, cv.width, cv.height);
@@ -371,7 +378,7 @@ function createNeonSign(w, h) {
     [...word].forEach((ch, i) => {
       // The second C is the flickery tube, like every real neon sign.
       const dead = glitch ? rand() < 0.16 : false;
-      const flicker = i === 6 && !glitch && rand() < 0.04;
+      const flicker = i === flickerIndex && !glitch && rand() < 0.04;
       if (flicker) flickered = true;
       if (!dead && !flicker) {
         const split = glitch ? 6 + rand() * 10 : 5;
@@ -844,8 +851,8 @@ function createInfoBoard() {
     const lines = [
       ['> CABINET 01 .......... ONLINE', C.green],
       ['> CABINETS 02–10 ...... COMPILING', C.amber],
-      ['> THE EYE ............. WATCHING', C.pink],
-      ['> REALITY ............. 63% STABLE', C.purple]
+      ['> PRIZE COUNTER ....... 10 COINS / WIN', C.cyan],
+      ['> THE EYE ............. WATCHING', C.pink]
     ];
     lines.forEach(([txt, col], i) => {
       ctx.fillStyle = col;
@@ -863,7 +870,7 @@ function createInfoBoard() {
 // WORLD
 // ═══════════════════════════════════════════════════════════════════════════
 const colliders = [];        // AABBs on the floor plane: {minX,maxX,minZ,maxZ}
-const platforms = [];        // raised floor areas: {minX,maxX,minZ,maxZ,h}
+const platforms = [];        // raised floor areas: {cx,cz,hw,hd,rot,h} (rotated rectangles)
 const cabinets = [];
 const interactables = [];    // cabinets + the jukebox
 let jukebox = null;
@@ -915,10 +922,10 @@ function buildEnvironment() {
   scene.add(new THREE.HemisphereLight(0x6a5acd, 0x120820, 0.55));
   scene.add(new THREE.AmbientLight(0x221a3a, 0.6));
   const interiorLights = [
-    [0, 4.6, -5, C.cyan, 14],
-    [0, 4.6, -13, C.purple, 16],
-    [-5, 4.4, -18, C.pink, 14],
-    [5, 4.4, -18, C.cyan, 14]
+    [0, 4.6, -6, C.cyan, 16],
+    [0, 4.6, -16, C.purple, 18],
+    [-6.5, 4.4, -24, C.pink, 13],
+    [6.5, 4.4, -24, C.cyan, 13]
   ];
   interiorLights.forEach(([x, y, z, col, dist]) => {
     const l = new THREE.PointLight(col, 18, dist, 1.6);
@@ -1034,8 +1041,8 @@ function buildEnvironment() {
     scene.add(b);
   });
 
-  // guide line from the door to the Glitch Pong cabinet
-  for (let z = -1.2; z > -21.5; z -= 0.9) {
+  // guide line from the door to the prize counter
+  for (let z = -1.2; z > -27.6; z -= 0.9) {
     const dash = new THREE.Mesh(new THREE.PlaneGeometry(0.1, 0.5), neonMaterial(C.cyan, 0.55));
     dash.rotation.x = -Math.PI / 2;
     dash.position.set(0, 0.015, z);
@@ -1110,7 +1117,7 @@ function buildEnvironment() {
       new THREE.PlaneGeometry(3.6, 2.2),
       new THREE.MeshBasicMaterial({ map: canvasTexture(winCv), color: 0x8a8a8a, toneMapped: false })
     );
-    win.position.set(side * 4.9, 1.9, WALL_T + 0.012);
+    win.position.set(side * 6, 1.9, WALL_T + 0.012);
     scene.add(win);
   });
 
@@ -1154,11 +1161,14 @@ function buildEnvironment() {
   signFrameTop.position.y = ROOM_H + 3.18;
   scene.add(signFrame, signFrameTop);
 
-  // Interior sign over the back wall
-  const innerSign = createNeonSign(5.2, 1.3);
-  innerSign.mesh.position.set(0, 4.75, -ROOM_D + 0.05);
+  // Interior signs over the prize counter on the back wall
+  const innerSign = createNeonSign(3.9, 0.98);
+  innerSign.mesh.position.set(0, 4.9, -ROOM_D + 0.05);
   scene.add(innerSign.mesh);
-  neonSigns = [outerSign, innerSign];
+  const prizeSign = createNeonSign(4.4, 1.1, 'PRIZES', 2);
+  prizeSign.mesh.position.set(0, 3.6, -ROOM_D + 0.06);
+  scene.add(prizeSign.mesh);
+  neonSigns = [outerSign, innerSign, prizeSign];
 
   // ── Plaza boundary: neon railings + invisible walls ──
   const railMat = neonMaterial(C.purple, 0.8);
@@ -1176,14 +1186,14 @@ function buildEnvironment() {
       scene.add(p);
     }
   }
-  railing(-13, 15, 13, 15);
-  railing(-13, 15, -13, WALL_T);
-  railing(13, 15, 13, WALL_T);
-  addCollider(-14, 14, 15, 16);
-  addCollider(-14, -13, -1, 16);
-  addCollider(13, 14, -1, 16);
-  addCollider(-13, -hx - WALL_T, -1, WALL_T);
-  addCollider(hx + WALL_T, 13, -1, WALL_T);
+  railing(-PLAZA_X, 15, PLAZA_X, 15);
+  railing(-PLAZA_X, 15, -PLAZA_X, WALL_T);
+  railing(PLAZA_X, 15, PLAZA_X, WALL_T);
+  addCollider(-PLAZA_X - 1, PLAZA_X + 1, 15, 16);
+  addCollider(-PLAZA_X - 1, -PLAZA_X, -1, 16);
+  addCollider(PLAZA_X, PLAZA_X + 1, -1, 16);
+  addCollider(-PLAZA_X, -hx - WALL_T, -1, WALL_T);
+  addCollider(hx + WALL_T, PLAZA_X, -1, WALL_T);
 
   // street lamps
   [-7, 7].forEach((x, i) => {
@@ -1463,22 +1473,27 @@ function buildCabinets() {
   pongScreen = createGlitchPongScreen((event) => audio.attract(event));
   soonScreen = createComingSoonScreen();
 
-  // ── Glitch Pong: centre stage on a platform at the back wall ──
+  // ── Glitch Pong: its own stage in the back-left corner, angled at the entrance ──
+  const stage = new THREE.Group();
+  stage.position.set(GP_STAGE.x, 0, GP_STAGE.z);
+  stage.rotation.y = GP_STAGE.rot;
+  scene.add(stage);
   const platform = new THREE.Mesh(
-    new THREE.BoxGeometry(4.2, 0.18, 3.0),
+    new THREE.BoxGeometry(3.6, 0.18, 2.8),
     new THREE.MeshStandardMaterial({ color: 0x120b26, roughness: 0.4, metalness: 0.4 })
   );
-  platform.position.set(0, 0.09, -ROOM_D + 1.6);
-  scene.add(platform);
-  platforms.push({ minX: -2.1, maxX: 2.1, minZ: -ROOM_D + 0.1, maxZ: -ROOM_D + 3.1, h: 0.18 });
-  const platEdge = new THREE.Mesh(new THREE.BoxGeometry(4.24, 0.03, 0.03), neonMaterial(C.cyan));
-  platEdge.position.set(0, 0.17, -ROOM_D + 3.11);
-  scene.add(platEdge);
+  platform.position.y = 0.09;
+  stage.add(platform);
+  platforms.push({ cx: GP_STAGE.x, cz: GP_STAGE.z, hw: 1.8, hd: 1.4, rot: GP_STAGE.rot, h: 0.18 });
+  const platEdge = new THREE.Mesh(new THREE.BoxGeometry(3.64, 0.03, 0.03), neonMaterial(C.cyan));
+  platEdge.position.set(0, 0.17, 1.41);
+  stage.add(platEdge);
   [-1, 1].forEach((side) => {
-    const e = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 3.0), neonMaterial(C.pink));
-    e.position.set(side * 2.11, 0.17, -ROOM_D + 1.6);
-    scene.add(e);
+    const e = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 2.8), neonMaterial(C.pink));
+    e.position.set(side * 1.81, 0.17, 0);
+    stage.add(e);
   });
+  const cabSpot = new THREE.Vector3(0, 0, -0.35).applyAxisAngle(UP, GP_STAGE.rot).add(new THREE.Vector3(GP_STAGE.x, 0, GP_STAGE.z));
 
   const gp = buildCabinet({
     width: 1.12,
@@ -1494,17 +1509,17 @@ function buildCabinets() {
     accent2: C.pink,
     joysticks: 2
   });
-  const gpEntry = registerCabinet(gp, 0, -ROOM_D + 1.2, 0, {
+  const gpEntry = registerCabinet(gp, cabSpot.x, cabSpot.z, GP_STAGE.rot, {
     id: 'glitch-pong', title: 'GLITCH PONG', playable: true, accent: C.cyan, baseY: 0.18
   });
 
   // Spotlight + the Eye hovering over it
   const spot = new THREE.SpotLight(C.purple, 40, 12, Math.PI / 7, 0.5, 1.4);
-  spot.position.set(0, ROOM_H - 0.2, -ROOM_D + 5);
-  spot.target.position.set(0, 1.2, -ROOM_D + 1.2);
+  spot.position.copy(cabSpot).addScaledVector(gpEntry.forward, 3.4).setY(ROOM_H - 0.2);
+  spot.target.position.copy(cabSpot).setY(1.2);
   scene.add(spot, spot.target);
   const pinkFill = new THREE.PointLight(C.pink, 10, 7, 1.6);
-  pinkFill.position.set(0, 1.6, -ROOM_D + 3.4);
+  pinkFill.position.copy(cabSpot).addScaledVector(gpEntry.forward, 2.2).setY(1.6);
   scene.add(pinkFill);
   buildBossEye(gpEntry);
 
@@ -1549,7 +1564,8 @@ function buildBossEye(cab) {
   const mat = new THREE.SpriteMaterial({ map: tex.eyeNeutral, transparent: true, toneMapped: false, depthWrite: false });
   const sprite = new THREE.Sprite(mat);
   sprite.scale.set(1.6, 1.6, 1);
-  const base = new THREE.Vector3(0, 0.18 + 2.12 * cab.scale + 0.58, cab.position.z + 0.25);
+  const right = new THREE.Vector3(1, 0, 0).applyAxisAngle(UP, cab.rotY);
+  const base = cab.position.clone().addScaledVector(cab.forward, 0.25).setY(0.18 + 2.12 * cab.scale + 0.58);
   sprite.position.copy(base);
   scene.add(sprite);
   addGlow(scene, new THREE.Color(C.purple), 2.0, 0.25, base);
@@ -1569,7 +1585,7 @@ function buildBossEye(cab) {
   eye = { sprite, base };
   animated.push((dt, t) => {
     // follow the player: look left / straight / right
-    const local = player.pos.x - base.x;
+    const local = (player.pos.x - base.x) * right.x + (player.pos.z - base.z) * right.z;
     const want = local < -1.0 ? 'eyeLeft' : local > 1.0 ? 'eyeRight' : 'eyeNeutral';
     if (want !== state && tex[want]) {
       state = want;
@@ -1577,21 +1593,19 @@ function buildBossEye(cab) {
       glitchT = 0.18;
     }
     glitchT = Math.max(0, glitchT - dt);
-    sprite.position.set(
-      base.x + (glitchT > 0 ? (Math.random() - 0.5) * 0.12 : 0),
-      base.y + Math.sin(t * 1.4) * 0.06,
-      base.z
-    );
+    sprite.position.copy(base).addScaledVector(right, glitchT > 0 ? (Math.random() - 0.5) * 0.12 : 0);
+    sprite.position.y = base.y + Math.sin(t * 1.4) * 0.06;
     orbit.forEach((o) => {
       const a = o.a + t * 1.6;
-      o.m.position.set(base.x + Math.cos(a) * 0.62, sprite.position.y + Math.sin(a) * 0.36, base.z + Math.sin(a) * 0.15);
+      o.m.position.copy(base).addScaledVector(right, Math.cos(a) * 0.62).addScaledVector(cab.forward, Math.sin(a) * 0.15);
+      o.m.position.y = sprite.position.y + Math.sin(a) * 0.36;
     });
 
     // every so often it lobs a harmless punishment shot at you
     if (gameState !== 'explore') return;
     const dist = player.pos.distanceTo(base);
     nextShot -= dt;
-    if (!shot && nextShot <= 0 && dist < 11 && dist > 2.5 && !reducedMotion) {
+    if (!shot && nextShot <= 0 && dist < 11 && dist > 2.5 && !reducedMotion && !atPrizeCounter()) {
       const src = orbit[Math.floor(Math.random() * orbit.length)].m.position.clone();
       const m = new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 8), neonMaterial(C.pink, 1.6));
       m.position.copy(src);
@@ -1721,6 +1735,852 @@ function buildJukebox() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// PRIZE COUNTER — win a match, earn 10 coins, trade coins for collectables
+// ═══════════════════════════════════════════════════════════════════════════
+// Cheap prizes sit on the bottom shelves, the big-ticket ones up top.
+const PRIZES = [
+  { id: 'paddle-keychain', name: 'PIXEL PADDLE KEYCHAIN', cost: 10 },
+  { id: 'glitch-ball', name: 'GLITCH BALL', cost: 20 },
+  { id: 'heat-gauge', name: 'HEAT GAUGE', cost: 30 },
+  { id: 'construct-hex', name: 'CONSTRUCT HEXAGON', cost: 40 },
+  { id: 'matrix-cube', name: 'MATRIX CODE CUBE', cost: 50 },
+  { id: 'black-hole-globe', name: 'BLACK HOLE GLOBE', cost: 60 },
+  { id: 'mini-eye', name: 'MINI BOSS EYE', cost: 80 },
+  { id: 'golden-paddle', name: 'GOLDEN PADDLE TROPHY', cost: 100 }
+];
+const ROBOT_NAME = 'PRIZETRON-80';
+const ROBOT_POS = new THREE.Vector3(0, 0, -30.35);
+
+// The wallet lives in glitchpong-site.js (shared with the game, which pays out wins).
+const Wallet = {
+  get() {
+    return window.GlitchcadeWallet ? window.GlitchcadeWallet.get() : { coins: 0, earned: 0, wins: 0, prizes: [] };
+  },
+  redeem(id, cost) {
+    return window.GlitchcadeWallet ? window.GlitchcadeWallet.redeem(id, cost) : null;
+  }
+};
+
+const prizeSlots = [];       // shelf stock, one per prize: { prize, model, center, tag }
+const caseSlots = [];        // collection case, one per prize: { prize, model, placeholder }
+let robot = null;
+let counterDisplay = null;
+let casePlate = null;
+
+function atPrizeCounter() {
+  return player.pos.z < -25.5 && Math.abs(player.pos.x) < 5;
+}
+
+// ── Hologram shader: fresnel rim + scanlines + a sweeping band, additive ──
+const holoUniforms = { uTime: { value: 0 }, uFlicker: { value: 1 } };
+
+function hologramMaterial(color, opacity = 1) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uColor: { value: new THREE.Color(color) },
+      uOpacity: { value: opacity },
+      uTime: holoUniforms.uTime,
+      uFlicker: holoUniforms.uFlicker
+    },
+    vertexShader: `
+      varying vec3 vN;
+      varying vec3 vV;
+      varying float vY;
+      void main() {
+        vec4 wp = modelMatrix * vec4(position, 1.0);
+        vN = normalize(mat3(modelMatrix) * normal);
+        vV = normalize(cameraPosition - wp.xyz);
+        vY = wp.y;
+        gl_Position = projectionMatrix * viewMatrix * wp;
+      }`,
+    fragmentShader: `
+      uniform vec3 uColor;
+      uniform float uOpacity;
+      uniform float uTime;
+      uniform float uFlicker;
+      varying vec3 vN;
+      varying vec3 vV;
+      varying float vY;
+      void main() {
+        float fres = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 2.2);
+        float lines = 0.62 + 0.38 * sin(vY * 150.0 - uTime * 9.0);
+        float band = 1.0 - abs(fract(vY * 0.4 - uTime * 0.3) - 0.5) * 2.0;
+        float sweep = smoothstep(0.9, 1.0, band);
+        float a = (0.14 + fres * 0.9 + sweep * 0.4) * lines * uOpacity * uFlicker;
+        gl_FragColor = vec4(uColor * (0.7 + fres * 1.3 + sweep * 1.2), a);
+      }`,
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide
+  });
+}
+
+function glowMaterial(color, opacity = 0.95) {
+  return new THREE.MeshBasicMaterial({
+    color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false
+  });
+}
+
+// ── The host: a boxy 80s robot projected as a hologram ──
+function buildRobot() {
+  const root = new THREE.Group();
+  root.position.copy(ROBOT_POS);
+  const holo = hologramMaterial('#5fe8ff');
+  const holoDim = hologramMaterial('#5fe8ff', 0.55);
+  const holoPink = hologramMaterial('#ff7ae3', 0.8);
+
+  // projector pad on the floor (solid) and its light beam
+  const pad = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.5, 0.56, 0.12, 32),
+    new THREE.MeshStandardMaterial({ color: 0x15121f, metalness: 0.6, roughness: 0.35 })
+  );
+  pad.position.y = 0.06;
+  const padRing = new THREE.Mesh(new THREE.TorusGeometry(0.47, 0.018, 8, 48), neonMaterial(C.cyan));
+  padRing.rotation.x = Math.PI / 2;
+  padRing.position.y = 0.125;
+  const padGlow = new THREE.Mesh(new THREE.CircleGeometry(0.42, 32), glowMaterial('#5fe8ff', 0.45));
+  padGlow.rotation.x = -Math.PI / 2;
+  padGlow.position.y = 0.13;
+  // faint projector beam: a cone that fades out as it rises
+  const beamCv = makeCanvas(4, 64);
+  const bctx = beamCv.getContext('2d');
+  const bg = bctx.createLinearGradient(0, 0, 0, 64);
+  bg.addColorStop(0, 'rgba(255,255,255,0)');
+  bg.addColorStop(1, 'rgba(255,255,255,1)');
+  bctx.fillStyle = bg;
+  bctx.fillRect(0, 0, 4, 64);
+  const beam = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.55, 0.4, 1.6, 32, 1, true),
+    new THREE.MeshBasicMaterial({ color: '#5fe8ff', alphaMap: canvasTexture(beamCv, { srgb: false }), transparent: true, opacity: 0.12, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false })
+  );
+  beam.position.y = 0.92;
+  root.add(pad, padRing, padGlow, beam);
+
+  const box = (w, h, d, mat, x, y, z, parent) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    m.position.set(x, y, z);
+    parent.add(m);
+    return m;
+  };
+  const cyl = (rt, rb, h, mat, x, y, z, parent, seg = 20) => {
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(rt, rb, h, seg), mat);
+    m.position.set(x, y, z);
+    parent.add(m);
+    return m;
+  };
+
+  // tank treads, hips and a ribbed waist
+  [-1, 1].forEach((s) => box(0.16, 0.22, 0.55, holoDim, s * 0.24, 0.28, 0, root));
+  box(0.5, 0.14, 0.36, holo, 0, 0.45, 0, root);
+  cyl(0.13, 0.15, 0.3, holoDim, 0, 0.66, 0, root);
+  [0.58, 0.68, 0.76].forEach((y) => {
+    const r = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.015, 6, 24), holo);
+    r.rotation.x = Math.PI / 2;
+    r.position.y = y;
+    root.add(r);
+  });
+
+  // torso (pivots to follow the player a little)
+  const torso = new THREE.Group();
+  torso.position.y = 0.8;
+  root.add(torso);
+  box(0.74, 0.62, 0.42, holo, 0, 0.33, 0, torso);
+  box(0.44, 0.28, 0.02, holoDim, 0, 0.37, 0.215, torso);
+  const chestLights = ['#ff58d9', '#ffd27a', '#50fa7b'].map((c, i) => {
+    const l = new THREE.Mesh(new THREE.SphereGeometry(0.028, 12, 8), glowMaterial(c));
+    l.position.set(-0.12 + i * 0.12, 0.44, 0.23);
+    torso.add(l);
+    return l;
+  });
+  const dial = new THREE.Mesh(new THREE.TorusGeometry(0.055, 0.008, 6, 24), holo);
+  dial.position.set(0, 0.29, 0.228);
+  torso.add(dial);
+  const needle = box(0.008, 0.05, 0.004, glowMaterial('#ffd27a'), 0, 0.29, 0.232, torso);
+  needle.geometry.translate(0, 0.022, 0);
+  needle.position.y = 0.29;
+  [-1, 1].forEach((s) => {
+    const bolt = new THREE.Mesh(new THREE.SphereGeometry(0.1, 16, 12), holo);
+    bolt.position.set(s * 0.45, 0.52, 0);
+    torso.add(bolt);
+  });
+
+  // accordion arms with pincer claws
+  const makeArm = (side) => {
+    const arm = new THREE.Group();
+    arm.position.set(side * 0.47, 0.5, 0);
+    torso.add(arm);
+    for (let i = 0; i < 5; i++) {
+      const rib = new THREE.Mesh(new THREE.TorusGeometry(0.06, 0.022, 6, 16), holo);
+      rib.rotation.x = Math.PI / 2;
+      rib.position.y = -0.06 - i * 0.075;
+      arm.add(rib);
+    }
+    cyl(0.03, 0.03, 0.4, holoDim, 0, -0.2, 0, arm, 10);
+    const elbow = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 10), holo);
+    elbow.position.y = -0.43;
+    arm.add(elbow);
+    const fore = cyl(0.05, 0.045, 0.28, holo, 0, -0.43, 0.14, arm, 14);
+    fore.rotation.x = Math.PI / 2;
+    const claw = new THREE.Group();
+    claw.position.set(0, -0.43, 0.3);
+    arm.add(claw);
+    const fingers = [-1, 1].map((f) => {
+      const finger = box(0.025, 0.03, 0.11, holoPink, f * 0.035, 0, 0.05, claw);
+      return finger;
+    });
+    return { arm, claw, fingers };
+  };
+  const armL = makeArm(-1);
+  const armR = makeArm(1);
+
+  // neck + the big boxy head
+  cyl(0.05, 0.06, 0.14, holoDim, 0, 0.69, 0, torso, 12);
+  const head = new THREE.Group();
+  head.position.y = 0.74;
+  torso.add(head);
+  box(0.54, 0.4, 0.42, holo, 0, 0.2, 0, head);
+  box(0.46, 0.06, 0.36, holoDim, 0, 0.43, 0, head);
+  const eyes = [-1, 1].map((s) => {
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.085, 0.014, 8, 24), holo);
+    rim.position.set(s * 0.13, 0.25, 0.212);
+    head.add(rim);
+    const eyeMesh = new THREE.Mesh(new THREE.CircleGeometry(0.072, 24), glowMaterial('#ff58d9'));
+    eyeMesh.position.set(s * 0.13, 0.25, 0.214);
+    head.add(eyeMesh);
+    const pupil = new THREE.Mesh(new THREE.CircleGeometry(0.03, 16), glowMaterial('#ffffff'));
+    pupil.position.set(s * 0.13, 0.25, 0.216);
+    head.add(pupil);
+    return eyeMesh;
+  });
+  const mouth = [0.07, 0.1, 0.13].map((y) => box(0.24, 0.016, 0.01, glowMaterial('#5fe8ff', 0.5), 0, y, 0.215, head));
+  [-1, 1].forEach((s) => {
+    const ear = cyl(0.075, 0.075, 0.06, holoDim, s * 0.3, 0.22, 0, head, 18);
+    ear.rotation.z = Math.PI / 2;
+  });
+  const antennae = [-1, 1].map((s) => {
+    const stalk = cyl(0.008, 0.008, 0.24, holo, s * 0.14, 0.52, 0, head, 6);
+    stalk.rotation.z = -s * 0.35;
+    const tip = new THREE.Mesh(new THREE.SphereGeometry(0.035, 12, 8), glowMaterial('#ffd27a'));
+    tip.position.set(s * 0.18, 0.64, 0);
+    head.add(tip);
+    return tip;
+  });
+
+  const light = new THREE.PointLight('#5fe8ff', 7, 6, 1.6);
+  light.position.set(0, 1.6, 0.6);
+  root.add(light);
+  addGlow(root, new THREE.Color('#5fe8ff'), 2.6, isTouch ? 0.22 : 0.1, new THREE.Vector3(0, 1.4, 0));
+
+  scene.add(root);
+  return {
+    root, torso, head, armL, armR, eyes, mouth, antennae, chestLights, needle, light,
+    yaw: 0, pitch: 0, flickerT: 0, blinkT: 0, waveT: 0, talkT: 0,
+    inZone: false, lastGreet: -999, pending: null
+  };
+}
+
+function updateRobot(dt, t) {
+  if (!robot) return;
+  holoUniforms.uTime.value = t;
+  const r = robot;
+
+  // hologram instability: occasional dropout + sideways jitter
+  if (!reducedMotion && Math.random() < dt * 0.5) r.flickerT = 0.12 + Math.random() * 0.15;
+  r.flickerT = Math.max(0, r.flickerT - dt);
+  holoUniforms.uFlicker.value = r.flickerT > 0 ? 0.3 + Math.random() * 0.5 : 0.92 + Math.sin(t * 31) * 0.05;
+  r.root.position.x = ROBOT_POS.x + (r.flickerT > 0 ? (Math.random() - 0.5) * 0.06 : 0);
+  r.root.scale.y = r.flickerT > 0 ? 0.97 + Math.random() * 0.06 : 1;
+  r.torso.position.y = 0.8 + Math.sin(t * 1.6) * 0.015;
+
+  // the head follows the player wherever they walk
+  const headWorld = r.head.getWorldPosition(tmpV1);
+  const dx = camera.position.x - headWorld.x;
+  const dz = camera.position.z - headWorld.z;
+  const dy = camera.position.y - (headWorld.y + 0.22);
+  const yaw = Math.max(-1.3, Math.min(1.3, Math.atan2(dx, dz)));
+  const pitch = Math.max(-0.45, Math.min(0.5, -Math.atan2(dy, Math.hypot(dx, dz))));
+  const k = 1 - Math.exp(-dt * 6);
+  r.yaw += (yaw - r.yaw) * k;
+  r.pitch += (pitch - r.pitch) * k;
+  r.torso.rotation.y = r.yaw * 0.3;
+  r.head.rotation.y = r.yaw * 0.7;
+  r.head.rotation.x = r.pitch;
+
+  // blink, chest lights, dial, antenna tips
+  r.blinkT -= dt;
+  if (r.blinkT < -3 - Math.random() * 3) r.blinkT = 0.12;
+  r.eyes.forEach((e) => { e.scale.y = r.blinkT > 0 ? 0.12 : 1; });
+  r.chestLights.forEach((l, i) => { l.material.opacity = Math.sin(t * (2 + i) + i * 2) > 0 ? 0.95 : 0.25; });
+  r.needle.rotation.z = Math.sin(t * 1.3) * 0.9;
+  r.antennae.forEach((a, i) => { a.material.opacity = Math.sin(t * 4 + i * Math.PI) > 0 ? 1 : 0.3; });
+
+  // arms: idle forward rest, a wave when greeting, claws chatter while talking
+  r.waveT = Math.max(0, r.waveT - dt);
+  r.talkT = Math.max(0, r.talkT - dt);
+  const rest = -0.55 + Math.sin(t * 1.2) * 0.04;
+  r.armL.arm.rotation.set(rest, 0, -0.08);
+  if (r.waveT > 0) r.armR.arm.rotation.set(0, 0, 2.3 + Math.sin(t * 12) * 0.3);
+  else r.armR.arm.rotation.set(rest + (r.talkT > 0 ? Math.sin(t * 7) * 0.12 : 0), 0, 0.08);
+  const pinch = r.talkT > 0 ? 0.02 + Math.abs(Math.sin(t * 14)) * 0.03 : 0.035;
+  [r.armL, r.armR].forEach((a) => a.fingers.forEach((f, i) => { f.position.x = (i ? 1 : -1) * pinch; }));
+  r.mouth.forEach((m, i) => { m.material.opacity = r.talkT > 0 ? (Math.sin(t * 22 + i) > 0 ? 1 : 0.2) : 0.45; });
+
+  // greet the player when they walk up to the counter
+  if (gameState !== 'explore') return;
+  const dist = Math.hypot(player.pos.x - ROBOT_POS.x, player.pos.z - ROBOT_POS.z);
+  if (!r.inZone && dist < 7.5) {
+    r.inZone = true;
+    if (r.pending || elapsed - r.lastGreet > 25) {
+      r.waveT = 1.6;
+      robotSay(r.pending || greetingLine());
+      r.pending = null;
+      r.lastGreet = elapsed;
+    }
+  } else if (r.inZone && dist > 9.5) {
+    r.inZone = false;
+  }
+}
+const tmpV1 = new THREE.Vector3();
+
+// ── What PRIZETRON-80 says ──
+function nextGoal(w) {
+  return PRIZES.find((p) => !w.prizes.includes(p.id) && p.cost > w.coins) || null;
+}
+
+function greetingLine() {
+  const w = Wallet.get();
+  if (w.prizes.length >= PRIZES.length) return 'YOU OWN EVERY PRIZE IN THE GLITCHCADE. MY CIRCUITS ARE... PROUD.';
+  const affordable = PRIZES.filter((p) => !w.prizes.includes(p.id) && p.cost <= w.coins);
+  if (w.coins === 0 && w.prizes.length === 0) {
+    return `GREETINGS, HUMAN. I AM ${ROBOT_NAME}. BEAT THE AI AT GLITCH PONG AND I PAY 10 COINS PER WIN. COINS BUY PRIZES.`;
+  }
+  if (affordable.length) {
+    return `WELCOME BACK. YOU HAVE ${w.coins} COINS — ENOUGH FOR ${affordable.length} PRIZE${affordable.length > 1 ? 'S' : ''}. AIM AT ONE ON MY SHELVES AND PRESS ${isTouch ? 'USE' : 'E'}.`;
+  }
+  const goal = nextGoal(w);
+  const need = goal ? goal.cost - w.coins : 0;
+  return `YOU HAVE ${w.coins} COINS. ${goal ? `THE ${goal.name} COSTS ${goal.cost} — ${Math.ceil(need / 10)} MORE WIN${need > 10 ? 'S' : ''}.` : ''} THE GLITCH PONG CABINET AWAITS.`;
+}
+
+function robotChat() {
+  const w = Wallet.get();
+  const lines = [
+    greetingLine(),
+    `EVERY MATCH YOU WIN AGAINST THE AI EARNS 10 COINS. YOU HAVE WON ${w.wins} SO FAR.`,
+    `YOUR COLLECTION: ${w.prizes.length} OF ${PRIZES.length}. IT IS ON DISPLAY IN THE CASE TO MY LEFT.`,
+    'TIP: LONG RALLIES BUILD HEAT. AT MAX HEAT THE EYE ARRIVES. SURVIVE IT.'
+  ];
+  robot.chatIndex = ((robot.chatIndex || 0) + 1) % lines.length;
+  robot.waveT = robot.chatIndex === 0 ? 1.2 : 0;
+  robotSay(lines[robot.chatIndex]);
+}
+
+let sayTimer = null;
+let typeTimer = null;
+function robotSay(text) {
+  const box = $('gcRobotSay');
+  const out = $('gcRobotText');
+  if (!box || !robot) return;
+  clearTimeout(sayTimer);
+  clearInterval(typeTimer);
+  box.classList.add('show');
+  out.textContent = '';
+  let i = 0;
+  typeTimer = setInterval(() => {
+    i += 2;
+    out.textContent = text.slice(0, i);
+    if (i >= text.length) clearInterval(typeTimer);
+  }, 28);
+  robot.talkT = Math.min(4, text.length * 0.03);
+  audio.robotTalk(Math.min(16, Math.ceil(text.length / 7)));
+  sayTimer = setTimeout(() => box.classList.remove('show'), 2600 + text.length * 45);
+}
+
+// ── Collectable models (built from primitives, about 0.45 m tall, origin at the base) ──
+function standMat() {
+  return new THREE.MeshStandardMaterial({ color: 0x1a1430, metalness: 0.5, roughness: 0.4 });
+}
+
+function makePrizeModel(id) {
+  const g = new THREE.Group();
+  let update = () => {};
+  const emissive = (c, i = 0.9) => new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: i, roughness: 0.35 });
+  const base = () => {
+    const b = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.13, 0.04, 24), standMat());
+    b.position.y = 0.02;
+    g.add(b);
+  };
+  if (id === 'paddle-keychain') {
+    const paddle = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.26, 0.035), emissive(C.paddleBlue));
+    paddle.position.y = 0.2;
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.045, 0.01, 8, 20), new THREE.MeshStandardMaterial({ color: 0xd8d8e8, metalness: 0.9, roughness: 0.25 }));
+    ring.position.y = 0.38;
+    g.add(paddle, ring);
+    for (let i = 0; i < 3; i++) {
+      const link = new THREE.Mesh(new THREE.SphereGeometry(0.012, 8, 6), ring.material);
+      link.position.y = 0.34 - i * 0.012;
+      g.add(link);
+    }
+    base();
+    update = (dt, t) => { g.rotation.z = Math.sin(t * 1.7) * 0.12; };
+  } else if (id === 'glitch-ball') {
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.1, 24, 16), emissive('#dfe6ff', 0.28));
+    ball.position.y = 0.2;
+    g.add(ball);
+    const bits = [];
+    for (let i = 0; i < 7; i++) {
+      const bit = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 0.03), emissive(i % 2 ? C.pink : C.cyan, 1.2));
+      g.add(bit);
+      bits.push({ bit, a: (i / 7) * Math.PI * 2 });
+    }
+    base();
+    update = (dt, t) => {
+      bits.forEach((b, i) => {
+        const jitter = Math.random() < 0.05 ? 0.04 : 0;
+        b.bit.position.set(Math.cos(b.a + t) * (0.15 + jitter), 0.2 + Math.sin(t * 2 + i) * 0.08, Math.sin(b.a + t) * 0.15);
+      });
+    };
+  } else if (id === 'heat-gauge') {
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.2, 0.04), standMat());
+    plate.position.y = 0.14;
+    g.add(plate);
+    [C.cyan, C.amber, C.pink].forEach((c, i) => {
+      const arc = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.016, 8, 16, Math.PI / 3), emissive(c, 1.1));
+      arc.rotation.z = Math.PI - (i + 1) * Math.PI / 3;
+      arc.position.set(0, 0.1, 0.03);
+      g.add(arc);
+    });
+    const needle = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.12, 0.01), emissive('#ffffff', 1));
+    needle.geometry.translate(0, 0.06, 0);
+    needle.position.set(0, 0.1, 0.04);
+    g.add(needle);
+    update = (dt, t) => { needle.rotation.z = Math.sin(t * 0.9) * 1.2; };
+  } else if (id === 'construct-hex') {
+    const outer = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.012, 6, 6), emissive('#58ecff', 1.2));
+    const inner = new THREE.Mesh(new THREE.TorusGeometry(0.1, 0.01, 6, 6), emissive(C.purple, 1.2));
+    outer.position.y = inner.position.y = 0.24;
+    g.add(outer, inner);
+    base();
+    update = (dt, t) => { outer.rotation.y = t * 0.8; inner.rotation.y = -t * 1.1; };
+  } else if (id === 'matrix-cube') {
+    const cv = makeCanvas(128, 128);
+    const cx = cv.getContext('2d');
+    cx.fillStyle = '#021006';
+    cx.fillRect(0, 0, 128, 128);
+    cx.font = '16px monospace';
+    const glyphs = 'アカサタナハマヤラワ01ｱｶｻ';
+    for (let x = 4; x < 128; x += 14) {
+      for (let y = 14; y < 128; y += 16) {
+        cx.fillStyle = `rgba(80,250,123,${0.3 + Math.random() * 0.7})`;
+        cx.fillText(glyphs[Math.floor(Math.random() * glyphs.length)], x, y);
+      }
+    }
+    const tex = canvasTexture(cv);
+    const cube = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.2, 0.2), new THREE.MeshStandardMaterial({ map: tex, emissiveMap: tex, emissive: 0xffffff, emissiveIntensity: 0.9 }));
+    cube.position.y = 0.24;
+    g.add(cube);
+    base();
+    update = (dt, t) => { cube.rotation.y = t * 0.7; cube.rotation.x = Math.sin(t * 0.5) * 0.3; cube.position.y = 0.24 + Math.sin(t * 1.4) * 0.02; };
+  } else if (id === 'black-hole-globe') {
+    const stand = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.13, 0.08, 24), standMat());
+    stand.position.y = 0.04;
+    const glass = new THREE.Mesh(new THREE.SphereGeometry(0.15, 24, 16), new THREE.MeshStandardMaterial({ color: 0xb8a0ff, transparent: true, opacity: 0.18, roughness: 0.05, metalness: 0.1, depthWrite: false }));
+    glass.position.y = 0.23;
+    const disc = new THREE.Mesh(new THREE.TorusGeometry(0.07, 0.022, 10, 32), emissive('#b100d3', 1.4));
+    disc.position.y = 0.23;
+    disc.rotation.x = Math.PI / 2.4;
+    const core = new THREE.Mesh(new THREE.SphereGeometry(0.035, 16, 12), new THREE.MeshBasicMaterial({ color: 0x000000 }));
+    core.position.y = 0.23;
+    g.add(stand, glass, disc, core);
+    update = (dt, t) => { disc.rotation.z = t * 2.2; };
+  } else if (id === 'mini-eye') {
+    if (assets.eyeNeutral) {
+      const t0 = new THREE.Texture(assets.eyeNeutral);
+      t0.colorSpace = THREE.SRGBColorSpace;
+      t0.needsUpdate = true;
+      const eyeSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: t0, transparent: true, depthWrite: false }));
+      eyeSprite.scale.set(0.42, 0.42, 1);
+      eyeSprite.position.y = 0.25;
+      g.add(eyeSprite);
+    }
+    const orbit = [];
+    for (let i = 0; i < 6; i++) {
+      const o = new THREE.Mesh(new THREE.SphereGeometry(0.014, 8, 6), emissive(i % 2 ? C.pink : C.cyan, 1.4));
+      g.add(o);
+      orbit.push(o);
+    }
+    base();
+    update = (dt, t) => {
+      orbit.forEach((o, i) => {
+        const a = t * 1.6 + (i / 6) * Math.PI * 2;
+        o.position.set(Math.cos(a) * 0.16, 0.25 + Math.sin(a) * 0.09, Math.sin(a) * 0.04);
+      });
+    };
+  } else if (id === 'golden-paddle') {
+    const gold = new THREE.MeshStandardMaterial({ color: '#ffcf4a', emissive: '#7a5200', emissiveIntensity: 0.6, metalness: 0.7, roughness: 0.25 });
+    const plinth = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.06, 0.16), standMat());
+    plinth.position.y = 0.03;
+    const step = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.04, 0.12), gold);
+    step.position.y = 0.08;
+    const paddle = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.28, 0.035), gold);
+    paddle.position.set(-0.03, 0.24, 0);
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(0.035, 16, 12), gold);
+    ball.position.set(0.06, 0.34, 0);
+    g.add(plinth, step, paddle, ball);
+    update = (dt, t) => { ball.position.y = 0.32 + Math.abs(Math.sin(t * 2.5)) * 0.06; };
+  }
+  return { group: g, update };
+}
+
+// Fade a shelf model to a ghost once it's been collected.
+function setGhost(group, ghost) {
+  group.traverse((o) => {
+    if (!o.material) return;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    mats.forEach((m) => {
+      if (m.userData.baseOpacity === undefined) {
+        m.userData.baseOpacity = m.opacity;
+        m.userData.baseTransparent = m.transparent;
+      }
+      m.transparent = ghost || m.userData.baseTransparent;
+      m.opacity = ghost ? Math.min(0.16, m.userData.baseOpacity) : m.userData.baseOpacity;
+      m.needsUpdate = true;
+    });
+  });
+}
+
+function drawPriceTag(tag, prize, owned, coins) {
+  const { ctx, tex } = tag;
+  ctx.fillStyle = '#0b0816';
+  ctx.fillRect(0, 0, 256, 96);
+  ctx.strokeStyle = owned ? C.green : prize.cost <= coins ? C.amber : 'rgba(154,93,255,0.8)';
+  ctx.lineWidth = 4;
+  ctx.strokeRect(2, 2, 252, 92);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = '700 17px Orbitron, sans-serif';
+  ctx.fillStyle = C.text;
+  ctx.fillText(prize.name, 128, 30, 236);
+  ctx.font = '900 30px Orbitron, sans-serif';
+  if (owned) {
+    ctx.fillStyle = C.green;
+    ctx.fillText('COLLECTED ✓', 128, 66, 236);
+  } else {
+    ctx.fillStyle = prize.cost <= coins ? C.amber : '#b9a6e8';
+    ctx.fillText(`◎ ${prize.cost}`, 128, 66);
+  }
+  tex.needsUpdate = true;
+}
+
+function buildPrizeCounter() {
+  const back = -ROOM_D;
+  const dark = new THREE.MeshStandardMaterial({ color: 0x120c22, roughness: 0.45, metalness: 0.35 });
+
+  // ── the counter itself ──
+  const cw = COUNTER.halfW * 2;
+  const cd = COUNTER.front - COUNTER.back;
+  const cz = (COUNTER.front + COUNTER.back) / 2;
+  const body = new THREE.Mesh(new THREE.BoxGeometry(cw, COUNTER.h, cd), dark);
+  body.position.set(0, COUNTER.h / 2, cz);
+  const top = new THREE.Mesh(new THREE.BoxGeometry(cw + 0.12, 0.06, cd + 0.12), new THREE.MeshStandardMaterial({ color: 0x241a3e, roughness: 0.2, metalness: 0.5 }));
+  top.position.set(0, COUNTER.h + 0.03, cz);
+  scene.add(body, top);
+  [[C.cyan, COUNTER.h + 0.065], [C.pink, 0.05]].forEach(([col, y]) => {
+    const strip = new THREE.Mesh(new THREE.BoxGeometry(cw + 0.12, 0.025, 0.025), neonMaterial(col));
+    strip.position.set(0, y, COUNTER.front + 0.07);
+    scene.add(strip);
+  });
+  addCollider(-COUNTER.halfW - 0.06, COUNTER.halfW + 0.06, COUNTER.back - 0.06, COUNTER.front + 0.06);
+
+  // front banner
+  const fcv = makeCanvas(1024, 128);
+  const fctx = fcv.getContext('2d');
+  const fg = fctx.createLinearGradient(0, 0, 1024, 0);
+  fg.addColorStop(0, '#0a0614');
+  fg.addColorStop(0.5, '#1d0f38');
+  fg.addColorStop(1, '#0a0614');
+  fctx.fillStyle = fg;
+  fctx.fillRect(0, 0, 1024, 128);
+  fctx.textAlign = 'center';
+  fctx.textBaseline = 'middle';
+  fctx.font = '900 46px Orbitron, "Arial Black", sans-serif';
+  chromaText(fctx, 'PRIZE COUNTER', 512, 50, 3, C.text, C.purple);
+  fctx.font = '20px "Share Tech Mono", monospace';
+  fctx.fillStyle = C.amber;
+  fctx.fillText('◎ WIN A MATCH = 10 COINS   ◎   TRADE COINS FOR COLLECTABLES   ◎', 512, 98);
+  scanlines(fctx, 1024, 128, 0.14, 4);
+  const banner = new THREE.Mesh(new THREE.PlaneGeometry(cw - 0.3, 0.72), new THREE.MeshBasicMaterial({ map: canvasTexture(fcv), color: 0xcccccc, toneMapped: false }));
+  banner.position.set(0, 0.55, COUNTER.front + 0.004);
+  scene.add(banner);
+
+  // little screen on the counter showing your balance
+  const dcv = makeCanvas(256, 128);
+  counterDisplay = { ctx: dcv.getContext('2d'), tex: canvasTexture(dcv) };
+  const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.6, 0.3), new THREE.MeshBasicMaterial({ map: counterDisplay.tex, toneMapped: false }));
+  screen.position.set(-2.3, COUNTER.h + 0.22, COUNTER.front - 0.25);
+  screen.rotation.x = -0.35;
+  const screenBack = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.36, 0.05), dark);
+  screenBack.position.copy(screen.position).add(new THREE.Vector3(0, 0, -0.03));
+  screenBack.rotation.x = -0.35;
+  scene.add(screenBack, screen);
+
+  // staff-only partitions so you can't wander behind the counter
+  [-1, 1].forEach((s) => {
+    const x = s * (COUNTER.halfW + 0.15);
+    const wall = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.1, back - COUNTER.back), dark);
+    wall.position.set(x, 0.55, (back + COUNTER.back) / 2);
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.03, back - COUNTER.back), neonMaterial(C.purple, 0.8));
+    cap.position.set(x, 1.11, (back + COUNTER.back) / 2);
+    scene.add(wall, cap);
+    addCollider(x - 0.1, x + 0.1, back, COUNTER.back);
+  });
+
+  // ── prize shelves against the back wall ──
+  const shelfZ = back + 0.32;
+  const rows = [1.18, 1.98];
+  const columns = [-3.15, -1.7, 1.7, 3.15];
+  [-1, 1].forEach((s) => {
+    const cx = s * 2.43;
+    const unit = new THREE.Group();
+    unit.position.set(cx, 0, shelfZ);
+    scene.add(unit);
+    const sideMat = dark;
+    [-1, 1].forEach((e) => {
+      const side = new THREE.Mesh(new THREE.BoxGeometry(0.06, 2.7, 0.55), sideMat);
+      side.position.set(e * 1.37, 1.35, 0);
+      unit.add(side);
+    });
+    const backPanel = new THREE.Mesh(new THREE.BoxGeometry(2.8, 2.7, 0.04), new THREE.MeshStandardMaterial({ color: 0x1b1033, roughness: 0.8 }));
+    backPanel.position.set(0, 1.35, -0.26);
+    unit.add(backPanel);
+    [0.6, ...rows, 2.7].forEach((y, i) => {
+      const board = new THREE.Mesh(new THREE.BoxGeometry(2.74, 0.05, 0.52), sideMat);
+      board.position.set(0, y - 0.025, 0);
+      unit.add(board);
+      if (i > 0 && i < 3) {
+        const lip = new THREE.Mesh(new THREE.BoxGeometry(2.74, 0.02, 0.02), neonMaterial(s < 0 ? C.cyan : C.pink, 0.9));
+        lip.position.set(0, y - 0.05, 0.26);
+        unit.add(lip);
+      }
+    });
+  });
+
+  PRIZES.forEach((prize, i) => {
+    const row = i < 4 ? 0 : 1;
+    const x = columns[i % 4];
+    const y = rows[row];
+    const model = makePrizeModel(prize.id);
+    model.group.position.set(x, y, shelfZ + 0.02);
+    model.group.scale.setScalar(1.25);
+    scene.add(model.group);
+    const tcv = makeCanvas(256, 96);
+    const tag = { ctx: tcv.getContext('2d'), tex: canvasTexture(tcv) };
+    const tagMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.23), new THREE.MeshBasicMaterial({ map: tag.tex, toneMapped: false }));
+    tagMesh.position.set(x, y - 0.16, shelfZ + 0.275);
+    scene.add(tagMesh);
+    prizeSlots.push({ kind: 'prize', prize, model, tag, center: new THREE.Vector3(x, y + 0.28, shelfZ), radius: 0.36 });
+  });
+
+  robot = buildRobot();
+  buildCollectionCase();
+  refreshPrizes();
+
+  animated.push((dt, t) => {
+    prizeSlots.forEach((s) => s.model.update(dt, t));
+    caseSlots.forEach((s) => {
+      if (s.model) {
+        s.model.update(dt, t);
+        s.model.group.scale.setScalar(Math.min(1, (elapsed - s.popT) / 0.5));   // pops into the case
+      }
+      if (s.placeholder) s.placeholder.rotation.y = t * 0.6;
+    });
+    updateRobot(dt, t);
+  });
+
+  interactables.push({
+    kind: 'robot',
+    scale: 1,
+    position: new THREE.Vector3(0, 0, COUNTER.front),
+    forward: new THREE.Vector3(0, 0, 1),
+    screenCenter: new THREE.Vector3(0, 1.75, ROBOT_POS.z)
+  });
+}
+
+// ── The player's own trophy case: redeemed prizes show up here ──
+function buildCollectionCase() {
+  const group = new THREE.Group();
+  group.position.set(CASE_SPOT.x, 0, CASE_SPOT.z);
+  group.rotation.y = CASE_SPOT.rot;
+  scene.add(group);
+  const W = 2.7, D = 0.85;
+  const baseBox = new THREE.Mesh(new THREE.BoxGeometry(W, 0.9, D), new THREE.MeshStandardMaterial({ color: 0x120c22, roughness: 0.45, metalness: 0.35 }));
+  baseBox.position.y = 0.45;
+  const inner = new THREE.Mesh(new THREE.BoxGeometry(W - 0.06, 1.15, 0.04), new THREE.MeshStandardMaterial({ color: 0x1b1033, roughness: 0.8 }));
+  inner.position.set(0, 1.475, -D / 2 + 0.04);
+  const glass = new THREE.Mesh(new THREE.BoxGeometry(W, 1.15, D), new THREE.MeshStandardMaterial({ color: 0xbfd8ff, transparent: true, opacity: 0.08, roughness: 0.05, depthWrite: false }));
+  glass.position.y = 1.475;
+  const edges = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(W, 1.15, D)), new THREE.LineBasicMaterial({ color: C.cyan, toneMapped: false }));
+  edges.position.y = 1.475;
+  const shelf = new THREE.Mesh(new THREE.BoxGeometry(W - 0.06, 0.02, D - 0.06), new THREE.MeshStandardMaterial({ color: 0xbfd8ff, transparent: true, opacity: 0.2, depthWrite: false }));
+  shelf.position.y = 1.47;
+  const lid = new THREE.Mesh(new THREE.BoxGeometry(W + 0.06, 0.06, D + 0.06), new THREE.MeshStandardMaterial({ color: 0x120c22, roughness: 0.45 }));
+  lid.position.y = 2.08;
+  const caseLight = new THREE.Mesh(new THREE.BoxGeometry(W - 0.2, 0.02, 0.04), neonMaterial('#ffffff', 0.8));
+  caseLight.position.set(0, 2.03, 0.2);
+  group.add(baseBox, inner, glass, edges, shelf, lid, caseLight);
+
+  const pcv = makeCanvas(512, 96);
+  casePlate = { ctx: pcv.getContext('2d'), tex: canvasTexture(pcv) };
+  const plate = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 0.36), new THREE.MeshBasicMaterial({ map: casePlate.tex, toneMapped: false }));
+  plate.position.set(0, 2.35, 0.1);
+  group.add(plate);
+
+  const xs = [-0.99, -0.33, 0.33, 0.99];
+  PRIZES.forEach((prize, i) => {
+    const anchor = new THREE.Group();
+    anchor.position.set(xs[i % 4], i < 4 ? 0.92 : 1.49, 0.05);
+    group.add(anchor);
+    const placeholder = new THREE.LineSegments(
+      new THREE.EdgesGeometry(new THREE.BoxGeometry(0.16, 0.16, 0.16)),
+      new THREE.LineBasicMaterial({ color: 0x5a4a8a, transparent: true, opacity: 0.6 })
+    );
+    placeholder.position.y = 0.16;
+    anchor.add(placeholder);
+    caseSlots.push({ prize, anchor, placeholder, model: null });
+  });
+
+  group.updateMatrixWorld(true);
+  const corners = [[-W / 2, -D / 2], [W / 2, -D / 2], [-W / 2, D / 2], [W / 2, D / 2]].map(([lx, lz]) =>
+    new THREE.Vector3(lx, 0, lz).applyAxisAngle(UP, CASE_SPOT.rot).add(group.position));
+  addCollider(
+    Math.min(...corners.map((c) => c.x)), Math.max(...corners.map((c) => c.x)),
+    Math.min(...corners.map((c) => c.z)), Math.max(...corners.map((c) => c.z))
+  );
+  addFloorGlow(scene, new THREE.Color(C.cyan), 3.2, 1.6,
+    group.position.x + Math.sin(CASE_SPOT.rot) * 0.9, group.position.z + Math.cos(CASE_SPOT.rot) * 0.9, 0.25);
+
+  interactables.push({
+    kind: 'collection',
+    scale: 1.2,
+    position: group.position.clone(),
+    forward: new THREE.Vector3(0, 0, 1).applyAxisAngle(UP, CASE_SPOT.rot),
+    screenCenter: new THREE.Vector3(0, 1.45, 0).applyMatrix4(group.matrixWorld)
+  });
+}
+
+// Sync shelves, case, counter screen and HUD with the wallet.
+function refreshPrizes() {
+  const w = Wallet.get();
+  const firstSync = !refreshPrizes.ran;
+  refreshPrizes.ran = true;
+  prizeSlots.forEach((s) => {
+    const owned = w.prizes.includes(s.prize.id);
+    drawPriceTag(s.tag, s.prize, owned, w.coins);
+    if (s.ghost !== owned) {
+      setGhost(s.model.group, owned);
+      s.ghost = owned;
+    }
+  });
+  caseSlots.forEach((s) => {
+    const owned = w.prizes.includes(s.prize.id);
+    s.animatePop = !firstSync;    // only animate prizes redeemed after load
+    if (owned && !s.model) {
+      s.model = makePrizeModel(s.prize.id);
+      s.anchor.add(s.model.group);
+      s.placeholder.visible = false;
+      s.popT = s.animatePop ? elapsed : -1;
+    }
+  });
+  if (counterDisplay) {
+    const { ctx, tex } = counterDisplay;
+    ctx.fillStyle = '#05040c';
+    ctx.fillRect(0, 0, 256, 128);
+    ctx.strokeStyle = C.amber;
+    ctx.lineWidth = 4;
+    ctx.strokeRect(2, 2, 252, 124);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '16px "Share Tech Mono", monospace';
+    ctx.fillStyle = '#b9a6e8';
+    ctx.fillText('YOUR COINS', 128, 26);
+    ctx.font = '64px VT323, monospace';
+    ctx.fillStyle = C.amber;
+    ctx.fillText(`◎ ${w.coins}`, 128, 78);
+    scanlines(ctx, 256, 128, 0.2, 3);
+    tex.needsUpdate = true;
+  }
+  if (casePlate) {
+    const { ctx, tex } = casePlate;
+    ctx.fillStyle = '#0b0816';
+    ctx.fillRect(0, 0, 512, 96);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '900 34px Orbitron, "Arial Black", sans-serif';
+    chromaText(ctx, `MY COLLECTION ${w.prizes.length}/${PRIZES.length}`, 256, 50, 2, C.text, C.cyan);
+    tex.needsUpdate = true;
+  }
+  updateCoinHud(w);
+}
+
+function updateCoinHud(w = Wallet.get()) {
+  const el = $('gcCoins');
+  if (!el) return;
+  el.innerHTML = `<b>◎ ${w.coins}</b> COINS <i>//</i> ${w.prizes.length}/${PRIZES.length} PRIZES`;
+}
+
+function pulseCoinHud() {
+  const el = $('gcCoins');
+  if (!el) return;
+  el.classList.remove('pulse');
+  void el.offsetWidth;
+  el.classList.add('pulse');
+}
+
+function redeemPrize(slot) {
+  const w = Wallet.get();
+  const p = slot.prize;
+  if (w.prizes.includes(p.id)) {
+    robotSay(`YOU ALREADY OWN THE ${p.name}. IT IS ON DISPLAY IN YOUR COLLECTION CASE.`);
+    return;
+  }
+  if (w.coins < p.cost) {
+    const need = p.cost - w.coins;
+    audio.deny();
+    robotSay(`INSUFFICIENT COINS. THE ${p.name} NEEDS ${need} MORE — THAT IS ${Math.ceil(need / 10)} MORE WIN${need > 10 ? 'S' : ''}. THE EYE AWAITS.`);
+    return;
+  }
+  const after = Wallet.redeem(p.id, p.cost);
+  if (!after) return;
+  audio.redeem();
+  pulseCoinHud();
+  robot.waveT = 1.2;
+  const done = after.prizes.length >= PRIZES.length;
+  robotSay(done
+    ? `THE ${p.name} IS YOURS. THAT COMPLETES THE ENTIRE COLLECTION. YOU ARE A GLITCHCADE LEGEND.`
+    : `EXCELLENT CHOICE! THE ${p.name} IS YOURS. ${after.coins} COINS REMAINING.`);
+  toast(`PRIZE COLLECTED: ${p.name} (${after.prizes.length}/${PRIZES.length})`);
+  refreshPrizes();
+}
+
+// Ray from the crosshair against the shelf prizes (closest hit wins).
+function pickPrize() {
+  if (!atPrizeCounter()) return null;
+  const dir = camera.getWorldDirection(tmpV1);
+  const o = camera.position;
+  let best = null;
+  let bestT = 6;
+  for (const s of prizeSlots) {
+    const cx = s.center.x - o.x, cy = s.center.y - o.y, cz = s.center.z - o.z;
+    const t = cx * dir.x + cy * dir.y + cz * dir.z;
+    if (t < 0 || t > bestT) continue;
+    const d2 = cx * cx + cy * cy + cz * cz - t * t;
+    if (d2 < s.radius * s.radius) { bestT = t; best = s; }
+  }
+  return best;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // PLAYER (first-person character)
 // ═══════════════════════════════════════════════════════════════════════════
 const player = {
@@ -1776,7 +2636,10 @@ function buildArms() {
 
 function floorHeightAt(x, z) {
   for (const p of platforms) {
-    if (x > p.minX && x < p.maxX && z > p.minZ && z < p.maxZ) return p.h;
+    const dx = x - p.cx, dz = z - p.cz;
+    const lx = dx * Math.cos(p.rot) - dz * Math.sin(p.rot);
+    const lz = dx * Math.sin(p.rot) + dz * Math.cos(p.rot);
+    if (Math.abs(lx) < p.hw && Math.abs(lz) < p.hd) return p.h;
   }
   return 0;
 }
@@ -1883,6 +2746,8 @@ let focused = null;
 let toastTimer = null;
 
 function findFocus() {
+  const prize = pickPrize();
+  if (prize) return prize;
   const look = new THREE.Vector3();
   camera.getWorldDirection(look);
   let best = null;
@@ -1914,7 +2779,27 @@ function updateFocus() {
   }
   audio.hover();
   const key = isTouch ? 'USE' : 'E';
-  if (focused.kind === 'jukebox') {
+  const w = Wallet.get();
+  if (focused.kind === 'prize') {
+    const p = focused.prize;
+    if (w.prizes.includes(p.id)) {
+      promptEl.className = 'show';
+      promptEl.innerHTML = `<span class="key">✓</span>${p.name}<small>COLLECTED // ON DISPLAY IN YOUR CASE</small>`;
+    } else if (w.coins >= p.cost) {
+      promptEl.className = 'show';
+      promptEl.innerHTML = `<span class="key">${key}</span>REDEEM ${p.name}<small>◎ ${p.cost} COINS // YOU HAVE ${w.coins}</small>`;
+    } else {
+      promptEl.className = 'show soon';
+      const wins = Math.ceil((p.cost - w.coins) / 10);
+      promptEl.innerHTML = `<span class="key">${key}</span>${p.name}<small>◎ ${p.cost} COINS // NEED ${p.cost - w.coins} MORE (${wins} WIN${wins > 1 ? 'S' : ''})</small>`;
+    }
+  } else if (focused.kind === 'robot') {
+    promptEl.className = 'show';
+    promptEl.innerHTML = `<span class="key">${key}</span>TALK TO ${ROBOT_NAME}<small>◎ ${w.coins} COINS // ${w.prizes.length}/${PRIZES.length} PRIZES</small>`;
+  } else if (focused.kind === 'collection') {
+    promptEl.className = 'show';
+    promptEl.innerHTML = `<span class="key">${key}</span>MY COLLECTION<small>${w.prizes.length}/${PRIZES.length} PRIZES COLLECTED</small>`;
+  } else if (focused.kind === 'jukebox') {
     promptEl.className = 'show';
     promptEl.innerHTML = `<span class="key">${key}</span>NEXT TRACK<small>JUKEBOX // ${audio.trackTitle}</small>`;
   } else if (focused.playable) {
@@ -1936,6 +2821,23 @@ function toast(text) {
 function interact() {
   if (gameState !== 'explore' || !focused) return;
   if (arms) arms.reach = 1;
+  if (focused.kind === 'prize') {
+    redeemPrize(focused);
+    focused = null;            // refresh the prompt with the new balance
+    return;
+  }
+  if (focused.kind === 'robot') {
+    robotChat();
+    return;
+  }
+  if (focused.kind === 'collection') {
+    const w = Wallet.get();
+    const goal = nextGoal(w);
+    robotSay(w.prizes.length
+      ? `YOUR CASE HOLDS ${w.prizes.length} OF ${PRIZES.length} PRIZES.${goal ? ` NEXT UP: THE ${goal.name} FOR ${goal.cost} COINS.` : ''}`
+      : 'YOUR COLLECTION CASE IS EMPTY. WIN A MATCH OF GLITCH PONG AND COME SEE ME.');
+    return;
+  }
   if (focused.kind === 'jukebox') {
     const title = audio.nextTrack();
     if (title) toast(`NOW PLAYING: ${title}`);
@@ -2020,6 +2922,7 @@ function launchGlitchPong(cab) {
   look.position.copy(target);
   look.lookAt(cab.screenCenter);
   launch = {
+    coinsBefore: Wallet.get().coins,
     t: 0,
     dur: 0.85,
     fromPos: camera.position.clone(),
@@ -2059,6 +2962,8 @@ function updateLaunch(dt) {
 
 function onGameExit() {
   const cab = launch ? launch.cab : cabinets.find((c) => c.playable);
+  const wallet = Wallet.get();
+  const gained = launch ? wallet.coins - launch.coinsBefore : 0;
   launch = null;
   document.body.classList.remove('gp-playing', 'gc-launching');
   root.classList.remove('gc-hidden');
@@ -2080,6 +2985,16 @@ function onGameExit() {
   audio.welcomeBack();
   worldGlitch();
   lastFrame = performance.now();
+  refreshPrizes();
+  if (gained > 0) {
+    audio.coin();
+    pulseCoinHud();
+    toast(`+${gained} COINS! YOU HAVE ${wallet.coins}. REDEEM THEM AT THE PRIZE COUNTER.`);
+    if (robot) {
+      robot.pending = `VICTORY DETECTED. +${gained} COINS. YOU NOW HAVE ${wallet.coins}. COME SEE WHAT THEY BUY.`;
+      robot.inZone = false;
+    }
+  }
 
   if (isTouch) {
     gameState = 'explore';
@@ -2395,13 +3310,17 @@ function showFatal(msg) {
   buildEnvironment();
   buildCabinets();
   buildJukebox();
+  buildPrizeCounter();
   buildArms();
+  window.addEventListener('glitchcade:wallet', () => refreshPrizes());
+  window.addEventListener('storage', (e) => { if (e.key === 'glitchcade_wallet_v1') refreshPrizes(); });
   audioWorld = {
     signPos: new THREE.Vector3(0, ROOM_H + 1.85, 0.6),
     doorPos: new THREE.Vector3(0, 1.6, WALL_T / 2),
     soonCabinets: cabinets.filter((c) => !c.playable),
     gpScreen: cabinets.find((c) => c.playable).screenCenter,
-    jukeboxPos: jukebox.screenCenter
+    jukeboxPos: jukebox.screenCenter,
+    robotPos: ROBOT_POS.clone().setY(1.7)
   };
   resize();
   requestAnimationFrame((t) => { lastFrame = t; frame(t); });
@@ -2422,6 +3341,8 @@ function showFatal(msg) {
     },
     start() { gameState = 'explore'; setExploring(true); },
     interact,
-    audio
+    audio,
+    prizes: prizeSlots,
+    robot: () => robot
   };
 })();
