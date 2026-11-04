@@ -7,6 +7,7 @@ import { EffectComposer } from './vendor/three-addons/postprocessing/EffectCompo
 import { RenderPass } from './vendor/three-addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from './vendor/three-addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from './vendor/three-addons/postprocessing/OutputPass.js';
+import { mergeGeometries } from './vendor/three-addons/utils/BufferGeometryUtils.js';
 import { createArcadeAudio } from './glitchcade-audio.js?v=glitchcade-3';
 
 // ─── Palette (matches the site's design tokens) ─────────────────────────────
@@ -138,17 +139,23 @@ function chromaText(ctx, text, x, y, split, core = C.text, glow = null) {
 
 // ─── Renderer, scenes, cameras ──────────────────────────────────────────────
 let renderer;
+let useBloom = !isTouch;
 try {
-  renderer = new THREE.WebGLRenderer({ canvas, antialias: !isTouch, powerPreference: 'high-performance' });
+  // With bloom, the scene renders into off-screen targets, so canvas MSAA would be wasted work.
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' });
 } catch (err) {
   showFatal('Your browser could not start WebGL, so the Glitchcade can\'t load. You can still play Glitch Pong on the main site.');
   throw err;
 }
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isTouch ? 1.25 : 1.75));
+// Adaptive resolution: start here, step down if frames run slow (see `quality`).
+const MAX_PIXEL_RATIO = Math.min(window.devicePixelRatio || 1, isTouch ? 1 : 1.5);
+renderer.setPixelRatio(MAX_PIXEL_RATIO);
 renderer.setSize(window.innerWidth, window.innerHeight, false);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.NoToneMapping;
 const maxAniso = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+// Several passes render per frame; count them all, reset once per frame.
+renderer.info.autoReset = false;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05040f);
@@ -162,8 +169,8 @@ const viewScene = new THREE.Scene();
 const viewCamera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 10);
 viewScene.add(viewCamera);
 
-const useBloom = !isTouch;
 let composer = null;
+let bloomPass = null;
 if (useBloom) {
   composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
@@ -171,9 +178,19 @@ if (useBloom) {
   armsPass.clear = false;
   armsPass.clearDepth = true;
   composer.addPass(armsPass);
-  composer.addPass(new UnrealBloomPass(new THREE.Vector2(window.innerWidth / 2, window.innerHeight / 2), 0.7, 0.4, 0.72));
+  bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth / 2, window.innerHeight / 2), 0.7, 0.4, 0.72);
+  composer.addPass(bloomPass);
   composer.addPass(new OutputPass());
 } else {
+  renderer.autoClear = false;
+}
+
+function disableBloom() {
+  if (!composer) return;
+  composer.dispose();
+  composer = null;
+  bloomPass = null;
+  useBloom = false;
   renderer.autoClear = false;
 }
 
@@ -186,6 +203,11 @@ function canvasTexture(cv, { repeat = null, srgb = true } = {}) {
     tex.repeat.set(repeat[0], repeat[1]);
   }
   return tex;
+}
+
+// Cheap diffuse material for big rough surfaces (Lambert ignores roughness/metalness).
+function matte({ roughness, metalness, ...params }) {
+  return new THREE.MeshLambertMaterial(params);
 }
 
 function glowTexture() {
@@ -363,7 +385,11 @@ function createNeonSign(w, h, word = 'GLITCHCADE', flickerIndex = 6) {
   const ctx = cv.getContext('2d');
   const tex = canvasTexture(cv);
   const rand = Math.random;
+  let shownNormal = false;
   function draw(glitch) {
+    const flickerNow = !glitch && rand() < 0.04;
+    if (!glitch && !flickerNow && shownNormal) return false;   // nothing changed
+    shownNormal = !glitch && !flickerNow;
     ctx.clearRect(0, 0, cv.width, cv.height);
     ctx.font = '900 150px Orbitron, "Arial Black", sans-serif';
     ctx.textBaseline = 'middle';
@@ -378,7 +404,7 @@ function createNeonSign(w, h, word = 'GLITCHCADE', flickerIndex = 6) {
     [...word].forEach((ch, i) => {
       // The second C is the flickery tube, like every real neon sign.
       const dead = glitch ? rand() < 0.16 : false;
-      const flicker = i === flickerIndex && !glitch && rand() < 0.04;
+      const flicker = i === flickerIndex && flickerNow;
       if (flicker) flickered = true;
       if (!dead && !flicker) {
         const split = glitch ? 6 + rand() * 10 : 5;
@@ -902,6 +928,97 @@ function addGlow(parent, color, size, opacity, position) {
   return sp;
 }
 
+// ── Static batching: meshes that never move and look identical become one draw call ──
+function materialKey(m) {
+  if (m.isShaderMaterial) return m.uuid;
+  const hex = (c) => (c ? c.getHexString() : '');
+  const id = (t) => (t ? t.uuid : '');
+  return [m.type, hex(m.color), hex(m.emissive), m.emissiveIntensity, m.roughness, m.metalness,
+    id(m.map), id(m.emissiveMap), id(m.alphaMap), m.transparent, m.opacity, m.blending,
+    m.side, m.depthWrite, m.toneMapped].join('|');
+}
+
+// Geometry in `root` space with only the attributes every primitive shares.
+function bakeableGeometry(mesh, toRoot) {
+  const geo = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry.clone();
+  Object.keys(geo.attributes).forEach((name) => {
+    if (name !== 'position' && name !== 'normal' && name !== 'uv') geo.deleteAttribute(name);
+  });
+  return geo.applyMatrix4(new THREE.Matrix4().multiplyMatrices(toRoot, mesh.matrixWorld));
+}
+
+// One material slot of a multi-material mesh as its own geometry.
+function groupSlice(geo, group) {
+  const part = new THREE.BufferGeometry();
+  Object.entries(geo.attributes).forEach(([name, attr]) => {
+    const n = attr.itemSize;
+    part.setAttribute(name, new THREE.BufferAttribute(attr.array.slice(group.start * n, (group.start + group.count) * n), n));
+  });
+  return part;
+}
+
+// Merge static child meshes of `root` per material (multi-material meshes are split
+// per slot first). Anything flagged `userData.noBake` or matched by `skip` is left
+// alone, children included.
+function bakeStatic(root, skip = () => false) {
+  root.updateMatrixWorld(true);
+  const toRoot = new THREE.Matrix4().copy(root.matrixWorld).invert();
+  const buckets = new Map();
+  const add = (material, item) => {
+    const key = materialKey(material);
+    if (!buckets.has(key)) buckets.set(key, { material, items: [] });
+    buckets.get(key).items.push(item);
+  };
+  const splitMeshes = [];
+  (function walk(obj) {
+    for (const child of obj.children) {
+      if (child.userData.noBake || skip(child)) continue;
+      const g = child.geometry;
+      if (child.isMesh && !child.children.length && g.attributes.position && g.attributes.normal && g.attributes.uv) {
+        if (!Array.isArray(child.material)) {
+          add(child.material, { mesh: child });
+        } else if (g.groups.length) {
+          const flat = bakeableGeometry(child, toRoot);
+          flat.groups.forEach((grp) => add(child.material[grp.materialIndex], { geo: groupSlice(flat, grp) }));
+          splitMeshes.push(child);
+        }
+      }
+      walk(child);
+    }
+  })(root);
+  let removed = 0;
+  for (const { material, items } of buckets.values()) {
+    if (items.length < 2 && items[0].mesh) continue;     // a lone plain mesh gains nothing
+    const geos = items.map((it) => {
+      const geo = it.geo || bakeableGeometry(it.mesh, toRoot);
+      geo.clearGroups();
+      return geo;
+    });
+    const merged = mergeGeometries(geos, false);
+    if (!merged) continue;
+    root.add(new THREE.Mesh(merged, material));
+    items.forEach((it) => { if (it.mesh) it.mesh.parent.remove(it.mesh); });
+    removed += items.length - 1;
+  }
+  splitMeshes.forEach((mesh) => { mesh.parent.remove(mesh); removed++; });
+  return removed;
+}
+
+function bakeScene() {
+  let removed = 0;
+  // Most of the building is on screen at once, so one batch per material for the
+  // whole world beats per-prop culling. The robot is baked piecewise (its parts move).
+  if (robot) {
+    const r = robot;
+    removed += bakeStatic(r.root, (o) => o === r.torso);
+    removed += bakeStatic(r.torso, (o) => o === r.head || o === r.armL.arm || o === r.armR.arm);
+    removed += bakeStatic(r.head);
+    [r.armL, r.armR].forEach((a) => { removed += bakeStatic(a.arm, (o) => o === a.claw); });
+  }
+  removed += bakeStatic(scene);
+  return removed;
+}
+
 // Floor decal glow (light pool) — cheap fake lighting.
 function addFloorGlow(parent, color, w, d, x, z, opacity = 0.5) {
   const mat = new THREE.MeshBasicMaterial({
@@ -952,7 +1069,7 @@ function buildEnvironment() {
   const sidewalkTex = canvasTexture(makeSidewalkTexture(), { repeat: [14, 3] });
   const sidewalk = new THREE.Mesh(
     new THREE.PlaneGeometry(28, 6),
-    new THREE.MeshStandardMaterial({ map: sidewalkTex, roughness: 0.8 })
+    matte({ map: sidewalkTex, roughness: 0.8 })
   );
   sidewalk.rotation.x = -Math.PI / 2;
   sidewalk.position.set(0, 0.004, 3);
@@ -971,7 +1088,7 @@ function buildEnvironment() {
   const carpetTex = canvasTexture(carpetCv, { repeat: [ROOM_W / 3.2, ROOM_D / 3.2] });
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(ROOM_W, ROOM_D),
-    new THREE.MeshStandardMaterial({
+    matte({
       map: carpetTex, emissiveMap: carpetTex, emissive: 0xffffff, emissiveIntensity: 0.42, roughness: 0.95
     })
   );
@@ -981,7 +1098,7 @@ function buildEnvironment() {
 
   const ceiling = new THREE.Mesh(
     new THREE.PlaneGeometry(ROOM_W, ROOM_D),
-    new THREE.MeshStandardMaterial({ color: 0x0a0814, roughness: 1 })
+    matte({ color: 0x0a0814, roughness: 1 })
   );
   ceiling.rotation.x = Math.PI / 2;
   ceiling.position.set(0, ROOM_H, -ROOM_D / 2);
@@ -995,15 +1112,15 @@ function buildEnvironment() {
   });
 
   // ── Walls (box face order: +x, -x, +y, -y, +z, -z) ──
-  const interiorWall = new THREE.MeshStandardMaterial({
+  const interiorWall = matte({
     map: canvasTexture(makeWallTexture('#120d24', 'rgba(154,93,255,0.18)', 11), { repeat: [6, 2] }),
     roughness: 0.9
   });
-  const exteriorWall = new THREE.MeshStandardMaterial({
+  const exteriorWall = matte({
     map: canvasTexture(makeWallTexture('#17102e', 'rgba(255,88,217,0.14)', 12), { repeat: [8, 2] }),
     roughness: 0.75
   });
-  const trimMat = new THREE.MeshStandardMaterial({ color: 0x0b0816, roughness: 0.6 });
+  const trimMat = matte({ color: 0x0b0816, roughness: 0.6 });
 
   function wall(minX, maxX, minZ, maxZ, height, interiorFace, y0 = 0) {
     const mats = [exteriorWall, exteriorWall, trimMat, trimMat, exteriorWall, exteriorWall];
@@ -1075,7 +1192,7 @@ function buildEnvironment() {
   let curtainTimer = 0;
   animated.push((dt) => {
     curtainTimer += dt;
-    if (curtainTimer < 1 / 15) return;
+    if (curtainTimer < 1 / 15 || Math.abs(camera.position.z) > 14) return;
     curtainTimer = 0;
     cctx.clearRect(0, 0, 64, 256);
     for (let y = 0; y < 256; y += 4) {
@@ -1172,7 +1289,7 @@ function buildEnvironment() {
 
   // ── Plaza boundary: neon railings + invisible walls ──
   const railMat = neonMaterial(C.purple, 0.8);
-  const railPostMat = new THREE.MeshStandardMaterial({ color: 0x1a1430, roughness: 0.5 });
+  const railPostMat = matte({ color: 0x1a1430, roughness: 0.5 });
   function railing(x1, z1, x2, z2) {
     const len = Math.hypot(x2 - x1, z2 - z1);
     const rail = new THREE.Mesh(new THREE.BoxGeometry(len, 0.05, 0.05), railMat);
@@ -1209,7 +1326,7 @@ function buildEnvironment() {
   // ── City skyline & sky ──
   const skyMats = [1, 2, 3, 4].map((seed) => {
     const t = canvasTexture(makeSkylineWindows(seed), { repeat: [2, 3] });
-    return new THREE.MeshStandardMaterial({ color: 0x0a0914, emissiveMap: t, emissive: 0xffffff, emissiveIntensity: 0.9, roughness: 1 });
+    return matte({ color: 0x0a0914, emissiveMap: t, emissive: 0xffffff, emissiveIntensity: 0.9, roughness: 1 });
   });
   const rand = seeded(2024);
   for (let i = 0; i < 46; i++) {
@@ -1326,7 +1443,7 @@ function buildCabinet(opts) {
   inner.scale.setScalar(scale);
   group.add(inner);
 
-  const bodyMat = new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.55, metalness: 0.2 });
+  const bodyMat = matte({ color: bodyColor, roughness: 0.55, metalness: 0.2 });
   const body = new THREE.Mesh(profileGeometry(width - SIDE_T * 2), bodyMat);
   inner.add(body);
 
@@ -1335,9 +1452,9 @@ function buildCabinet(opts) {
     tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
     tex.repeat.set(1 / 1.07, 1 / 2.12);
     tex.offset.set(0.45 / 1.07, 0);
-    return new THREE.MeshStandardMaterial({ map: tex, roughness: 0.5, emissiveMap: tex, emissive: 0xffffff, emissiveIntensity: 0.28 });
+    return matte({ map: tex, roughness: 0.5, emissiveMap: tex, emissive: 0xffffff, emissiveIntensity: 0.28 });
   };
-  const edgeMat = new THREE.MeshStandardMaterial({ color: 0x07060c, roughness: 0.4 });
+  const edgeMat = matte({ color: 0x07060c, roughness: 0.4 });
   const artMat = artFor(sideArt);
   [-1, 1].forEach((side) => {
     const panel = new THREE.Mesh(profileGeometry(SIDE_T), [artMat, edgeMat]);
@@ -1376,7 +1493,7 @@ function buildCabinet(opts) {
 
   // speaker grille strip under the marquee hood
   const hood = faceFrame(6, 7);
-  const grille = new THREE.Mesh(new THREE.PlaneGeometry(innerW, hood.len), new THREE.MeshStandardMaterial({ color: 0x050409, roughness: 0.9 }));
+  const grille = new THREE.Mesh(new THREE.PlaneGeometry(innerW, hood.len), matte({ color: 0x050409, roughness: 0.9 }));
   placeOnFace(grille, 6, 7, 0.5, 0.003);
   inner.add(grille);
 
@@ -1518,9 +1635,7 @@ function buildCabinets() {
   spot.position.copy(cabSpot).addScaledVector(gpEntry.forward, 3.4).setY(ROOM_H - 0.2);
   spot.target.position.copy(cabSpot).setY(1.2);
   scene.add(spot, spot.target);
-  const pinkFill = new THREE.PointLight(C.pink, 10, 7, 1.6);
-  pinkFill.position.copy(cabSpot).addScaledVector(gpEntry.forward, 2.2).setY(1.6);
-  scene.add(pinkFill);
+  addFloorGlow(scene, new THREE.Color(C.pink), 2.6, 2.0, cabSpot.x + gpEntry.forward.x * 1.6, cabSpot.z + gpEntry.forward.z * 1.6, 0.22);
   buildBossEye(gpEntry);
 
   // ── Nine cabinets that are still compiling ──
@@ -1573,6 +1688,7 @@ function buildBossEye(cab) {
   const orbit = [];
   for (let i = 0; i < 6; i++) {
     const m = new THREE.Mesh(new THREE.SphereGeometry(0.045, 12, 8), neonMaterial(i % 2 ? C.pink : C.cyan, 1.4));
+    m.userData.noBake = true;
     scene.add(m);
     orbit.push({ m, a: (Math.PI * 2 * i) / 6 });
   }
@@ -1618,7 +1734,8 @@ function buildBossEye(cab) {
     if (shot) {
       shot.life += dt;
       const k = Math.min(1, shot.life / shot.dur);
-      const target = camera.position.clone().add(new THREE.Vector3(0, -0.25, 0));
+      const target = tmpV1.copy(camera.position);
+      target.y -= 0.25;
       shot.m.position.lerpVectors(shot.from, target, k);
       shot.m.position.y += Math.sin(k * Math.PI) * 0.4;
       if (k > 0.86) {
@@ -1663,15 +1780,17 @@ function buildJukebox() {
   group.add(win);
 
   // neon tubes that cycle colour
-  const tubeMats = [0, 1, 2].map(() => neonMaterial(C.pink));
+  const tubeMats = [0, 1, 2].map(() => neonMaterial(C.pink));   // colours cycle per tube
   const outer = new THREE.Mesh(new THREE.TorusGeometry(0.455, 0.022, 8, 40, Math.PI), tubeMats[0]);
   outer.position.set(0, 1.25, 0.3);
   const inner = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.016, 8, 40, Math.PI), tubeMats[1]);
   inner.position.set(0, 1.25, 0.305);
   group.add(outer, inner);
+  outer.userData.noBake = inner.userData.noBake = true;
   [-1, 1].forEach((side) => {
     const t = new THREE.Mesh(new THREE.BoxGeometry(0.04, 1.25, 0.04), tubeMats[2]);
     t.position.set(side * 0.455, 0.625, 0.3);
+    t.userData.noBake = true;
     group.add(t);
   });
 
@@ -1825,6 +1944,7 @@ function glowMaterial(color, opacity = 0.95) {
 // ── The host: a boxy 80s robot projected as a hologram ──
 function buildRobot() {
   const root = new THREE.Group();
+  root.userData.noBake = true;   // baked piecewise in bakeScene(); the hologram jitters
   root.position.copy(ROBOT_POS);
   const holo = hologramMaterial('#5fe8ff');
   const holoDim = hologramMaterial('#5fe8ff', 0.55);
@@ -1967,14 +2087,13 @@ function buildRobot() {
     return tip;
   });
 
-  const light = new THREE.PointLight('#5fe8ff', 7, 6, 1.6);
-  light.position.set(0, 1.6, 0.6);
-  root.add(light);
   addGlow(root, new THREE.Color('#5fe8ff'), 2.6, isTouch ? 0.22 : 0.1, new THREE.Vector3(0, 1.4, 0));
 
+  // parts animated individually stay separate meshes
+  [...eyes, ...mouth, ...antennae, ...chestLights, needle].forEach((m) => { m.userData.noBake = true; });
   scene.add(root);
   return {
-    root, torso, head, armL, armR, eyes, mouth, antennae, chestLights, needle, light,
+    root, torso, head, armL, armR, eyes, mouth, antennae, chestLights, needle,
     yaw: 0, pitch: 0, flickerT: 0, blinkT: 0, waveT: 0, talkT: 0,
     inZone: false, lastGreet: -999, pending: null
   };
@@ -2104,6 +2223,7 @@ function standMat() {
 
 function makePrizeModel(id) {
   const g = new THREE.Group();
+  g.userData.noBake = true;     // its parts animate
   let update = () => {};
   const emissive = (c, i = 0.9) => new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: i, roughness: 0.35 });
   const base = () => {
@@ -2351,7 +2471,7 @@ function buildPrizeCounter() {
       side.position.set(e * 1.37, 1.35, 0);
       unit.add(side);
     });
-    const backPanel = new THREE.Mesh(new THREE.BoxGeometry(2.8, 2.7, 0.04), new THREE.MeshStandardMaterial({ color: 0x1b1033, roughness: 0.8 }));
+    const backPanel = new THREE.Mesh(new THREE.BoxGeometry(2.8, 2.7, 0.04), matte({ color: 0x1b1033, roughness: 0.8 }));
     backPanel.position.set(0, 1.35, -0.26);
     unit.add(backPanel);
     [0.6, ...rows, 2.7].forEach((y, i) => {
@@ -2386,7 +2506,16 @@ function buildPrizeCounter() {
   buildCollectionCase();
   refreshPrizes();
 
+  let prizesShown = true;
   animated.push((dt, t) => {
+    const near = camera.position.z < -12;
+    if (near !== prizesShown) {
+      prizesShown = near;
+      prizeSlots.forEach((s) => { s.model.group.visible = near; });
+      caseSlots.forEach((s) => { s.anchor.visible = near; });
+    }
+    updateRobot(dt, t);
+    if (!near) return;
     prizeSlots.forEach((s) => s.model.update(dt, t));
     caseSlots.forEach((s) => {
       if (s.model) {
@@ -2395,7 +2524,6 @@ function buildPrizeCounter() {
       }
       if (s.placeholder) s.placeholder.rotation.y = t * 0.6;
     });
-    updateRobot(dt, t);
   });
 
   interactables.push({
@@ -2416,7 +2544,7 @@ function buildCollectionCase() {
   const W = 2.7, D = 0.85;
   const baseBox = new THREE.Mesh(new THREE.BoxGeometry(W, 0.9, D), new THREE.MeshStandardMaterial({ color: 0x120c22, roughness: 0.45, metalness: 0.35 }));
   baseBox.position.y = 0.45;
-  const inner = new THREE.Mesh(new THREE.BoxGeometry(W - 0.06, 1.15, 0.04), new THREE.MeshStandardMaterial({ color: 0x1b1033, roughness: 0.8 }));
+  const inner = new THREE.Mesh(new THREE.BoxGeometry(W - 0.06, 1.15, 0.04), matte({ color: 0x1b1033, roughness: 0.8 }));
   inner.position.set(0, 1.475, -D / 2 + 0.04);
   const glass = new THREE.Mesh(new THREE.BoxGeometry(W, 1.15, D), new THREE.MeshStandardMaterial({ color: 0xbfd8ff, transparent: true, opacity: 0.08, roughness: 0.05, depthWrite: false }));
   glass.position.y = 1.475;
@@ -2439,6 +2567,7 @@ function buildCollectionCase() {
   const xs = [-0.99, -0.33, 0.33, 0.99];
   PRIZES.forEach((prize, i) => {
     const anchor = new THREE.Group();
+    anchor.userData.noBake = true;
     anchor.position.set(xs[i % 4], i < 4 ? 0.92 : 1.49, 0.05);
     group.add(anchor);
     const placeholder = new THREE.LineSegments(
@@ -2745,21 +2874,21 @@ function jump() {
 let focused = null;
 let toastTimer = null;
 
+const focusLook = new THREE.Vector3();
+const focusTo = new THREE.Vector3();
 function findFocus() {
   const prize = pickPrize();
   if (prize) return prize;
-  const look = new THREE.Vector3();
-  camera.getWorldDirection(look);
+  const look = camera.getWorldDirection(focusLook);
   let best = null;
   let bestScore = -Infinity;
   for (const cab of interactables) {
-    const toCab = cab.screenCenter.clone().sub(camera.position);
-    const dist = Math.hypot(player.pos.x - cab.position.x, player.pos.z - cab.position.z);
+    const rx = player.pos.x - cab.position.x, rz = player.pos.z - cab.position.z;
+    const dist = Math.hypot(rx, rz);
     if (dist > INTERACT_RANGE * cab.scale) continue;
     // must be in front of the machine, not behind/beside it
-    const rel = new THREE.Vector3(player.pos.x - cab.position.x, 0, player.pos.z - cab.position.z);
-    if (rel.normalize().dot(cab.forward) < 0.5) continue;
-    const facing = look.dot(toCab.normalize());
+    if ((rx * cab.forward.x + rz * cab.forward.z) / (dist || 1) < 0.5) continue;
+    const facing = look.dot(focusTo.subVectors(cab.screenCenter, camera.position).normalize());
     if (facing < 0.55) continue;
     const score = facing - dist * 0.2;
     if (score > bestScore) { bestScore = score; best = cab; }
@@ -3227,7 +3356,11 @@ function resize() {
   viewCamera.aspect = w / h;
   viewCamera.updateProjectionMatrix();
   renderer.setSize(w, h, false);
-  if (composer) composer.setSize(w, h);
+  if (composer) {
+    composer.setSize(w, h);
+    // Bloom is a blur anyway: run it from CSS-pixel size, not the (higher) device-pixel size.
+    if (bloomPass) bloomPass.setSize(w, h);
+  }
 }
 window.addEventListener('resize', () => { if (gameState !== 'playing') resize(); });
 
@@ -3237,6 +3370,7 @@ let screenTimer = 0;
 let soonTimer = 0;
 
 const listenerDir = new THREE.Vector3();
+const gpScreenPos = new THREE.Vector3();
 let audioMode = null;
 
 // 0 outside → 1 inside, blended across the doorway
@@ -3245,10 +3379,44 @@ function insideFactor() {
   return Math.min(1, Math.max(0, (WALL_T + 0.6 - camera.position.z) / 1.6));
 }
 
+// ── Adaptive quality: when frames run slow, render fewer pixels, then drop bloom ──
+const QUALITY_MIN = isTouch ? 0.6 : 0.75;
+const quality = { scale: MAX_PIXEL_RATIO, sum: 0, n: 0, fast: 0 };
+
+function setPixelScale(v) {
+  quality.scale = v;
+  renderer.setPixelRatio(v);
+  if (composer) composer.setPixelRatio(v);
+  resize();
+}
+
+const FIXED_QUALITY = new URLSearchParams(location.search).has('fixedquality');   // for benchmarking
+
+function trackQuality(rawMs) {
+  if (FIXED_QUALITY || gameState !== 'explore' || document.hidden || rawMs > 250) return;   // ignore tab switches/hitches
+  quality.sum += rawMs;
+  if (++quality.n < 90) return;                                            // ~1.5 s windows
+  const avg = quality.sum / quality.n;
+  quality.sum = quality.n = 0;
+  if (avg > 24) {                                                          // slower than ~42 fps
+    quality.fast = 0;
+    if (quality.scale > QUALITY_MIN + 0.01) setPixelScale(Math.max(QUALITY_MIN, quality.scale - 0.25));
+    else if (composer) disableBloom();
+  } else if (avg < 14 && quality.scale < MAX_PIXEL_RATIO) {               // lots of headroom: claw back detail
+    if (++quality.fast >= 4) { quality.fast = 0; setPixelScale(Math.min(MAX_PIXEL_RATIO, quality.scale + 0.25)); }
+  } else {
+    quality.fast = 0;
+  }
+}
+
+const perf = { frames: 0, cpu: 0 };
 function frame(now) {
   requestAnimationFrame(frame);
+  const cpuStart = performance.now();
+  renderer.info.reset();
   if (gameState !== audioMode) { audioMode = gameState; audio.setMode(gameState); }
   if (gameState === 'playing') return;      // Glitch Pong has the screen; the arcade sleeps
+  trackQuality(now - lastFrame);
   const dt = Math.min(0.05, (now - lastFrame) / 1000);
   lastFrame = now;
   elapsed += dt;
@@ -3265,11 +3433,18 @@ function frame(now) {
 
   animated.forEach((fn) => fn(dt, elapsed));
 
-  // throttle the canvas-texture screens
+  // Canvas screens re-upload a texture every redraw: only animate them when you can see them up close.
+  const inside = insideFactor() > 0;
   screenTimer += dt;
-  if (screenTimer > 1 / 30) { pongScreen.draw(screenTimer); screenTimer = 0; }
+  if (screenTimer > 1 / 24) {
+    if (inside && camera.position.distanceToSquared(gpScreenPos) < 18 * 18) pongScreen.draw(screenTimer);
+    screenTimer = 0;
+  }
   soonTimer += dt;
-  if (soonTimer > 1 / 12) { soonScreen.draw(soonTimer); soonTimer = 0; }
+  if (soonTimer > 1 / 12) {
+    if (inside) soonScreen.draw(soonTimer);
+    soonTimer = 0;
+  }
 
   audio.update(dt, camera, listenerDir, insideFactor());
 
@@ -3293,6 +3468,8 @@ function frame(now) {
     renderer.clearDepth();
     renderer.render(viewScene, viewCamera);
   }
+  perf.frames++;
+  perf.cpu += performance.now() - cpuStart;
 }
 
 function showFatal(msg) {
@@ -3312,6 +3489,8 @@ function showFatal(msg) {
   buildJukebox();
   buildPrizeCounter();
   buildArms();
+  gpScreenPos.copy(cabinets.find((c) => c.playable).screenCenter);
+  const batched = bakeScene();
   window.addEventListener('glitchcade:wallet', () => refreshPrizes());
   window.addEventListener('storage', (e) => { if (e.key === 'glitchcade_wallet_v1') refreshPrizes(); });
   audioWorld = {
@@ -3343,6 +3522,27 @@ function showFatal(msg) {
     interact,
     audio,
     prizes: prizeSlots,
+    inventory() {
+      const out = {};
+      scene.traverseVisible((o) => {
+        if (!(o.isMesh || o.isSprite || o.isLine || o.isPoints)) return;
+        const parent = o.parent === scene ? 'scene' : (o.parent && o.parent.parent === scene ? 'group' : 'nested');
+        const k = `${o.type}:${Array.isArray(o.material) ? 'multi' : o.material.type}:${parent}`;
+        out[k] = (out[k] || 0) + 1;
+      });
+      return out;
+    },
+    stats() {
+      const out = {
+        calls: renderer.info.render.calls, triangles: renderer.info.render.triangles,
+        geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures,
+        programs: renderer.info.programs.length, lights: (() => { let n = 0; scene.traverse((o) => { if (o.isLight && !o.isAmbientLight && !o.isHemisphereLight) n++; }); return n; })(),
+        frames: perf.frames, avgFrameMs: perf.frames ? +(perf.cpu / perf.frames).toFixed(2) : 0,
+        pixelRatio: quality.scale, bloom: !!composer, batchedAway: batched
+      };
+      perf.frames = 0; perf.cpu = 0;
+      return out;
+    },
     robot: () => robot
   };
 })();
