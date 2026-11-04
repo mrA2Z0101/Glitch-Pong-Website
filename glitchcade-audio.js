@@ -47,6 +47,7 @@ export function createArcadeAudio({ isTouch }) {
   let suspendTimer = null;
   const emitters = [];          // positional loops that need panners
   let signEmitter = null;
+  let robotEmitter = null;
   let gpEmitter = null;
   let jukebox = null;
   let trackIndex = Math.floor(Math.random() * PLAYLIST.length);
@@ -219,6 +220,28 @@ export function createArcadeAudio({ isTouch }) {
     return em;
   }
 
+  // The prize-counter hologram: a soft shimmering hum around the projector.
+  function hologramEmitter(pos) {
+    const panner = makePanner(pos, { ref: 1.5, rolloff: 1.6 });
+    panner.connect(indoorIn);
+    const o = ctx.createOscillator();
+    o.frequency.value = 220;
+    const o2 = ctx.createOscillator();
+    o2.frequency.value = 331;
+    const trem = ctx.createOscillator();
+    trem.frequency.value = 5.5;
+    const tremGain = ctx.createGain();
+    tremGain.gain.value = 0.006;
+    const g = ctx.createGain();
+    g.gain.value = 0.014;
+    trem.connect(tremGain).connect(g.gain);
+    o.connect(g);
+    o2.connect(g);
+    g.connect(panner);
+    [o, o2, trem].forEach((n) => n.start());
+    return { panner };
+  }
+
   function bleep(em) {
     const t0 = now() + 0.02;
     const notes = 3 + Math.floor(Math.random() * 4);
@@ -366,6 +389,7 @@ export function createArcadeAudio({ isTouch }) {
           signEmitter = buzzEmitter(world.signPos);
           signEmitter.pos = world.signPos;
           curtainEmitter(world.doorPos);
+          robotEmitter = hologramEmitter(world.robotPos);
           world.soonCabinets.forEach((cab, i) => cabinetEmitter(cab, i));
           gpEmitter = { pos: world.gpScreen };
           setupJukebox(world.jukeboxPos);
@@ -483,6 +507,43 @@ export function createArcadeAudio({ isTouch }) {
       g.setValueAtTime(0.05, now() + 0.06 + Math.random() * 0.08);
     },
     eyeShot(at) { play('dash', { volume: 0.4, at, bus: 'indoor', ref: 2 }); },
+    // classic two-note coin "ba-ding"
+    coin() {
+      tone({ type: 'square', from: 988, to: 988, dur: 0.08, volume: 0.07 });
+      tone({ type: 'square', from: 1319, to: 1319, dur: 0.32, volume: 0.07, delay: 0.08 });
+    },
+    // prize fanfare: rising arpeggio + the game's score sting
+    redeem() {
+      [523, 659, 784, 1047].forEach((f, i) => tone({ type: 'square', from: f, to: f, dur: 0.12, volume: 0.05, delay: i * 0.08 }));
+      tone({ type: 'triangle', from: 1047, to: 1047, dur: 0.5, volume: 0.06, delay: 0.32 });
+      play('score', { volume: 0.35 });
+    },
+    deny() {
+      tone({ type: 'sawtooth', from: 140, to: 110, dur: 0.18, volume: 0.06 });
+      tone({ type: 'sawtooth', from: 140, to: 100, dur: 0.22, volume: 0.06, delay: 0.2 });
+    },
+    // robot "speech": a burst of formant-ish square chirps from the hologram
+    robotTalk(syllables = 8) {
+      if (!ctx || !robotEmitter || mode !== 'explore') return;
+      for (let i = 0; i < syllables; i++) {
+        const t = now() + i * 0.075;
+        const o = ctx.createOscillator();
+        o.type = 'square';
+        o.frequency.setValueAtTime(260 + Math.random() * 420, t);
+        o.frequency.exponentialRampToValueAtTime(200 + Math.random() * 300, t + 0.06);
+        const bp = ctx.createBiquadFilter();
+        bp.type = 'bandpass';
+        bp.frequency.value = 900 + Math.random() * 1400;
+        bp.Q.value = 4;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0, t);
+        g.gain.linearRampToValueAtTime(0.09, t + 0.008);
+        g.gain.exponentialRampToValueAtTime(0.0008, t + 0.065);
+        o.connect(bp).connect(g).connect(robotEmitter.panner);
+        o.start(t);
+        o.stop(t + 0.07);
+      }
+    },
     eyeHit() { play('pulse', { volume: 0.35, rate: 1.3 }); },
     attract(event) {
       if (!gpEmitter || mode !== 'explore') return;

@@ -1,0 +1,88 @@
+{
+  "platform": "itch",
+  "count": 5,
+  "files": [
+    {
+      "file": "marketing/screenshots/itch/gallery/01-boss-eye-the-construct.png",
+      "width": 1920,
+      "height": 1080,
+      "format": "PNG",
+      "ratio": 1.77778,
+      "bytes": 1247666,
+      "sha256": "b562efbf910f7cc9367eb4345c3bc968cd53e7991c3d4edbb2dd2b196438c4e3",
+      "dhash64": "0e8f8f0e0e0f0e8e",
+      "checks": [
+        {
+          "level": "manual",
+          "message": "Check chosen storefront rules and authenticity manually."
+        }
+      ]
+    },
+    {
+      "file": "marketing/screenshots/itch/gallery/02-black-hole-nexus-critical-heat.png",
+      "width": 1920,
+      "height": 1080,
+      "format": "PNG",
+      "ratio": 1.77778,
+      "bytes": 1562185,
+      "sha256": "4f0f0b9814e62302804a221a60958b45e7776c6cf6f7399322fabcbb5c24e189",
+      "dhash64": "0f8a8e15174d2b11",
+      "checks": [
+        {
+          "level": "manual",
+          "message": "Check chosen storefront rules and authenticity manually."
+        }
+      ]
+    },
+    {
+      "file": "marketing/screenshots/itch/gallery/03-matrix-mainframe-corruption-breach.png",
+      "width": 1920,
+      "height": 1080,
+      "format": "PNG",
+      "ratio": 1.77778,
+      "bytes": 688485,
+      "sha256": "2331ae4938ed592b449bc3354da09b8d88b0ce6ebea42315d1f7caa760a0e5d6",
+      "dhash64": "0f0d0f8e8e070a0d",
+      "checks": [
+        {
+          "level": "manual",
+          "message": "Check chosen storefront rules and authenticity manually."
+        }
+      ]
+    },
+    {
+      "file": "marketing/screenshots/itch/gallery/04-glitch-wall-shatter.png",
+      "width": 1920,
+      "height": 1080,
+      "format": "PNG",
+      "ratio": 1.77778,
+      "bytes": 1261440,
+      "sha256": "ae72693d21e7f770aaf739af53930bdf6dc0e8c4424b49697fdf2718cbceec6b",
+      "dhash64": "0f7072f87171717c",
+      "checks": [
+        {
+          "level": "manual",
+          "message": "Check chosen storefront rules and authenticity manually."
+        }
+      ]
+    },
+    {
+      "file": "marketing/screenshots/itch/gallery/05-glitchcade-cabinet.png",
+      "width": 1920,
+      "height": 1080,
+      "format": "PNG",
+      "ratio": 1.77778,
+      "bytes": 617704,
+      "sha256": "8ae654bb5a8a71d6ba8eaf7140af735b94b65fae5a8b14236417336ed4b88725",
+      "dhash64": "868e4d0f0f0f0f2b",
+      "checks": [
+        {
+          "level": "manual",
+          "message": "Check chosen storefront rules and authenticity manually."
+        }
+      ]
+    }
+  ],
+  "pairs": [],
+  "gallery_checks": []
+}

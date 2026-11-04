@@ -1,5 +1,5 @@
-const SHELL_CACHE = "glitch-pong-shell-v18";
-const RUNTIME_CACHE = "glitch-pong-runtime-v18";
+const SHELL_CACHE = "glitch-pong-shell-v19";
+const RUNTIME_CACHE = "glitch-pong-runtime-v19";
 
 const SHELL_FILES = [
   "./",
@@ -7,9 +7,9 @@ const SHELL_FILES = [
   "./glitch-pong.html",
   "./styles.css",
   "./glitchpong-site.js",
-  "./glitchpong-site.js?v=glitchcade-1",
-  "./glitchcade.js?v=glitchcade-2",
-  "./glitchcade-audio.js?v=glitchcade-2",
+  "./glitchcade.js?v=glitchcade-3",
+  "./glitchcade-audio.js?v=glitchcade-3",
+  "./glitchpong-site.js?v=glitchcade-3",
   "./vendor/three.module.min.js",
   "./manifest.webmanifest",
   "./icons/apple-touch-icon.png",

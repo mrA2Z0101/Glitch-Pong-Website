@@ -1,0 +1,166 @@
+{
+  "schema_version": 1,
+  "game": "Glitch Pong",
+  "platform": "itch.io",
+  "build_commit": "b0e6451 (content identical to main 37c844c)",
+  "reviewed_against_store_rules_on": "2026-11-04 (itch playbook; re-check official docs before upload)",
+  "capture_sources_note": "source_capture paths are relative to the session scratch capture folder; full candidate sets were reviewed via contact sheets and are not committed",
+  "shots": [
+    {
+      "order": 1,
+      "name": "01-boss-eye-the-construct",
+      "source_capture": "cap/B2/B2-022-t23.9.png",
+      "source_scene_or_level": "The Construct arena",
+      "capture_trigger": "glitch-pong.html -> PLAY NOW -> Play -> 1 Player -> arena card -> AI vs AI toggle ON -> Hard; Q (built-in max-Heat key) ~6 s after GO; frame ~18 s later",
+      "implemented_feature": "Eye boss with six orbiting punishment shots firing during a live rally; glitch wall",
+      "feature_evidence": "glitchpong-site.js triggerPreBoss(), boss mode; ARENA_REGISTRY id \"construct\"",
+      "capture_date": "2026-11-04",
+      "capture_method": "Playwright + headless Chromium, page.screenshot of the full viewport (1920x1080, deviceScaleFactor 1)",
+      "post_processing": "none (byte-for-byte copy of the capture)",
+      "resolution": [
+        1920,
+        1080
+      ],
+      "hud_visible": true,
+      "authentic_gameplay_verified": true,
+      "platform_reviewed": true,
+      "exported_asset": "marketing/screenshots/itch/gallery/01-boss-eye-the-construct.png",
+      "sha256": "b562efbf910f7cc9367eb4345c3bc968cd53e7991c3d4edbb2dd2b196438c4e3",
+      "selected": true,
+      "notes": "Staged in the built-in AI vs AI mode; renders identically to 1P (HUD reads \"1P\")."
+    },
+    {
+      "order": 2,
+      "name": "02-black-hole-nexus-critical-heat",
+      "source_capture": "cap/L3/L3-055-t128.9.png",
+      "source_scene_or_level": "Black-Hole Nexus arena",
+      "capture_trigger": "glitch-pong.html -> PLAY NOW -> Play -> 1 Player -> arena card -> AI vs AI toggle ON -> Hard; natural rally for 110 s, then Q; frame ~19 s later",
+      "implemented_feature": "Heat-reactive black hole at 100% Heat; SPLIT BALL orb on court",
+      "feature_evidence": "initBlackHoleNexusArena(); POWERUP_TYPES \"split\"; HUD \"ORB: SPLIT BALL\"",
+      "capture_date": "2026-11-04",
+      "capture_method": "Playwright + headless Chromium, page.screenshot of the full viewport (1920x1080, deviceScaleFactor 1)",
+      "post_processing": "none (byte-for-byte copy of the capture)",
+      "resolution": [
+        1920,
+        1080
+      ],
+      "hud_visible": true,
+      "authentic_gameplay_verified": true,
+      "platform_reviewed": true,
+      "exported_asset": "marketing/screenshots/itch/gallery/02-black-hole-nexus-critical-heat.png",
+      "sha256": "4f0f0b9814e62302804a221a60958b45e7776c6cf6f7399322fabcbb5c24e189",
+      "selected": true,
+      "notes": "Staged in the built-in AI vs AI mode; renders identically to 1P (HUD reads \"1P\")."
+    },
+    {
+      "order": 3,
+      "name": "03-matrix-mainframe-corruption-breach",
+      "source_capture": "cap/B1/B1-034-t36.8.png",
+      "source_scene_or_level": "Matrix Mainframe arena",
+      "capture_trigger": "glitch-pong.html -> PLAY NOW -> Play -> 1 Player -> arena card -> AI vs AI toggle ON -> Hard; Q ~6 s after GO; frame at the CORRUPTION BREACH banner",
+      "implemented_feature": "Boss phase warning banner + Eye with six shots over katakana rain",
+      "feature_evidence": "initMatrixArena(); \"CORRUPTION BREACH\" banner in boss sequence",
+      "capture_date": "2026-11-04",
+      "capture_method": "Playwright + headless Chromium, page.screenshot of the full viewport (1920x1080, deviceScaleFactor 1)",
+      "post_processing": "none (byte-for-byte copy of the capture)",
+      "resolution": [
+        1920,
+        1080
+      ],
+      "hud_visible": true,
+      "authentic_gameplay_verified": true,
+      "platform_reviewed": true,
+      "exported_asset": "marketing/screenshots/itch/gallery/03-matrix-mainframe-corruption-breach.png",
+      "sha256": "2331ae4938ed592b449bc3354da09b8d88b0ce6ebea42315d1f7caa760a0e5d6",
+      "selected": true,
+      "notes": "Staged in the built-in AI vs AI mode; renders identically to 1P (HUD reads \"1P\")."
+    },
+    {
+      "order": 4,
+      "name": "04-glitch-wall-shatter",
+      "source_capture": "cap/L0/L0-073-t142.6.png",
+      "source_scene_or_level": "Glitch Arena (classic)",
+      "capture_trigger": "glitch-pong.html -> PLAY NOW -> Play -> 1 Player -> arena card -> AI vs AI toggle ON -> Hard; fully natural rally, no shortcut, 142 s in",
+      "implemented_feature": "Ball shattering a glitch wall; PHASE SHIELD orb on court",
+      "feature_evidence": "glitch wall spawn/destroy logic; POWERUP_TYPES \"shield\"; HUD \"ORB: PHASE SHIELD\"",
+      "capture_date": "2026-11-04",
+      "capture_method": "Playwright + headless Chromium, page.screenshot of the full viewport (1920x1080, deviceScaleFactor 1)",
+      "post_processing": "none (byte-for-byte copy of the capture)",
+      "resolution": [
+        1920,
+        1080
+      ],
+      "hud_visible": true,
+      "authentic_gameplay_verified": true,
+      "platform_reviewed": true,
+      "exported_asset": "marketing/screenshots/itch/gallery/04-glitch-wall-shatter.png",
+      "sha256": "ae72693d21e7f770aaf739af53930bdf6dc0e8c4424b49697fdf2718cbceec6b",
+      "selected": true,
+      "notes": "Staged in the built-in AI vs AI mode; renders identically to 1P (HUD reads \"1P\")."
+    },
+    {
+      "order": 5,
+      "name": "05-glitchcade-cabinet",
+      "source_capture": "cap/G/cabinet-1.png",
+      "source_scene_or_level": "Glitchcade 3D arcade (index.html)",
+      "capture_trigger": "index.html, __glitchcade.start() then teleport(0, -21.2, yaw 0, pitch 0.12) = standing in front of the Glitch Pong cabinet; WebGL via SwiftShader",
+      "implemented_feature": "First-person 3D arcade hub; playable Glitch Pong cabinet with the Eye above it",
+      "feature_evidence": "glitchcade.js buildCabinets(), buildBossEye()",
+      "capture_date": "2026-11-04",
+      "capture_method": "Playwright + headless Chromium, page.screenshot of the full viewport (1920x1080, deviceScaleFactor 1)",
+      "post_processing": "none (byte-for-byte copy of the capture)",
+      "resolution": [
+        1920,
+        1080
+      ],
+      "hud_visible": true,
+      "authentic_gameplay_verified": true,
+      "platform_reviewed": true,
+      "exported_asset": "marketing/screenshots/itch/gallery/05-glitchcade-cabinet.png",
+      "sha256": "8ae654bb5a8a71d6ba8eaf7140af735b94b65fae5a8b14236417336ed4b88725",
+      "selected": true,
+      "notes": "Viewmodel hands and HUD badge are part of the real arcade UI."
+    }
+  ],
+  "extras": [
+    {
+      "name": "06-glitchcade-hall",
+      "exported_asset": "marketing/screenshots/itch/extras/06-glitchcade-hall.png",
+      "source_capture": "cap/G/hallAngle-1.png",
+      "capture_trigger": "teleport(-4.8, -2.6, yaw -0.42, pitch 0.02)",
+      "implemented_feature": "Arcade hall with all 10 cabinets (9 labelled COMING SOON)",
+      "sha256": "f1a4624d4d9498460e76f6d4a31b6a66538108845c6298c43514287541824381",
+      "selected": false,
+      "post_processing": "none"
+    },
+    {
+      "name": "07-glitchcade-street",
+      "exported_asset": "marketing/screenshots/itch/extras/07-glitchcade-street.png",
+      "source_capture": "cap/G/street-1.png",
+      "capture_trigger": "teleport(0, 13.6, yaw 0, pitch 0.17)",
+      "implemented_feature": "Neon street + GLITCHCADE building exterior",
+      "sha256": "85e94980ab60d8f80b8e09d612bc88a74a8b9c340addfe09f88e5a2a9adfda07",
+      "selected": false,
+      "post_processing": "none"
+    }
+  ],
+  "covers": [
+    {
+      "name": "cover-a-glitchcade-cabinet",
+      "exported_asset": "marketing/screenshots/itch/cover/cover-a-glitchcade-cabinet-630x500.png",
+      "source": "marketing/screenshots/itch/gallery/05-glitchcade-cabinet.png",
+      "treatment": "crop box (456,70,1464,870) 1008x800 = 315:250, Lanczos downscale to 630x500; no added text",
+      "recommended": true,
+      "sha256": "5441e6ba28324948ba82989c5acb65be7e1eb33422e458bab6d7a84ccc151d7d"
+    },
+    {
+      "name": "cover-b-black-hole",
+      "exported_asset": "marketing/screenshots/itch/cover/cover-b-black-hole-630x500.png",
+      "source": "marketing/screenshots/itch/gallery/02-black-hole-nexus-critical-heat.png",
+      "treatment": "screenshot_tool.py itch-cover, centre crop 1361x1080, downscale to 630x500",
+      "recommended": false,
+      "sha256": "1740d20892538764003a2ce7c98a561dbeb5f4ea0c1a918759912c065cea431d"
+    }
+  ],
+  "motion": "none produced (headless capture too slow for honest GIF frames)"
+}
