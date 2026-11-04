@@ -1814,8 +1814,23 @@ function injectGameById(gameId, options = {}) {
       return adaptiveQualityLevel === 2 ? "HIGH" : adaptiveQualityLevel === 1 ? "BALANCED" : "LOW";
     }
 
+    // shadowBlur is the most expensive thing a 2D canvas draws, and the neon look
+    // uses it everywhere. Shrink every glow radius when quality steps down.
+    function shadowBlurScale() {
+      if (batterySaverEnabled) return 0.3;
+      return adaptiveQualityLevel === 2 ? 1 : adaptiveQualityLevel === 1 ? 0.6 : 0.3;
+    }
+    const nativeShadowBlur = Object.getOwnPropertyDescriptor(CanvasRenderingContext2D.prototype, "shadowBlur");
+    if (nativeShadowBlur && nativeShadowBlur.set) {
+      Object.defineProperty(ctx, "shadowBlur", {
+        configurable: true,
+        get() { return nativeShadowBlur.get.call(this); },
+        set(value) { nativeShadowBlur.set.call(this, value * shadowBlurScale()); }
+      });
+    }
+
     function sampleAdaptiveQuality(now) {
-      if (!isMobileDevice || batterySaverEnabled || currentScreen !== "game" || isPaused || document.hidden) {
+      if (batterySaverEnabled || currentScreen !== "game" || isPaused || document.hidden) {
         qualitySampleStart = now || performance.now();
         qualitySampleFrames = 0;
         return;
