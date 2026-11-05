@@ -59,21 +59,24 @@ Clutch Mode, and the **Clutch Protocol** perk, required a score of 8, but matche
 
 ---
 
+## Applied: recommendations A and B
+
+These are now part of standard Glitch Pong. The **+ A and B** column in the table above shows their effect.
+
+### A. Horizontal speed cap (24 px/frame)
+- **Problem.** The old speed cap only trimmed vertical speed. Horizontal speed multiplied by up to ~11.5% on every return and never stopped. The old build reached 70–100 pixels per frame; with bug #1 fixed, long rallies no longer ended early and the bug-fixed simulation reached thousands of pixels per frame.
+- **Change.** Horizontal speed is capped at 24 px/frame. Long rallies still get fast, but they're decided by angles and glitches rather than by a ball nobody can see.
+- **Custom Match.** Top Speed now offers Chill 14 / Quick 20 / **Normal 24** / Insane 28 / No Limit. The Standard preset uses Normal; the Chaos preset uses No Limit.
+
+### B. Glitch reversals turn the ball neutral
+- **The rule (unchanged).** A ball in your colour going past you scores 2 for the opponent, or 3 at Critical Heat.
+- **Problem.** A player can't put their own shot past themselves; only the arena could: a teleport that flips direction, the side of a glitch wall, or a Black-Hole micro-hole. These random events decided a large share of points, at 2–3 points each in a first-to-7 match.
+- **Change.** When a teleport, glitch wall or micro-hole sends the ball back the way it came, the ball turns white (neutral) and is worth 1 point. The chaos stays, but one teleport can't hand over almost half a match.
+- **What still scores 2–3.** An opponent's Phase Shield bouncing your shot back at you. That's a power-up they earned, so the bonus is deserved.
+
 ## Recommended next (design decisions, not applied)
 
-These change how the game feels, so I've left them to you. All of them can be tried today in the new **Custom Match** mode.
-
-### A. Cap the ball's horizontal speed
-- **Problem.** The existing speed cap only trims vertical speed. Horizontal speed multiplies by up to ~11.5% on every return and never stops. The old build reached 70–100 pixels per frame; with bug #1 fixed, long rallies no longer end early and the bug-fixed simulation reached thousands of pixels per frame (see the table above).
-- **Recommendation.** Cap horizontal speed at around 24 px/frame. Long rallies still get fast and still end, but by skill rather than physics.
-- **Try it:** Custom Match → Top Speed.
-
-### B. Make glitch-caused own goals cheaper
-- **The rule.** A ball in your colour going past you scores 2 for the opponent, or 3 at Critical Heat.
-- **The problem.** A player can never put their own shot past themselves; only the arena can: a teleport that flips direction, the side of a glitch wall, or a Black-Hole micro-hole. Even after the bug fix, these random events decide a large share of points, at 2–3 points each in a first-to-7 match.
-- **Option 1 (recommended).** When a glitch reverses the ball, it becomes neutral (1 point). The chaos stays, but one teleport can't hand over almost half a match.
-- **Option 2.** Keep 2–3 points, but telegraph it: flash the ball for a few frames before a teleport, or only flip direction when the ball is in the attacker's half.
-- **Try it:** Custom Match → Own-Goal Penalty off makes every point worth 1.
+These change how the game feels, so I've left them to you.
 
 ### C. Seven of the fifteen perks do nothing
 Perks the level-up screen offers that have no effect in the code:

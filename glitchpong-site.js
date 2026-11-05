@@ -1897,7 +1897,7 @@ function injectGameById(gameId, options = {}) {
       winScore: 7,
       startSpeed: 6,        // serve speed (px/frame)
       speedGain: 1,         // multiplier on per-hit speed-up (0 = constant speed)
-      maxSpeed: 0,          // horizontal cap, 0 = uncapped
+      maxSpeed: 24,         // horizontal cap, 0 = uncapped
       ballSize: 1,
       teleport: true,       // ball blinks to a random spot
       jukes: true,          // sudden mid-court direction fakes
@@ -1907,7 +1907,7 @@ function injectGameById(gameId, options = {}) {
       heatRate: 1,          // Heat per hit multiplier (0 = Heat never builds)
       glitchWalls: true,
       boss: true,           // the Eye at max Heat
-      ownGoal: true,        // your own colour past you scores 2 (3 at Critical Heat)
+      ownGoal: true,        // your own colour past you scores 2 (3 at Critical Heat); glitch reversals make the ball neutral
       powerups: "normal",   // "off" | "normal" | "frequent"
       fx: 1                 // screen-glitch intensity (0 = calm camera)
     });
@@ -1915,7 +1915,7 @@ function injectGameById(gameId, options = {}) {
       clean:    { speedGain: 0.6, maxSpeed: 20, teleport: false, jukes: false, pulses: false, decoys: false, sentience: false, heatRate: 0, glitchWalls: false, boss: false, ownGoal: false, powerups: "normal", fx: 0 },
       mild:     { speedGain: 0.8, maxSpeed: 24, teleport: false, jukes: true, pulses: false, decoys: false, sentience: true, heatRate: 0.5, glitchWalls: true, boss: false, ownGoal: false, powerups: "normal", fx: 0.5 },
       standard: {},
-      chaos:    { startSpeed: 8, speedGain: 1.6, heatRate: 1.8, powerups: "frequent", fx: 1.6 }
+      chaos:    { startSpeed: 8, speedGain: 1.6, maxSpeed: 0, heatRate: 1.8, powerups: "frequent", fx: 1.6 }
     };
     const CUSTOM_RULES_KEY = "glitchPong_customRules_v1";
     let customRules = (() => {
@@ -4757,7 +4757,9 @@ function injectGameById(gameId, options = {}) {
           if (Math.abs(Math.cos(angle)) < 0.28) angle += Math.sign(Math.cos(angle) || 1) * 0.35;
           ballX = hole.x + Math.cos(angle) * (hole.r + BALL_R + 8);
           ballY = clamp(hole.y + Math.sin(angle) * (hole.r + BALL_R + 8), BALL_R + 4, H - BALL_R - 4);
-          vx = Math.cos(angle) * speed;
+          const holeVx = Math.cos(angle) * speed;
+          if (Math.sign(holeVx) !== Math.sign(vx)) ballOwner = "neutral";
+          vx = holeVx;
           vy = Math.sin(angle) * speed;
           hole.triggered = true;
           hole.life = Math.min(hole.life, 20);
@@ -6046,8 +6048,8 @@ function injectGameById(gameId, options = {}) {
 
         const dL = bR - wL, dR = wR - bL, dT = bB - wT, dB = wB - bT;
         const mn = Math.min(dL, dR, dT, dB);
-        if      (mn === dL) { vx = -Math.abs(vx); ballX = wL - BALL_R - 1; }
-        else if (mn === dR) { vx =  Math.abs(vx); ballX = wR + BALL_R + 1; }
+        if      (mn === dL) { if (vx > 0) ballOwner = "neutral"; vx = -Math.abs(vx); ballX = wL - BALL_R - 1; }
+        else if (mn === dR) { if (vx < 0) ballOwner = "neutral"; vx =  Math.abs(vx); ballX = wR + BALL_R + 1; }
         else if (mn === dT) { vy = -Math.abs(vy); ballY = wT - BALL_R - 1; }
         else                { vy =  Math.abs(vy); ballY = wB + BALL_R + 1; }
 
@@ -8263,7 +8265,7 @@ function injectGameById(gameId, options = {}) {
       winScore:   [[3, "3"], [5, "5"], [7, "7"], [11, "11"]],
       startSpeed: [[4, "SLOW"], [6, "NORMAL"], [8, "FAST"], [10, "BLAZING"]],
       speedGain:  [[0, "NONE"], [0.5, "LOW"], [1, "NORMAL"], [1.8, "HIGH"]],
-      maxSpeed:   [[14, "CHILL"], [20, "QUICK"], [28, "INSANE"], [0, "NO LIMIT"]],
+      maxSpeed:   [[14, "CHILL"], [20, "QUICK"], [24, "NORMAL"], [28, "INSANE"], [0, "NO LIMIT"]],
       ballSize:   [[0.7, "SMALL"], [1, "NORMAL"], [1.5, "LARGE"]],
       heatRate:   [[0, "OFF"], [0.5, "SLOW"], [1, "NORMAL"], [1.8, "FAST"]],
       powerups:   [["off", "OFF"], ["normal", "NORMAL"], ["frequent", "FREQUENT"]],
@@ -8281,7 +8283,7 @@ function injectGameById(gameId, options = {}) {
       sentience: "Helps the losing side, gets tired in long rallies, remembers where you missed",
       glitchWalls: "Blocks that spawn mid-court as Heat rises and bounce the ball",
       boss: "At max Heat the Eye fires six shots; a miss gives your opponent 2 points",
-      ownGoal: "Your own colour getting past you scores 2 for the opponent (3 at Critical Heat)"
+      ownGoal: "Your own colour getting past you scores 2 for the opponent (3 at Critical Heat). A glitch that sends the ball back turns it neutral (1 point)"
     };
 
     function matchingPreset() {
@@ -9373,7 +9375,8 @@ function injectGameById(gameId, options = {}) {
         } else {
           ballX = canvas.width * (0.2 + Math.random() * 0.6);
           ballY = canvas.height * (0.15 + Math.random() * 0.7);
-          if (Math.random() < 0.5 + heatRatio * 0.15) vx = -vx;
+          // A glitch that sends the ball back the way it came makes it neutral (1 point), never an own goal.
+          if (Math.random() < 0.5 + heatRatio * 0.15) { vx = -vx; ballOwner = "neutral"; }
           if (Math.random() < 0.35 + heatRatio * 0.2) vy = -vy;
           glitchPulse = Math.max(glitchPulse, 8 + Math.floor(heatRatio * 10));
           triggerCameraKick((Math.random() - 0.5) * (14 + heatRatio * 10), (Math.random() - 0.5) * (10 + heatRatio * 8), 0.012 + heatRatio * 0.01);
