@@ -8,20 +8,37 @@ I read through `glitchpong-site.js` and ran simulated matches to measure what de
 - **Speed.** Canvas drawing was switched off to speed things up; the game logic doesn't read pixels, so that changes nothing about the rules.
 - **Limits.** AI vs AI isn't human play: humans miss more and rallies are shorter. So treat the numbers as showing **structural** problems — what the rules make possible and how often — not how a human match will feel. All matches were on desktop.
 
-## What decided matches (12 Hard-AI matches per build, all four arenas)
+## What decided matches (Hard AI vs Hard AI, all four arenas)
 
-| | Before (live game) |
-|---|---|
-| Points that came from own goals | **72%** (92 of 127) |
-| …own goals that were really successful returns (bug #1) | 19 of 32 |
-| …own goals caused by a teleport reversing the ball | 10 of 32 |
-| …own goals caused by a glitch wall reflecting the ball | 3 of 32 |
-| Points scored during Critical Heat (80%+) | 58 of 67 |
-| Top ball speed per match (median / max) | 72 / 107 px per frame |
-| Boss fights lost by the Hard AI | 0 of 12 |
-| Left vs right paddle wins | 6 – 6 |
+Three builds are compared:
+- **Before:** the old live game, 12 matches.
+- **Bug-fixed:** the current game, 24 matches.
+- **+ A and B:** the bug-fixed game plus a horizontal speed cap of 24 (recommendation A) and glitch reversals that turn the ball neutral (recommendation B, option 1), 12 matches.
 
-_Simulations of the bug-fixed build and of recommendations A and B are still running; their columns get added here when they finish._
+| | Before | Bug-fixed | + A and B |
+|---|---|---|---|
+| Share of all points that came from own goals | **72%** (92 of 127) | **40%** (105 of 260) | **4%** (6 of 134) |
+| …own goals with no tracked glitch, mostly bug #1 | 19 of 32 | 4 of 36 | 2 of 2 |
+| …own goals caused by a teleport reversing the ball | 10 of 32 | 25 of 36 | 0 (21 became 1-point neutral balls) |
+| …own goals caused by a glitch wall | 3 of 32 | 7 of 36 | 0 (18 became 1-point neutral balls) |
+| Points scored during Critical Heat (80%+) | 58 of 67 | 174 of 191 | 117 of 130 |
+| Top ball speed per match (median / max) | 72 / 107 | **4,216 / 8,148** | 31 / 32 px per frame |
+| Match length (median) | 9.0 min | 10.0 min | 16.6 min |
+| Shutouts | 3 | 2 | 0 |
+| Boss fights lost by the Hard AI | 0 of 12 | 0 of 24 | 0 of 12 |
+| Left vs right paddle wins | 6 – 6 | 10 – 14 | 6 – 6 |
+
+**What this shows**
+
+- **The bug fix worked.** Saves no longer turn into own goals. The own-goal share of points dropped from 72% to 40%.
+- **It also exposed recommendation A as urgent.** In the old build, the save-scored-as-own-goal bug happened to end very fast rallies. Without it, the Hard AI returns everything and horizontal speed keeps multiplying with every hit: the median match peaked above **4,000 px per frame**. That's several screen widths per frame.
+  - A human can't return those balls, so in human play this shows up as the AI winning rallies no human could. About half of all points in the bug-fixed simulation were scored at more than 30 px per frame.
+- **The cap and neutral reversals together fix both problems.**
+  - Speed tops out around 31 px per frame at the moment of a return; the cap of 24 brings it back down on the next frame.
+  - Teleports and glitch walls still decide plenty of points, but each is worth 1 instead of 2–3.
+  - Matches became closer: no shutouts, a 6–6 side split, and 95% of points came from rallies.
+- **Why the + A and B matches run longer.** Two Hard AIs at a capped speed rarely miss, so the matches stretch out. Humans miss far more often, so expect normal-length matches in real play. If they still feel long, raise the cap to around 28.
+- **Unchanged in every build:** the Hard AI never lost a boss fight (recommendation E).
 
 ---
 
@@ -47,7 +64,7 @@ Clutch Mode, and the **Clutch Protocol** perk, required a score of 8, but matche
 These change how the game feels, so I've left them to you. All of them can be tried today in the new **Custom Match** mode.
 
 ### A. Cap the ball's horizontal speed
-- **Problem.** The existing speed cap only trims vertical speed. Horizontal speed multiplies by up to ~11.5% on every return and never stops: the simulation reached 70–100 pixels per frame, crossing the whole court in about a quarter of a second.
+- **Problem.** The existing speed cap only trims vertical speed. Horizontal speed multiplies by up to ~11.5% on every return and never stops. The old build reached 70–100 pixels per frame; with bug #1 fixed, long rallies no longer end early and the bug-fixed simulation reached thousands of pixels per frame (see the table above).
 - **Recommendation.** Cap horizontal speed at around 24 px/frame. Long rallies still get fast and still end, but by skill rather than physics.
 - **Try it:** Custom Match → Top Speed.
 
