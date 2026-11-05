@@ -1868,7 +1868,8 @@ function injectGameById(gameId, options = {}) {
     const paddleEdgeGap = isMobileDevice ? 14 : 20;
     let leftX = paddleEdgeGap + safeInsetLeft;
     let rightX = canvas.width - paddleEdgeGap - safeInsetRight - paddleW;
-    const BALL_R = isMobileDevice ? 9 : 10;   // base ball radius
+    const BASE_BALL_R = isMobileDevice ? 9 : 10;
+    let BALL_R = BASE_BALL_R;   // ball radius (Custom matches can resize it)
 
     // Heat system: scale so heat builds at roughly the same rate regardless of
     // screen size. On mobile the court is ~3-4× narrower so the ball crosses it
@@ -1887,7 +1888,43 @@ function injectGameById(gameId, options = {}) {
     let vy = (Math.random() * 4) - 2;
     let leftScore = 0;
     let rightScore = 0;
-    const WIN_SCORE = 7;
+    let WIN_SCORE = 7;
+
+    // ── Match rules ────────────────────────────────────────────────────────
+    // STANDARD reproduces normal Glitch Pong exactly. A Custom match copies the
+    // player's saved settings into `rules` when it starts.
+    const STANDARD_RULES = Object.freeze({
+      winScore: 7,
+      startSpeed: 6,        // serve speed (px/frame)
+      speedGain: 1,         // multiplier on per-hit speed-up (0 = constant speed)
+      maxSpeed: 0,          // horizontal cap, 0 = uncapped
+      ballSize: 1,
+      teleport: true,       // ball blinks to a random spot
+      jukes: true,          // sudden mid-court direction fakes
+      pulses: true,         // short speed surges / stalls
+      decoys: true,         // afterimage decoy balls at high Heat
+      sentience: true,      // spite, exhaustion wobble, serve memory
+      heatRate: 1,          // Heat per hit multiplier (0 = Heat never builds)
+      glitchWalls: true,
+      boss: true,           // the Eye at max Heat
+      ownGoal: true,        // your own colour past you scores 2 (3 at Critical Heat)
+      powerups: "normal",   // "off" | "normal" | "frequent"
+      fx: 1                 // screen-glitch intensity (0 = calm camera)
+    });
+    const CUSTOM_PRESETS = {
+      clean:    { speedGain: 0.6, maxSpeed: 20, teleport: false, jukes: false, pulses: false, decoys: false, sentience: false, heatRate: 0, glitchWalls: false, boss: false, ownGoal: false, powerups: "normal", fx: 0 },
+      mild:     { speedGain: 0.8, maxSpeed: 24, teleport: false, jukes: true, pulses: false, decoys: false, sentience: true, heatRate: 0.5, glitchWalls: true, boss: false, ownGoal: false, powerups: "normal", fx: 0.5 },
+      standard: {},
+      chaos:    { startSpeed: 8, speedGain: 1.6, heatRate: 1.8, powerups: "frequent", fx: 1.6 }
+    };
+    const CUSTOM_RULES_KEY = "glitchPong_customRules_v1";
+    let customRules = (() => {
+      try { return Object.assign({}, STANDARD_RULES, JSON.parse(localStorage.getItem(CUSTOM_RULES_KEY) || "{}")); }
+      catch (e) { return Object.assign({}, STANDARD_RULES); }
+    })();
+    let customOpponent = "ai";   // "ai" | "local"
+    let customMatch = false;     // the next/current match uses customRules (no coins or XP)
+    let rules = STANDARD_RULES;
     let gameOver = false;
     let winner = null;
 
@@ -2136,7 +2173,7 @@ function injectGameById(gameId, options = {}) {
     // ─── XP Award Helper ────────────────────────────────────────────────────
     function awardXP(amount, reason, x, y) {
       // AI vs AI is a spectator simulation, never a source of player progress.
-      if (aiVsAiMode) return 0;
+      if (aiVsAiMode || customMatch) return 0;
       const earned = GlitchProgression.addXP(amount, reason);
       if (earned && x !== undefined && y !== undefined) {
         xpFloats.push({ x, y: y - 10, text: `+${earned} XP`, life: 80, maxLife: 80, vy: -0.7 });
@@ -3112,8 +3149,8 @@ function injectGameById(gameId, options = {}) {
         return;
       }
 
-      if (roundFrozen || !modeSelected) return;
-      powerupSpawnCooldown--;
+      if (roundFrozen || !modeSelected || rules.powerups === "off") return;
+      powerupSpawnCooldown -= rules.powerups === "frequent" ? 3 : 1;
       if (powerupSpawnCooldown <= 0) {
         spawnArenaPowerup();
       }
@@ -3603,10 +3640,10 @@ function injectGameById(gameId, options = {}) {
     }
 
     function launchBallToPlayer() {
-      vx = 6 * pendingLaunchDir;
+      vx = rules.startSpeed * pendingLaunchDir;
       // Memory: bias vy toward a remembered miss on the side we're serving toward
       const targetMemory = pendingLaunchDir > 0 ? missMemory.right : missMemory.left;
-      if (targetMemory.length > 0) {
+      if (targetMemory.length > 0 && rules.sentience) {
         const rememberY = targetMemory[Math.floor(Math.random() * targetMemory.length)];
         const centerY   = canvas.height / 2;
         // Nudge vy toward the remembered gap (subtle — not a guarantee)
@@ -3728,6 +3765,7 @@ function injectGameById(gameId, options = {}) {
 
     // ── Pre-Boss cinematic: speech bubble → glitch → morph → boss ──────────
     function triggerPreBoss() {
+      if (!rules.boss) return;
       if (preBossActive || bossModeActive || bossTriggeredThisRally || bossEncounteredThisMatch) return;
       if (!modeSelected || gameOver || finalScoreCinematic) return;
       ensureBossAssets();
@@ -4732,9 +4770,9 @@ function injectGameById(gameId, options = {}) {
     }
 
     function triggerCameraKick(strengthX = 0, strengthY = 0, zoomBoost = 0) {
-      cameraKickX += strengthX;
-      cameraKickY += strengthY;
-      cameraTargetZoom = Math.max(cameraTargetZoom, 1 + zoomBoost);
+      cameraKickX += strengthX * rules.fx;
+      cameraKickY += strengthY * rules.fx;
+      cameraTargetZoom = Math.max(cameraTargetZoom, 1 + zoomBoost * rules.fx);
     }
 
     function getComboRatio() {
@@ -4742,7 +4780,7 @@ function injectGameById(gameId, options = {}) {
     }
 
     function updateClutchMode() {
-      const shouldClutch = Math.abs(leftScore - rightScore) <= 1 && (leftScore >= 8 || rightScore >= 8);
+      const shouldClutch = Math.abs(leftScore - rightScore) <= 1 && (leftScore >= WIN_SCORE - 1 || rightScore >= WIN_SCORE - 1);
       if (shouldClutch && !clutchMode) {
         clutchMode = true;
         glitchPulse = Math.max(glitchPulse, 18);
@@ -5932,7 +5970,7 @@ function injectGameById(gameId, options = {}) {
     }
 
     function trySpawnGlitchWall() {
-      if (roundFrozen || !modeSelected || gameOver || bossModeActive || finalScoreCinematic) return;
+      if (!rules.glitchWalls || roundFrozen || !modeSelected || gameOver || bossModeActive || finalScoreCinematic) return;
       const hr = getHeatRatio();
       if (hr < 0.30) return;
 
@@ -7247,6 +7285,7 @@ function injectGameById(gameId, options = {}) {
       drawGlitchWalls();
       drawBossFight();
       let status = twoPlayerMode ? "2P" : "1P";
+      if (customMatch) status += ' // <span style="color:#ffd27a">CUSTOM</span>';
       if (gameOver) status += " // MATCH OVER";
       else if (bossModeActive) status += ' // <span style="color:#ff5a6e">SYSTEM CORRUPTED</span>';
       else if (roundFrozen && modeSelected) status += " // RELAUNCH";
@@ -8204,6 +8243,154 @@ function injectGameById(gameId, options = {}) {
       try { const response = await onlineApi("/api/join", { code: joinPanel.querySelector("#gp-join-code").value.trim(), nickname: joinPanel.querySelector("#gp-join-name").value }); connectOnline(response); showOnlineLobby(response.lobbyState); } catch (error) { showOnlineError(error.message); }
     });
 
+    // ── CUSTOM MATCH PANEL ──────────────────────────────────────────────────
+    // Pick what the ball can do and how glitchy the arena gets. Settings persist.
+    const customPanel = document.createElement("div");
+    customPanel.id = "gp-custom-panel";
+    customPanel.classList.add("gp-mobile-panel");
+    customPanel.style.cssText = [
+      "position:absolute", "left:50%", "top:50%", "transform:translate(-50%,-50%)",
+      "z-index:2147483648", "width:min(820px,96vw)", "max-height:calc(100vh - 24px)",
+      "box-sizing:border-box", "overflow-y:auto", "padding:24px 24px 20px",
+      "border:1px solid rgba(255,209,102,0.32)", "border-radius:24px",
+      "background:linear-gradient(180deg,rgba(14,11,24,0.98),rgba(6,8,18,0.98))",
+      "box-shadow:0 0 40px rgba(255,209,102,0.12),0 0 70px rgba(255,79,216,0.08)",
+      "color:#eafcff", "font:13px/1.45 monospace", "pointer-events:auto", "display:none"
+    ].join(";");
+    overlay.appendChild(customPanel);
+
+    const CUSTOM_CHOICES = {
+      winScore:   [[3, "3"], [5, "5"], [7, "7"], [11, "11"]],
+      startSpeed: [[4, "SLOW"], [6, "NORMAL"], [8, "FAST"], [10, "BLAZING"]],
+      speedGain:  [[0, "NONE"], [0.5, "LOW"], [1, "NORMAL"], [1.8, "HIGH"]],
+      maxSpeed:   [[14, "CHILL"], [20, "QUICK"], [28, "INSANE"], [0, "NO LIMIT"]],
+      ballSize:   [[0.7, "SMALL"], [1, "NORMAL"], [1.5, "LARGE"]],
+      heatRate:   [[0, "OFF"], [0.5, "SLOW"], [1, "NORMAL"], [1.8, "FAST"]],
+      powerups:   [["off", "OFF"], ["normal", "NORMAL"], ["frequent", "FREQUENT"]],
+      fx:         [[0, "OFF"], [0.5, "LOW"], [1, "NORMAL"], [1.6, "MAX"]]
+    };
+    const CUSTOM_TOGGLES = {
+      teleport: "TELEPORT", jukes: "JUKES", pulses: "SPEED PULSES", decoys: "DECOYS", sentience: "SENTIENCE",
+      glitchWalls: "GLITCH WALLS", boss: "THE EYE (BOSS)", ownGoal: "OWN-GOAL PENALTY"
+    };
+    const CUSTOM_HINTS = {
+      teleport: "Blinks to a random spot, sometimes reversing",
+      jukes: "Fakes a sudden vertical direction change",
+      pulses: "Short bursts of speed or slow-motion",
+      decoys: "Afterimage balls appear at high Heat",
+      sentience: "Helps the losing side, gets tired in long rallies, remembers where you missed",
+      glitchWalls: "Blocks that spawn mid-court as Heat rises and bounce the ball",
+      boss: "At max Heat the Eye fires six shots; a miss gives your opponent 2 points",
+      ownGoal: "Your own colour getting past you scores 2 for the opponent (3 at Critical Heat)"
+    };
+
+    function matchingPreset() {
+      return Object.keys(CUSTOM_PRESETS).find((name) => {
+        const target = Object.assign({}, STANDARD_RULES, CUSTOM_PRESETS[name]);
+        return Object.keys(target).every((k) => k === "winScore" || k === "ballSize" || target[k] === customRules[k]);
+      }) || null;
+    }
+
+    function buildCustomPanel() {
+      const preset = matchingPreset();
+      const seg = (key, label) => `
+        <div class="gp-custom-row" style="display:grid;grid-template-columns:150px 1fr;align-items:center;gap:10px;margin:7px 0;">
+          <div style="color:#a9bccc;font-size:11px;letter-spacing:.08em;">${label}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;">${CUSTOM_CHOICES[key].map(([value, text]) => {
+            const on = customRules[key] === value;
+            return `<button type="button" data-custom-set="${key}" data-value="${value}" aria-pressed="${on}" style="flex:1;min-width:64px;min-height:34px;padding:6px 8px;border-radius:9px;border:1px solid ${on ? "rgba(255,209,102,.85)" : "rgba(255,255,255,.14)"};background:${on ? "rgba(255,209,102,.16)" : "rgba(255,255,255,.03)"};color:${on ? "#ffe39a" : "#9fb4c6"};font:bold 11px monospace;letter-spacing:.06em;cursor:pointer;">${text}</button>`;
+          }).join("")}</div>
+        </div>`;
+      const toggle = (key) => {
+        const on = !!customRules[key];
+        return `<button type="button" data-custom-toggle="${key}" aria-pressed="${on}" title="${CUSTOM_HINTS[key]}" style="min-height:52px;padding:7px 9px;border-radius:11px;border:1px solid ${on ? "rgba(103,239,255,.7)" : "rgba(255,255,255,.12)"};background:${on ? "rgba(103,239,255,.10)" : "rgba(255,255,255,.02)"};color:${on ? "#8ff5ff" : "#6f8597"};text-align:left;cursor:pointer;">
+          <div style="font:bold 11px monospace;letter-spacing:.08em;">${on ? "■" : "□"} ${CUSTOM_TOGGLES[key]}</div>
+          <div style="font:10px/1.3 monospace;color:${on ? "#7fa7b4" : "#55687a"};margin-top:2px;">${CUSTOM_HINTS[key]}</div>
+        </button>`;
+      };
+      const section = (title, color) => `<div style="margin:16px 0 6px;font:bold 12px monospace;letter-spacing:.18em;color:${color};border-bottom:1px solid ${color}33;padding-bottom:4px;">${title}</div>`;
+      customPanel.innerHTML = `
+        <div style="text-align:center;font:bold 25px/1.1 monospace;letter-spacing:.16em;color:#ffd166;text-shadow:0 0 20px rgba(255,209,102,.25);">CUSTOM MATCH</div>
+        <div style="text-align:center;margin:5px 0 14px;font:11px monospace;color:#8a8070;letter-spacing:.08em;">BUILD YOUR OWN GLITCH // PRACTICE: NO COINS OR XP</div>
+
+        ${section("GLITCH LEVEL", "#ff8fdb")}
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;">${[["clean", "CLEAN", "Plain pong. No glitches."], ["mild", "MILD", "A little chaos, no boss."], ["standard", "STANDARD", "Glitch Pong as designed."], ["chaos", "CHAOS", "Faster, hotter, louder."]].map(([id, name, desc]) => {
+          const on = preset === id;
+          return `<button type="button" data-custom-preset="${id}" aria-pressed="${on}" style="min-height:58px;padding:8px;border-radius:12px;border:1px solid ${on ? "rgba(255,79,216,.85)" : "rgba(255,255,255,.14)"};background:${on ? "rgba(255,79,216,.14)" : "rgba(255,255,255,.03)"};color:${on ? "#ffc4f0" : "#a99bb3"};cursor:pointer;"><div style="font:bold 13px monospace;letter-spacing:.1em;">${name}</div><div style="font:10px monospace;opacity:.8;margin-top:3px;">${desc}</div></button>`;
+        }).join("")}</div>
+        <div style="text-align:center;margin-top:6px;font:10px monospace;color:#6f6680;">${preset ? "PRESET: " + preset.toUpperCase() : "CUSTOMISED — tweak anything below"}</div>
+
+        ${section("MATCH", "#ffd166")}
+        <div class="gp-custom-row" style="display:grid;grid-template-columns:150px 1fr;align-items:center;gap:10px;margin:7px 0;">
+          <div style="color:#a9bccc;font-size:11px;letter-spacing:.08em;">OPPONENT</div>
+          <div style="display:flex;gap:6px;">${[["ai", "VS AI"], ["local", isMobileDevice ? "LOCAL 2P" : "LOCAL 2P (SHARED KEYS)"]].map(([value, text]) => {
+            const on = customOpponent === value;
+            return `<button type="button" data-custom-opponent="${value}" aria-pressed="${on}" style="flex:1;min-height:34px;padding:6px 8px;border-radius:9px;border:1px solid ${on ? "rgba(255,209,102,.85)" : "rgba(255,255,255,.14)"};background:${on ? "rgba(255,209,102,.16)" : "rgba(255,255,255,.03)"};color:${on ? "#ffe39a" : "#9fb4c6"};font:bold 11px monospace;cursor:pointer;">${text}</button>`;
+          }).join("")}</div>
+        </div>
+        ${seg("winScore", "POINTS TO WIN")}
+
+        ${section("THE BALL", "#71efff")}
+        ${seg("startSpeed", "SERVE SPEED")}
+        ${seg("speedGain", "SPEED-UP PER HIT")}
+        ${seg("maxSpeed", "TOP SPEED")}
+        ${seg("ballSize", "BALL SIZE")}
+        <div class="gp-custom-toggles" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:7px;margin-top:8px;">${["teleport", "jukes", "pulses", "decoys", "sentience"].map(toggle).join("")}</div>
+
+        ${section("THE GLITCH", "#ff8fab")}
+        ${seg("heatRate", "HEAT BUILD-UP")}
+        ${seg("powerups", "POWER-UPS")}
+        ${seg("fx", "SCREEN GLITCH FX")}
+        <div class="gp-custom-toggles" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:7px;margin-top:8px;">${["glitchWalls", "boss", "ownGoal"].map(toggle).join("")}</div>
+        ${customRules.heatRate === 0 && (customRules.glitchWalls || customRules.boss) ? `<div style="margin-top:6px;font:10px monospace;color:#c9a35a;">Heat is off, so glitch walls and the Eye will never appear.</div>` : ""}
+
+        <div class="gp-online-button-row" style="display:flex;gap:10px;margin-top:18px;">
+          <button type="button" data-custom-action="back" style="padding:12px 16px;border:1px solid rgba(255,255,255,.14);border-radius:10px;background:rgba(255,255,255,.03);color:#9ab2c4;font:bold 12px monospace;cursor:pointer;">← BACK</button>
+          <button type="button" data-custom-action="reset" style="padding:12px 16px;border:1px solid rgba(177,140,255,.35);border-radius:10px;background:rgba(177,140,255,.06);color:#cfb9ff;font:bold 12px monospace;cursor:pointer;">RESET</button>
+          <button type="button" data-custom-action="go" style="flex:1;padding:12px;border:1px solid rgba(255,209,102,.6);border-radius:10px;background:rgba(255,209,102,.12);color:#ffe39a;font:bold 14px monospace;letter-spacing:.1em;cursor:pointer;">CHOOSE ARENA →</button>
+        </div>`;
+
+      const save = () => { try { localStorage.setItem(CUSTOM_RULES_KEY, JSON.stringify(customRules)); } catch (e) {} };
+      customPanel.querySelectorAll("[data-custom-set]").forEach((btn) => btn.addEventListener("click", () => {
+        const key = btn.getAttribute("data-custom-set");
+        const choice = CUSTOM_CHOICES[key].find(([value]) => String(value) === btn.getAttribute("data-value"));
+        customRules[key] = choice[0];
+        save(); pongAudio.buttonHover(); buildCustomPanel();
+      }));
+      customPanel.querySelectorAll("[data-custom-toggle]").forEach((btn) => btn.addEventListener("click", () => {
+        const key = btn.getAttribute("data-custom-toggle");
+        customRules[key] = !customRules[key];
+        save(); pongAudio.buttonHover(); buildCustomPanel();
+      }));
+      customPanel.querySelectorAll("[data-custom-preset]").forEach((btn) => btn.addEventListener("click", () => {
+        const keep = { winScore: customRules.winScore, ballSize: customRules.ballSize };
+        customRules = Object.assign({}, STANDARD_RULES, CUSTOM_PRESETS[btn.getAttribute("data-custom-preset")], keep);
+        save(); triggerMenuGlitch(); pongAudio.buttonHover(); buildCustomPanel();
+      }));
+      customPanel.querySelectorAll("[data-custom-opponent]").forEach((btn) => btn.addEventListener("click", () => {
+        customOpponent = btn.getAttribute("data-custom-opponent");
+        pongAudio.buttonHover(); buildCustomPanel();
+      }));
+      customPanel.querySelector('[data-custom-action="back"]').addEventListener("click", () => { triggerMenuGlitch(); showModeMenu(); });
+      customPanel.querySelector('[data-custom-action="reset"]').addEventListener("click", () => {
+        customRules = Object.assign({}, STANDARD_RULES);
+        save(); triggerMenuGlitch(); buildCustomPanel();
+      });
+      customPanel.querySelector('[data-custom-action="go"]').addEventListener("click", () => {
+        triggerMenuGlitch();
+        customMatch = true;
+        pendingTwoPlayer = customOpponent === "local";
+        showArenaMenu();
+      });
+    }
+
+    function showCustomMenu() {
+      currentScreen = "custom";
+      buildCustomPanel();
+      syncUiForScreen();
+      customPanel.scrollTop = 0;
+    }
+
     // ── DIFFICULTY PANEL ────────────────────────────────────────────────────
     const difficultyPanel = document.createElement("div");
     difficultyPanel.id = "gp-difficulty-panel";
@@ -8434,6 +8621,20 @@ function injectGameById(gameId, options = {}) {
       "pointer-events:auto"
     ].join(";");
 
+    const customBtn = document.createElement("button");
+    customBtn.type = "button";
+    customBtn.id = "gp-custom-action";
+    customBtn.setAttribute("aria-label", "Custom match");
+    customBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg><span>CUSTOM MATCH</span>';
+    customBtn.style.cssText = [
+      "position:absolute", "left:50%", "bottom:2.2%", "transform:translateX(-50%)", "z-index:4",
+      "display:flex", "align-items:center", "gap:8px", "padding:8px 16px", "min-height:36px",
+      "border:1px solid rgba(255,209,102,.6)", "border-radius:10px",
+      "background:rgba(9,14,26,.88)", "color:#ffd166",
+      "font:bold 11px monospace", "letter-spacing:.12em", "cursor:pointer",
+      "box-shadow:0 0 14px rgba(255,209,102,.16)", "pointer-events:auto"
+    ].join(";");
+
     const player2Btn = document.createElement("button");
     player2Btn.type = "button";
     player2Btn.setAttribute("aria-label", isMobileDevice ? "Multiplayer" : "Player 2");
@@ -8473,6 +8674,7 @@ function injectGameById(gameId, options = {}) {
     modeMenu.appendChild(modeMenuImg);
     modeMenu.appendChild(player1Btn);
     modeMenu.appendChild(player2Btn);
+    modeMenu.appendChild(customBtn);
     overlay.appendChild(modeMenu);
 
     let menuAudioRevived = false;
@@ -8513,6 +8715,7 @@ function injectGameById(gameId, options = {}) {
       modeMenu.style.display        = currentScreen === "mode"       ? "block" : "none";
       arenaPanel.style.display      = currentScreen === "arena"      ? "block" : "none";
       difficultyPanel.style.display = currentScreen === "difficulty" ? "block" : "none";
+      customPanel.style.display     = currentScreen === "custom"     ? "block" : "none";
       pauseMenu.style.display       = currentScreen === "game" && isPaused ? "block" : "none";
       const hudDisplay = currentScreen === "game" && !isPaused ? "block" : "none";
       hud.style.display  = hudDisplay;
@@ -8561,6 +8764,9 @@ function injectGameById(gameId, options = {}) {
     }
 
     function beginMode(twoPlayers) {
+      rules = customMatch ? Object.freeze(Object.assign({}, STANDARD_RULES, customRules)) : STANDARD_RULES;
+      WIN_SCORE = rules.winScore;
+      BALL_R = Math.round(BASE_BALL_R * rules.ballSize);
       pongAudio.primeFromGesture();
       ensureCountdownAssets();
       twoPlayerMode = !!twoPlayers;
@@ -8613,6 +8819,9 @@ function injectGameById(gameId, options = {}) {
 
     function returnToMainMenu() {
       disconnectOnline();
+      rules = STANDARD_RULES;
+      WIN_SCORE = STANDARD_RULES.winScore;
+      BALL_R = BASE_BALL_R;
       isPaused = false;
       modeSelected = false;
       twoPlayerMode = false;
@@ -8739,11 +8948,19 @@ function injectGameById(gameId, options = {}) {
 
     player1Btn.addEventListener("click", () => {
       triggerMenuGlitch();
+      customMatch = false;
       pendingTwoPlayer = false;
       showArenaMenu();
     });
+    customBtn.addEventListener("click", () => {
+      triggerMenuGlitch();
+      pongAudio.primeFromGesture();
+      pongAudio.buttonHover();
+      showCustomMenu();
+    });
     player2Btn.addEventListener("click", () => {
       triggerMenuGlitch();
+      customMatch = false;
       currentScreen = "multiplayer";
       syncUiForScreen();
     });
@@ -8976,8 +9193,8 @@ function injectGameById(gameId, options = {}) {
           const playerScore = profileSide === "left" ? leftScore : rightScore;
           const opponentScore = profileSide === "left" ? rightScore : leftScore;
           // Beating the AI pays out arcade coins (local 2P and AI vs AI don't).
-          if (playerWon && !aiVsAiMode && !twoPlayerMode) showCoinReward(GlitchcadeWallet.awardWin());
-          const summaryResult = aiVsAiMode
+          if (playerWon && !aiVsAiMode && !twoPlayerMode && !customMatch) showCoinReward(GlitchcadeWallet.awardWin());
+          const summaryResult = (aiVsAiMode || customMatch)
             ? { totalXP: 0, breakdown: {} }
             : GlitchProgression.endMatch(playerWon, clutchMode, {
                 arenaId: currentArenaId,
@@ -9096,12 +9313,12 @@ function injectGameById(gameId, options = {}) {
       finalPointSlowMoMix += (0 - finalPointSlowMoMix) * 0.12;
 
       if (!roundFrozen) {
-        const clutchBoost = clutchMode ? 0.22 : 0;
+        const clutchBoost = clutchMode ? 0.22 * rules.heatRate : 0;
         const heatRatio = getHeatRatio();
         heat = Math.max(0, heat - (HEAT_DECAY_BASE + heatRatio * HEAT_DECAY_SCALE) + clutchBoost);
 
         decoyCooldown -= 1;
-        if (decoyCooldown <= 0 && heat > 40) {
+        if (decoyCooldown <= 0 && heat > 40 && rules.decoys) {
           decoyCooldown = Math.max(150, 300 - Math.floor(heatRatio * 100)) + Math.floor(Math.random() * 180);
           decoys.push({
             x: ballX,
@@ -9125,6 +9342,11 @@ function injectGameById(gameId, options = {}) {
             decoys.splice(i, 1);
           }
         }
+
+        // Custom matches can switch individual ball tricks off.
+        if (!rules.pulses) pulseCooldown = Math.max(pulseCooldown, 60);
+        if (!rules.teleport) teleportCooldown = Math.max(teleportCooldown, 60);
+        if (!rules.jukes) jukeCooldown = Math.max(jukeCooldown, 60);
 
         if (pulseFrames > 0) {
           pulseFrames--;
@@ -9186,7 +9408,7 @@ function injectGameById(gameId, options = {}) {
         ballY += vy * clutchVelocityScale * roundTimeScale;
 
         // ── Ball Sentience ─────────────────────────────────────────────────
-        if (rallyHits >= 30) {
+        if (rallyHits >= 30 && rules.sentience) {
           exhaustionPhase += 0.09;
           exhaustionAmp = Math.min(0.55, (rallyHits - 30) * 0.018);
           vy += Math.sin(exhaustionPhase) * exhaustionAmp;
@@ -9230,6 +9452,7 @@ function injectGameById(gameId, options = {}) {
         }
         if (drowsyWarningTimer > 0) drowsyWarningTimer--;
 
+        if (rules.maxSpeed && Math.abs(vx) > rules.maxSpeed) vx = Math.sign(vx) * rules.maxSpeed;
         // Speed cap — only reduce vy, never erode vx
         const _spd = Math.hypot(vx, vy);
         if (_spd > 22) {
@@ -9243,7 +9466,7 @@ function injectGameById(gameId, options = {}) {
 
         if (ballY <= BALL_R || ballY >= canvas.height - BALL_R) {
           vy *= -1;
-          if (spiteBias !== 0) {
+          if (spiteBias !== 0 && rules.sentience) {
             const losingCenterY = spiteBias > 0 ? rightY + paddleH / 2 : leftY + paddleH / 2;
             const pull = (losingCenterY - ballY) / canvas.height * spiteBias * 0.6;
             vy = clamp(vy + pull, -8, 8);
@@ -9272,11 +9495,14 @@ function injectGameById(gameId, options = {}) {
           const returnHeat = getHeatRatio();
           const leftState = powerState.blue;
           const strikeBoost = leftState.powerStrikeReady ? 0.22 : 0;
-          vx = Math.max(4.0, Math.abs(vx)) * (1 + returnHeat * 0.035 + Math.min(combo * 0.01, 0.08) + strikeBoost);
+          vx = Math.max(4.0, Math.abs(vx)) * (1 + (returnHeat * 0.035 + Math.min(combo * 0.01, 0.08)) * rules.speedGain + strikeBoost);
+          // A fast ball can be behind the paddle face when it's caught. Put it back in
+          // front so this same frame can't also count the return as a goal.
+          ballX = leftX + paddleW + BALL_R;
           vy += (ballY - (leftY + paddleH / 2)) * 0.04;
           vy = clamp(vy, -9, 9);
           if (leftState.shieldTimer > 0) { vx *= 0.96; vy *= 0.98; }
-          heat = Math.min(HEAT_MAX, heat + HEAT_PER_HIT * (1 - GlitchProgression.getPerkStat("heatResistance")));
+          heat = Math.min(HEAT_MAX, heat + HEAT_PER_HIT * rules.heatRate * (1 - GlitchProgression.getPerkStat("heatResistance")));
           rallyHits += 1; matchRallyHits++; combo += 1; comboTimer = COMBO_MAX_TIME;
           ballOwner = "blue";
           awardXP(GlitchProgression.XP_REWARDS.paddleHit, "paddleHit", leftX + paddleW + 20, ballY);
@@ -9299,12 +9525,13 @@ function injectGameById(gameId, options = {}) {
         if (ballX >= rightX && ballY >= rightY - rightShieldPad && ballY <= rightY + paddleH + rightShieldPad) {
           const returnHeat = getHeatRatio();
           const rightState = powerState.red;
-          const strikeBoost = rightState.powerStrikeReady ? 0.40 : 0;
-          vx = -Math.max(4.0, Math.abs(vx)) * (1 + returnHeat * 0.035 + Math.min(combo * 0.01, 0.08) + strikeBoost);
+          const strikeBoost = rightState.powerStrikeReady ? 0.22 : 0;   // same as the left paddle
+          vx = -Math.max(4.0, Math.abs(vx)) * (1 + (returnHeat * 0.035 + Math.min(combo * 0.01, 0.08)) * rules.speedGain + strikeBoost);
+          ballX = rightX - BALL_R;
           vy += (ballY - (rightY + paddleH / 2)) * 0.04;
           vy = clamp(vy, -9, 9);
           if (rightState.shieldTimer > 0) { vx *= 0.96; vy *= 0.98; }
-          heat = Math.min(HEAT_MAX, heat + HEAT_PER_HIT * (1 - GlitchProgression.getPerkStat("heatResistance")));
+          heat = Math.min(HEAT_MAX, heat + HEAT_PER_HIT * rules.heatRate * (1 - GlitchProgression.getPerkStat("heatResistance")));
           rallyHits += 1; matchRallyHits++; combo += 1; comboTimer = COMBO_MAX_TIME;
           ballOwner = "red";
           awardXP(GlitchProgression.XP_REWARDS.paddleHit, "paddleHit", rightX - 20, ballY);
@@ -9343,7 +9570,7 @@ function injectGameById(gameId, options = {}) {
             impactFreezeFrames = Math.max(impactFreezeFrames, 2);
             pongAudio.paddleHit();
           } else {
-            const colorMatchBonusL = criticalHeat ? 3 : 2;
+            const colorMatchBonusL = !rules.ownGoal ? 1 : criticalHeat ? 3 : 2;
             rightScore += ballOwner === "blue" ? colorMatchBonusL : 1;
             missMemory.left.push(ballY); if (missMemory.left.length > 3) missMemory.left.shift();
             spiteBias = Math.sign(rightScore - leftScore) * Math.min(1, Math.abs(rightScore - leftScore) * 0.4);
@@ -9367,7 +9594,7 @@ function injectGameById(gameId, options = {}) {
             impactFreezeFrames = Math.max(impactFreezeFrames, 2);
             pongAudio.paddleHit();
           } else {
-            const colorMatchBonusR = criticalHeat ? 3 : 2;
+            const colorMatchBonusR = !rules.ownGoal ? 1 : criticalHeat ? 3 : 2;
             leftScore += ballOwner === "red" ? colorMatchBonusR : 1;
             missMemory.right.push(ballY); if (missMemory.right.length > 3) missMemory.right.shift();
             spiteBias = Math.sign(rightScore - leftScore) * Math.min(1, Math.abs(rightScore - leftScore) * 0.4);
@@ -9402,6 +9629,7 @@ function injectGameById(gameId, options = {}) {
 
       scoreFlashFrames = Math.max(0, scoreFlashFrames - 1);
       glitchPulse = Math.max(0, glitchPulse - 1);
+      if (rules.fx < 1) glitchPulse = Math.min(glitchPulse, Math.round(26 * rules.fx));
 
       render();
 
@@ -9434,6 +9662,7 @@ function injectGameById(gameId, options = {}) {
       if (currentScreen === "difficulty") { showArenaMenu();   return; }
       if (currentScreen === "online-lobby") { disconnectOnline(); showModeMenu(); return; }
       if (currentScreen === "multiplayer" || currentScreen === "online-join") { showModeMenu(); return; }
+      if (currentScreen === "custom") { showModeMenu(); return; }
       if (currentScreen === "settings" || currentScreen === "stats" || currentScreen === "store" || currentScreen === "mode") { showMainMenu(); return; }
       if (currentScreen === "main") exitToHost();
     }
