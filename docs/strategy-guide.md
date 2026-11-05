@@ -55,21 +55,24 @@ How to exploit that:
 
 ---
 
-## 4. Own goals: the rule that swings matches
+## 4. Ball colour, own goals and glitch bounces
 
 The ball takes the colour of whoever hit it last. **If a ball in *your* colour goes past *you*, your opponent scores 2 points, or 3 during Critical Heat (80%+ Heat).**
 
-You'd think you could never put your own shot past yourself, but the arena can:
+The arena can't do that to you. When a glitch sends the ball back the way it came, the ball **turns white (neutral)** and is worth the normal 1 point:
 
 - **Teleport.** Every 7–20 seconds (more often at high Heat) the ball blinks somewhere random, and 50–65% of the time it comes back the way it came.
 - **Glitch walls** appear mid-court from 30% Heat (up to five at 80%+). If your shot hits the side of one, it bounces straight back at you.
 - **Black-Hole Nexus micro-holes** (80%+ Heat) fling the ball off in a random direction.
 
-How to protect yourself:
+**The one way an own goal still happens:** your opponent's **Phase Shield** bounces your shot back at you, still in your colour. Miss that and it's 2, or 3 at Critical Heat.
 
-- After you hit, **watch your own shot until it reaches the other side.** That's when an own goal can happen.
-- **Look where you're aiming.** Avoid sending the ball straight into a glitch wall that will reflect it back at you. Clipping a wall's top or bottom edge only changes the ball's vertical direction, which is far less dangerous.
-- **During Critical Heat, play safe.** An own goal is worth 3, which is almost half a match.
+How to use this:
+
+- After you hit, **watch your own shot until it reaches the other side.** A glitch can still send it back at you; it's only 1 point, but it's a cheap one to give away.
+- **Look where you're aiming.** Avoid sending the ball straight into the side of a glitch wall. Clipping a wall's top or bottom edge only changes the ball's vertical direction.
+- **Respect a shielded wall.** When your opponent's goal line is glowing, your shot is coming back in your colour. Stay centred and be ready for it, especially during Critical Heat.
+- **The ball has a top speed.** Rallies get faster with every hit, up to 24 px per frame. Once it's maxed out, the rally is decided by angles and glitches, not by pace.
 
 ---
 
@@ -77,7 +80,7 @@ How to protect yourself:
 
 An orb appears in the middle third of the court every 6–13 seconds and lasts about 15 seconds. **Only a ball that someone has hit can pick it up, and the orb goes to whoever hit it last.** Use edge hits (§1) to steer your returns through it.
 
-- **Phase Shield (the best one).** Your whole goal line is protected until the ball gets past you once. It also blocks own goals, and makes your paddle taller during the boss. Grab it whenever you can.
+- **Phase Shield (the best one).** Your whole goal line is protected until the ball gets past you once. It also blocks own goals, and makes your paddle taller during the boss. While it's up, your opponent's shots that hit it come back in **their** colour, so a miss costs them 2–3. Grab it whenever you can.
 - **Power Strike.** Your next return goes 22% faster. It's best used on a steep angle the AI is already struggling with.
 - **Split Ball.** Your next return splits into three balls, and only one is real.
   - **Against the AI it's wasted.** The AI always tracks the real ball.
@@ -97,7 +100,7 @@ An orb appears in the middle third of the court every 6–13 seconds and lasts a
 ## 7. Arenas
 
 - **Glitch Arena / Matrix Mainframe / The Construct.** Same rules, different look. The Matrix rain and Construct grid make fast balls harder to read, so stay centred.
-- **Black-Hole Nexus.** The centre pulls the ball in, so shots through the middle curve. Boost and drag anomalies change the ball's speed. Above 80% Heat, micro-holes can fling the ball in a random direction (an own-goal risk).
+- **Black-Hole Nexus.** The centre pulls the ball in, so shots through the middle curve. Boost and drag anomalies change the ball's speed. Above 80% Heat, micro-holes can fling the ball in a random direction (the ball turns neutral if it comes back at you).
 
 ---
 
@@ -107,6 +110,6 @@ An orb appears in the middle third of the court every 6–13 seconds and lasts a
 2. Use the tip of your paddle for angles, the middle for speed.
 3. Bounce shots off a wall near the AI. It doesn't predict bounces.
 4. Grab Phase Shield whenever it spawns.
-5. Watch your own shot at high Heat. Glitches can turn it into a 2–3 point own goal.
+5. Watch your own shot. Glitches can send it back at you, and an opponent's Phase Shield sends it back in your colour for 2–3.
 6. When the Eye turns to look at you, stay put until its shot passes the middle, then react.
 7. When a Split Ball comes at you, follow the ball in front.
