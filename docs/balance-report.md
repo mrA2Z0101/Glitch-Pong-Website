@@ -113,7 +113,7 @@ Pressing **Q** in a match instantly maxes Heat and summons the Eye. It's handy f
 ### G. Smaller notes
 - **Teleport.** It fires every 7–20 s at any Heat, from the very first rally. Consider only enabling it above some Heat (say 30%), so early rallies are clean and the chaos builds with Heat, like glitch walls do.
 - **Rubber-banding is fine.** Spite (wall bounces bend toward the losing player) and serve memory (serves aim at where the receiver missed) are mild and give the ball personality. Keep them, and mention them in the How to Play page so they don't feel like bugs.
-- **Mobile.** Heat is already scaled down for narrow screens. Glitch walls and teleports aren't, so phone matches get relatively more chaos per rally.
+- **Screen size and Heat (fixed).** Ball crossing time is now the same on every screen, and Heat drains by distance travelled instead of by time, so a rally builds the same Heat on a phone, a laptop or a large monitor, and at any ball speed. The old narrow-screen Heat reductions were removed because they were compensating for the phone's faster crossing.
 
 ---
 

@@ -3492,6 +3492,20 @@ function showFatal(msg) {
   gpScreenPos.copy(cabinets.find((c) => c.playable).screenCenter);
   const batched = bakeScene();
   window.addEventListener('glitchcade:wallet', () => refreshPrizes());
+  // Achievements unlocked out here (e.g. at the prize counter) get the arcade toast;
+  // inside Glitch Pong the game shows its own pop-up.
+  let achievementNames = [];
+  window.addEventListener('glitchpong:achievement', (e) => {
+    if (gameState === 'playing' || gameState === 'launching') return;
+    const name = e.detail && e.detail.name;
+    if (!name) return;
+    achievementNames.push(name);
+    if (achievementNames.length > 1) return; // already scheduled; it will include this one
+    setTimeout(() => {
+      toast('🏆 ACHIEVEMENT UNLOCKED: ' + achievementNames.join(' + '));
+      achievementNames = [];
+    }, 2500);
+  });
   window.addEventListener('storage', (e) => { if (e.key === 'glitchcade_wallet_v1') refreshPrizes(); });
   audioWorld = {
     signPos: new THREE.Vector3(0, ROOM_H + 1.85, 0.6),

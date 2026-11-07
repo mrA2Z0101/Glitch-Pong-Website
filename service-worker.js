@@ -7,7 +7,7 @@ const SHELL_FILES = [
   "./glitch-pong.html",
   "./styles.css",
   "./glitchpong-site.js",
-  "./glitchcade.js?v=glitchcade-4",
+  "./glitchcade.js?v=glitchcade-5",
   "./glitchcade-audio.js?v=glitchcade-3",
   "./glitchpong-site.js?v=glitchcade-7",
   "./vendor/three.module.min.js",

@@ -1,6 +1,6 @@
 # Glitch Pong — How to Win
 
-Everything here comes from how the game actually works (`glitchpong-site.js`), not guesswork. Numbers are for desktop; phones use a narrower court, so Heat builds a bit slower there.
+Everything here comes from how the game actually works (`glitchpong-site.js`), not guesswork. Speeds and Heat work the same on every screen size, from phones to big monitors.
 
 ---
 
@@ -44,7 +44,7 @@ How to exploit that:
 
 ## 3. Heat and the Eye (boss)
 
-- **Each return adds about 12.5% Heat.** Heat drains slowly over time and **resets to zero every time someone scores**. The Eye only appears after one long rally of roughly 8–11 straight returns, and **at most once per match**.
+- **Each return adds about 12.5% Heat.** Heat drains a little as the ball travels and **resets to zero every time someone scores**. Because it drains by distance, not time, a slow ball builds Heat just as well as a fast one. The Eye only appears after one long rally of roughly a dozen straight returns, and **at most once per match**.
 - **The boss fight is all-or-nothing.** The Eye throws six shots, three at each player. **The first player to miss one gives the opponent 2 points.** Survive all six and nobody scores.
 - **It telegraphs.** Before each throw, the Eye turns to look at its target about a quarter of a second ahead. When it looks at you, get ready.
 - **It aims at where your paddle is.** Each shot lands within roughly ±150 px of your paddle's centre. Don't wander off before the throw; staying put keeps the shot close.
