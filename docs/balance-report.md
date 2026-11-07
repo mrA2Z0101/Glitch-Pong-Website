@@ -66,6 +66,7 @@ These are now part of standard Glitch Pong. The **+ A and B** column in the tabl
 ### A. Horizontal speed cap (24 px/frame)
 - **Problem.** The old speed cap only trimmed vertical speed. Horizontal speed multiplied by up to ~11.5% on every return and never stopped. The old build reached 70–100 pixels per frame; with bug #1 fixed, long rallies no longer ended early and the bug-fixed simulation reached thousands of pixels per frame.
 - **Change.** Horizontal speed is capped at 24 px/frame. Long rallies still get fast, but they're decided by angles and glitches rather than by a ball nobody can see.
+- **Screen size.** All speeds in this report are for a 1280-pixel-wide screen. The game scales horizontal ball speed to the distance between the paddles, so a shot takes the same time to cross any screen; on a 1920-wide screen the cap works out to about 37 px/frame.
 - **Custom Match.** Top Speed now offers Chill 14 / Quick 20 / **Normal 24** / Insane 28 / No Limit. The Standard preset uses Normal; the Chaos preset uses No Limit.
 
 ### B. Glitch reversals turn the ball neutral
@@ -112,7 +113,7 @@ Pressing **Q** in a match instantly maxes Heat and summons the Eye. It's handy f
 ### G. Smaller notes
 - **Teleport.** It fires every 7–20 s at any Heat, from the very first rally. Consider only enabling it above some Heat (say 30%), so early rallies are clean and the chaos builds with Heat, like glitch walls do.
 - **Rubber-banding is fine.** Spite (wall bounces bend toward the losing player) and serve memory (serves aim at where the receiver missed) are mild and give the ball personality. Keep them, and mention them in the How to Play page so they don't feel like bugs.
-- **Mobile.** Heat is already scaled down for narrow screens. Glitch walls and teleports aren't, so phone matches get relatively more chaos per rally.
+- **Screen size and Heat (fixed).** Ball crossing time is now the same on every screen, and Heat drains by distance travelled instead of by time, so a rally builds the same Heat on a phone, a laptop or a large monitor, and at any ball speed. The old narrow-screen Heat reductions were removed because they were compensating for the phone's faster crossing.
 
 ---
 

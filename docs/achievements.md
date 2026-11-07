@@ -1,0 +1,38 @@
+# Achievements
+
+The game has 23 achievements. Players see them from the **ACHIEVEMENTS** button on the Glitch Pong main menu. An unlock shows a pop-up in the game. Prize-counter unlocks also show a pop-up in the 3D arcade.
+
+Achievements progress only in matches that also earn XP. Custom Match and AI vs AI don't count, so they can't be farmed with first-to-3 games.
+
+They're stored in the browser (`glitchPong_achievements_v1`) and included in save export/import (Settings → Save Data).
+
+## Adding your own
+
+All achievements live in one list near the top of `glitchpong-site.js`: search for `const ACHIEVEMENTS = [`. Add a line like this:
+
+```js
+{ id: "rally_100", name: "INFINITE LOOP", desc: "Keep a rally going for 100 hits.", stat: "longestRally", goal: 100 },
+```
+
+| Field | Meaning |
+|---|---|
+| `id` | Unique and lowercase. **Never rename it after release**: saves store it, and renaming it would re-lock the achievement for everyone. |
+| `name` | Shown on the pop-up and the Achievements screen. |
+| `desc` | How to earn it. |
+| `stat` | Which number to compare against `goal` (see below). |
+| `goal` | The number the player has to reach. |
+| `secret` | Optional. `true` hides the name and description until it's unlocked. |
+
+### Stats you can use
+
+- **From the player's profile:** `wins`, `matchesPlayed`, `bestWinStreak`, `longestRally`, `clutchWins`, `bossSurvivals`, `dashUses`, `level`
+- **Arenas:** `arenasWon` (how many of the four arenas the player has won in)
+- **From the Glitchcade:** `coinsEarned`, `prizes`
+- **Achievement counters:** `shutoutWins`, `comebackWins`, `hardWins`, `criticalHeat`, `powerups`
+
+### Tracking something new
+
+1. Where it happens in the game, call `GlitchAchievements.count("myCounter")`. Guard it with `if (achievementsCount())` so Custom Match and AI vs AI don't count.
+2. Use `stat: "myCounter"` in your achievement.
+
+The prize achievement `prizes_all` uses `goal: 8` because the prize counter has 8 prizes (`PRIZES` in `glitchcade.js`). If you add prizes, raise that goal.
