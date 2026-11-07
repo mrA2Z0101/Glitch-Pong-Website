@@ -1884,6 +1884,18 @@ function injectGameById(gameId, options = {}) {
     let rightY = canvas.height / 2 - paddleH / 2;
     let ballX = canvas.width / 2;
     let ballY = canvas.height / 2;
+
+    // ── Court scale ─────────────────────────────────────────────────────────
+    // Ball speeds are tuned for a 1280px-wide screen, where the paddle faces
+    // are 1196px apart. Horizontal movement is scaled to the real distance
+    // between the paddles so a shot takes the same time to cross any screen.
+    // Vertical speed stays in pixels, so how far a paddle has to travel while
+    // the ball crosses is the same on every screen as well.
+    const REFERENCE_COURT_SPAN = 1196;
+    function courtSpeedScale() { return Math.max(0.2, (rightX - (leftX + paddleW)) / REFERENCE_COURT_SPAN); }
+    // Where the ball was before this frame's move, so glitch walls can catch a
+    // fast ball that would otherwise jump straight over a thin wall.
+    let wallSweepFromX = null, wallSweepFromY = null;
     let vx = 6 * (Math.random() > 0.5 ? 1 : -1);
     let vy = (Math.random() * 4) - 2;
     let leftScore = 0;
@@ -3313,7 +3325,9 @@ function injectGameById(gameId, options = {}) {
       const movingTowardPaddle = side === "left" ? targetVx < 0 : targetVx > 0;
       const courtEdge = side === "left" ? leftX + paddleW : rightX;
       const distanceToPaddle = Math.abs(targetBallX - courtEdge);
-      const travelFrames = Math.max(1, distanceToPaddle / Math.max(1, Math.abs(targetVx || 1)));
+      // The ball's horizontal speed is in court units; boss shots are already in pixels.
+      const xScale = typeof options.xScale === "number" ? options.xScale : courtSpeedScale();
+      const travelFrames = Math.max(1, distanceToPaddle / Math.max(1, Math.abs(targetVx || 1) * xScale));
       const retreatTarget = canvas.height * 0.5;
 
       // ── Difficulty profile ───────────────────────────────────────────────
@@ -3491,7 +3505,7 @@ function injectGameById(gameId, options = {}) {
       if (menuDemoResetCooldown > 0) return;
 
       heat = Math.min(HEAT_MAX, Math.max(10, heat * 0.992 + 0.18));
-      ballX += vx;
+      ballX += vx * courtSpeedScale();
       ballY += vy;
 
       ballTrail.unshift({ x: ballX, y: ballY });
@@ -4242,7 +4256,8 @@ function injectGameById(gameId, options = {}) {
           }
           const source = bossData.orbitBalls[orbitIndex];
           source.active = false;
-          const speed = 9.2 + heatRatio * 2.4;
+          // Scaled as a whole (not just horizontally) so the shot keeps its aimed line.
+          const speed = (9.2 + heatRatio * 2.4) * courtSpeedScale();
           const towardLeft = bossData.currentTarget === "left";
           const targetX = towardLeft ? leftX + paddleW : rightX;
           // Each throw has an intentional, but non-perfect, random line. It is
@@ -6037,20 +6052,53 @@ function injectGameById(gameId, options = {}) {
       }
     }
 
+    // Did the ball's path this frame enter the wall from outside? Returns where
+    // it first touched and which face it came through, or null.
+    function sweptWallEntry(wall) {
+      if (wallSweepFromX === null) return null;
+      const x0 = wallSweepFromX, y0 = wallSweepFromY;
+      const dx = ballX - x0, dy = ballY - y0;
+      if (Math.hypot(dx, dy) > 400) return null; // a teleport or reset, not a move
+      const minX = wall.x - BALL_R, maxX = wall.x + wall.w + BALL_R;
+      const minY = wall.y - BALL_R, maxY = wall.y + wall.h + BALL_R;
+      if (x0 > minX && x0 < maxX && y0 > minY && y0 < maxY) return null; // started inside
+      let tEnter = 0, tExit = 1, axis = null;
+      for (const [p, d, lo, hi, name] of [[x0, dx, minX, maxX, "x"], [y0, dy, minY, maxY, "y"]]) {
+        if (Math.abs(d) < 1e-9) { if (p <= lo || p >= hi) return null; continue; }
+        let t1 = (lo - p) / d, t2 = (hi - p) / d;
+        if (t1 > t2) [t1, t2] = [t2, t1];
+        if (t1 > tEnter) { tEnter = t1; axis = name; }
+        tExit = Math.min(tExit, t2);
+        if (tEnter >= tExit) return null;
+      }
+      if (!axis) return null;
+      const face = axis === "x" ? (dx > 0 ? "L" : "R") : (dy > 0 ? "T" : "B");
+      return { x: x0 + dx * tEnter, y: y0 + dy * tEnter, face };
+    }
+
     function checkGlitchWallCollisions() {
       for (const wall of glitchWalls) {
         if (wall.phase !== 'solid') continue;
-        const bL = ballX - BALL_R, bR = ballX + BALL_R;
-        const bT = ballY - BALL_R, bB = ballY + BALL_R;
         const wL = wall.x, wR = wall.x + wall.w;
         const wT = wall.y, wB = wall.y + wall.h;
-        if (bR <= wL || bL >= wR || bB <= wT || bT >= wB) continue;
-
-        const dL = bR - wL, dR = wR - bL, dT = bB - wT, dB = wB - bT;
-        const mn = Math.min(dL, dR, dT, dB);
-        if      (mn === dL) { if (vx > 0) ballOwner = "neutral"; vx = -Math.abs(vx); ballX = wL - BALL_R - 1; }
-        else if (mn === dR) { if (vx < 0) ballOwner = "neutral"; vx =  Math.abs(vx); ballX = wR + BALL_R + 1; }
-        else if (mn === dT) { vy = -Math.abs(vy); ballY = wT - BALL_R - 1; }
+        // Bounce off the face the ball actually came through. Judging by the
+        // shallowest overlap alone sends a fast ball out the back of a thin wall.
+        const entry = sweptWallEntry(wall);
+        let face;
+        if (entry) {
+          ballX = entry.x; ballY = entry.y;
+          face = entry.face;
+        } else {
+          const bL = ballX - BALL_R, bR = ballX + BALL_R;
+          const bT = ballY - BALL_R, bB = ballY + BALL_R;
+          if (bR <= wL || bL >= wR || bB <= wT || bT >= wB) continue;
+          const dL = bR - wL, dR = wR - bL, dT = bB - wT, dB = wB - bT;
+          const mn = Math.min(dL, dR, dT, dB);
+          face = mn === dL ? "L" : mn === dR ? "R" : mn === dT ? "T" : "B";
+        }
+        if      (face === "L") { if (vx > 0) ballOwner = "neutral"; vx = -Math.abs(vx); ballX = wL - BALL_R - 1; }
+        else if (face === "R") { if (vx < 0) ballOwner = "neutral"; vx =  Math.abs(vx); ballX = wR + BALL_R + 1; }
+        else if (face === "T") { vy = -Math.abs(vy); ballY = wT - BALL_R - 1; }
         else                { vy =  Math.abs(vy); ballY = wB + BALL_R + 1; }
 
         // Shatter on ball contact
@@ -6062,6 +6110,7 @@ function injectGameById(gameId, options = {}) {
         pongAudio.glitch();
         break;
       }
+      wallSweepFromX = null; // only this frame's move is swept
     }
 
     function drawGlitchWalls() {
@@ -9276,7 +9325,8 @@ function injectGameById(gameId, options = {}) {
             ballX: bossData.projectile.x,
             ballY: bossData.projectile.y,
             vx: bossData.projectile.vx,
-            vy: bossData.projectile.vy
+            vy: bossData.projectile.vy,
+            xScale: 1
           });
           if (bossAiTarget === "left") leftY = clamp(leftY, 0, canvas.height - paddleH);
           else rightY = clamp(rightY, 0, canvas.height - paddleH);
@@ -9336,7 +9386,7 @@ function injectGameById(gameId, options = {}) {
         for (let i = decoys.length - 1; i >= 0; i--) {
           const decoy = decoys[i];
           const decoyTimeScale = 1;
-          decoy.x += decoy.vx * decoyTimeScale;
+          decoy.x += decoy.vx * decoyTimeScale * courtSpeedScale();
           decoy.y += decoy.vy * decoyTimeScale;
           decoy.life -= 1;
           if (decoy.y <= 10 || decoy.y >= canvas.height - 10) decoy.vy *= -1;
@@ -9407,7 +9457,8 @@ function injectGameById(gameId, options = {}) {
         const clutchVelocityScale = clutchMode ? (1.08 + GlitchProgression.getPerkStat("clutchBoost")) : 1;
         const roundTimeScale = 1;
         updateBlackHoleNexusGameplay(heatRatio);
-        ballX += vx * clutchVelocityScale * roundTimeScale;
+        wallSweepFromX = ballX; wallSweepFromY = ballY;
+        ballX += vx * clutchVelocityScale * roundTimeScale * courtSpeedScale();
         ballY += vy * clutchVelocityScale * roundTimeScale;
 
         // ── Ball Sentience ─────────────────────────────────────────────────

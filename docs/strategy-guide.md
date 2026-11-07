@@ -72,7 +72,7 @@ How to use this:
 - After you hit, **watch your own shot until it reaches the other side.** A glitch can still send it back at you; it's only 1 point, but it's a cheap one to give away.
 - **Look where you're aiming.** Avoid sending the ball straight into the side of a glitch wall. Clipping a wall's top or bottom edge only changes the ball's vertical direction.
 - **Respect a shielded wall.** When your opponent's goal line is glowing, your shot is coming back in your colour. Stay centred and be ready for it, especially during Critical Heat.
-- **The ball has a top speed.** Rallies get faster with every hit, up to 24 px per frame. Once it's maxed out, the rally is decided by angles and glitches, not by pace.
+- **The ball has a top speed.** Rallies get faster with every hit, up to a fixed limit: about 3.3 seconds to cross the court at serve speed and under a second at top speed, on any screen size. Once it's maxed out, the rally is decided by angles and glitches, not by pace.
 
 ---
 

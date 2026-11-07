@@ -66,6 +66,7 @@ These are now part of standard Glitch Pong. The **+ A and B** column in the tabl
 ### A. Horizontal speed cap (24 px/frame)
 - **Problem.** The old speed cap only trimmed vertical speed. Horizontal speed multiplied by up to ~11.5% on every return and never stopped. The old build reached 70–100 pixels per frame; with bug #1 fixed, long rallies no longer ended early and the bug-fixed simulation reached thousands of pixels per frame.
 - **Change.** Horizontal speed is capped at 24 px/frame. Long rallies still get fast, but they're decided by angles and glitches rather than by a ball nobody can see.
+- **Screen size.** All speeds in this report are for a 1280-pixel-wide screen. The game scales horizontal ball speed to the distance between the paddles, so a shot takes the same time to cross any screen; on a 1920-wide screen the cap works out to about 37 px/frame.
 - **Custom Match.** Top Speed now offers Chill 14 / Quick 20 / **Normal 24** / Insane 28 / No Limit. The Standard preset uses Normal; the Chaos preset uses No Limit.
 
 ### B. Glitch reversals turn the ball neutral
