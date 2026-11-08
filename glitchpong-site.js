@@ -2011,7 +2011,7 @@ function injectGameById(gameId, options = {}) {
         .gp-mobile-ui .gp-corner-action span { display:none !important; }
         .gp-mobile-ui #gp-stats-action { right:11% !important; }
         .gp-mobile-ui #gp-store-action { right:2.5% !important; }
-        .gp-mobile-ui #gp-achievements-action { right:19.5% !important; }
+        .gp-mobile-ui #gp-achievements-action { right:6.75% !important; top:calc(4.2% + 52px) !important; }
         .gp-mobile-ui #gp-achievements-list { grid-template-columns:1fr !important; }
         .gp-mobile-ui #gp-exit-action { left:2.5% !important; }
         .gp-mobile-ui #gp-pause-menu button { min-width:44px; min-height:44px; }
@@ -8720,7 +8720,7 @@ function injectGameById(gameId, options = {}) {
     achievementsBtn.setAttribute("aria-label", "Achievements");
     achievementsBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4Z"/><path d="M7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3"/></svg><span>ACHIEVEMENTS</span>';
     achievementsBtn.style.cssText = [
-      "position:absolute", "right:22%", "top:4.2%", "z-index:4",
+      "position:absolute", "right:3.2%", "top:calc(4.2% + 46px)", "z-index:4", "box-sizing:border-box", "width:calc(9% + 89px)", "justify-content:center",
       "display:flex", "align-items:center", "gap:7px", "padding:9px 12px",
       "border:1px solid rgba(255,209,102,.52)", "border-radius:10px",
       "background:rgba(9,14,26,.84)", "color:#ffd166",
