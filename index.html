@@ -305,7 +305,7 @@ body.gc-touch #gcHints { display: none; }
   background: radial-gradient(ellipse at center, rgba(20,6,40,.55), rgba(3,4,10,.92) 70%);
   transition: opacity .3s;
 }
-body.gc-exploring #gcStart { opacity: 0; pointer-events: none; }
+body.gc-exploring #gcStart, body.gc-launching #gcStart { opacity: 0; pointer-events: none; }
 .gc-card {
   width: min(620px, 100%);
   max-height: 100%;
@@ -604,8 +604,8 @@ body.gc-touch .gm-keys.touch { display: grid; }
       <button id="gcMenuEnter" class="gm-btn blue" type="button" disabled>Loading</button>
       <button id="gcMenuControls" class="gm-btn red" type="button">Controls</button>
       <div class="gm-row">
-        <a class="gm-btn sm" href="glitch-pong.html">Glitch Pong</a>
-        <a class="gm-btn sm" href="breakpoint/index.html">Breakpoint</a>
+        <button id="gcMenuGP" class="gm-btn sm" type="button" disabled>Glitch Pong</button>
+        <button id="gcMenuBP" class="gm-btn sm" type="button" disabled>Breakpoint</button>
       </div>
       <div class="gm-stats">
         <span>Cabinets <b>2/10</b></span>
@@ -662,8 +662,6 @@ body.gc-touch .gm-keys.touch { display: grid; }
       </div>
       <button id="gcEnter" type="button" disabled>Loading…</button>
       <p id="gcError"></p>
-      <br>
-      <a class="gc-back" href="glitch-pong.html">SKIP THE ARCADE — GLITCH PONG SITE →</a>
     </div>
   </div>
 </div>
@@ -701,7 +699,7 @@ body.gc-touch .gm-keys.touch { display: grid; }
 <!-- Served by the local multiplayer server. This 404s harmlessly in static-only mode. -->
 <script src="/socket.io/socket.io.js"></script>
 <script src="glitchpong-site.js?v=glitchcade-8"></script>
-<script type="module" src="glitchcade.js?v=glitchcade-8"></script>
+<script type="module" src="glitchcade.js?v=glitchcade-9"></script>
 
 <script>
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
