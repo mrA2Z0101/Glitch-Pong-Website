@@ -29,7 +29,7 @@ No build step. Either:
 - **15 brick types** (the green virus and clone bricks hold off until sectors 5 and 6, and spread slowly) — normal, heavy (cracks), shield + generators, virus (corrupts neighbors), healing, teleport, clone, explosive, firewall (needs fire/laser/explosives), quantum, invisible, moving, rotating, boss core (locked behind generators), event barriers
 - **10 glitch events** — System Error, Packet Loss, Time Freeze, Memory Leak, Kernel Panic, Data Surge, Firewall Activated, Lag Spike, Overclock, Quantum Shift
 - **20 powerups** (they stack) · **4 enemy types** · **5 mini bosses** rotate through every 5th sector, with **THE EYE** claiming every 10th
-- **12 arenas** with unique palettes, procedural synthwave soundtracks, and hazards (gravity wells, laser sweeps, teleport gates, moving barriers, corrupted zones)
+- **12 arenas** with unique palettes, recorded soundtracks, and hazards (gravity wells, laser sweeps, teleport gates, moving barriers, corrupted zones)
 - **Glitch Meter** — risk vs. reward: up to x3 score, but more corruption, events and enemies
 - **Procedural corruption** — bricks mutate, duplicate, dissolve; visuals and audio degrade
 - **9 modes** — Classic, Endless, Corruption, Hardcore, Time Attack, Puzzle, Boss Rush, Daily Glitch (date-seeded mutators, local best), AI Autoplay
@@ -48,6 +48,9 @@ The playfield takes the screen's shape. Held upright, a phone gets a tall, narro
 
 ## In the Glitchcade
 
+The recorded music and arcade scene placements are listed in
+[the soundtrack guide](../docs/soundtrack.md).
+
 Break Point is **cabinet 02** in Glitch Pong's 3D arcade. The arcade opens `index.html?cabinet` in a full-screen frame; in that mode the main menu shows **Exit to arcade** (or press Esc on the main menu) to walk away from the machine.
 
 Coins are shared through `localStorage` (key `glitchcade_wallet_v1`), which browsers only share within one site. Break Point and Glitch Pong must be served from the same origin, for example both on your `github.io` domain, for the balance to carry over.
@@ -57,7 +60,7 @@ Coins are shared through `localStorage` (key `glitchcade_wallet_v1`), which brow
 ```
 index.html      shell, HUD, menus, CRT overlay CSS
 js/config.js    data: bricks, arenas, powerups, events, modes, upgrades, achievements
-js/audio.js     WebAudio: per-arena synthwave scheduler + all SFX
+js/audio.js     streamed scene playlists, WebAudio SFX + synth fallback
 js/wallet.js    shared with Glitch Pong: coin wallet, paddle colour, cabinet exit bridge
 js/effects.js   particles, floating text, screen shake, RGB split, slice tearing
 js/entities.js  paddle, ball, bricks, enemies, bosses, hazards

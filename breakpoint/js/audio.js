@@ -1,9 +1,21 @@
-// ============ GLITCH BREAKOUT — procedural audio ============
+// ============ BREAKPOINT — streamed soundtrack + procedural SFX ============
 'use strict';
 
 const AudioSys = (() => {
   let ctx = null, master = null, musicGain = null, sfxGain = null;
   let volume = 0.7, started = false, muted = false;
+  // Stream only the current song; decoding every two-minute track would use
+  // hundreds of MB on phones. Both takes alternate when a song finishes.
+  const TRACKS = {
+    sector: ['sector-zero-1', 'sector-zero-2'],
+    memory: ['ghosts-in-the-memory-1', 'ghosts-in-the-memory-2'],
+    virus: ['infection-protocol-1', 'infection-protocol-2'],
+    nexus: ['event-horizon-1', 'event-horizon-2'],
+    eye: ['do-not-blink-1', 'do-not-blink-2'],
+  };
+  const takes = {};
+  let musicEl = null, musicKey = null, playRequest = 0;
+  const failedTracks = new Set();
 
   // music scheduler state
   let mTimer = null, step = 0, arena = ARENAS[0], glitchAmt = 0;
@@ -17,13 +29,26 @@ const AudioSys = (() => {
   let arpPat = ARP_PATTERNS[0];
 
   function init() {
-    if (ctx) { if (ctx.state === 'suspended') ctx.resume(); return; }
+    if (ctx) {
+      if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+      if (started && !muted && musicEl.paused && !mTimer) playTrack();
+      return;
+    }
     ctx = new (window.AudioContext || window.webkitAudioContext)();
     master = ctx.createGain(); master.gain.value = muted ? 0 : volume;
     const comp = ctx.createDynamicsCompressor();
     master.connect(comp); comp.connect(ctx.destination);
     musicGain = ctx.createGain(); musicGain.gain.value = 0.5; musicGain.connect(master);
     sfxGain = ctx.createGain(); sfxGain.gain.value = 0.9; sfxGain.connect(master);
+    musicEl = new Audio();
+    musicEl.preload = 'none';
+    ctx.createMediaElementSource(musicEl).connect(musicGain);
+    musicEl.addEventListener('ended', () => {
+      if (!started) return;
+      takes[musicKey] = ((takes[musicKey] || 0) + 1) % TRACKS[musicKey].length;
+      loadTrack();
+    });
+    musicEl.addEventListener('error', trackFailed);
     loadClips();
   }
 
@@ -137,13 +162,54 @@ const AudioSys = (() => {
     step++;
     mTimer = setTimeout(musicStep, beat * 1000);
   }
-  function startMusic(arenaIdx) {
-    if (!ctx) return;
+  function playTrack() {
+    if (!started || muted) return;
+    const request = ++playRequest;
+    musicEl.play().catch(error => {
+      if (request !== playRequest || !started) return;
+      // A later gesture retries autoplay restrictions; missing media falls back
+      // to the original synth instead of leaving the game silent.
+      if (error.name === 'NotSupportedError') trackFailed();
+    });
+  }
+  function loadTrack() {
+    playRequest++;
+    musicEl.pause();
+    const file = TRACKS[musicKey][takes[musicKey] || 0];
+    musicEl.src = `sounds/music/${file}.mp3`;
+    playTrack();
+  }
+  function trackFailed() {
+    if (!started || !musicKey || mTimer) return;
+    const file = TRACKS[musicKey][takes[musicKey] || 0];
+    failedTracks.add(file);
+    const next = TRACKS[musicKey].findIndex(track => !failedTracks.has(track));
+    if (next >= 0) { takes[musicKey] = next; loadTrack(); return; }
+    step = 0;
+    musicStep();
+  }
+  function startMusic(arenaIdx, eyeBoss = false) {
+    if (!ctx || muted) return; // the menu's attract game stays silent
     arena = ARENAS[arenaIdx % ARENAS.length];
     arpPat = ARP_PATTERNS[arenaIdx % ARP_PATTERNS.length];
-    if (!started) { started = true; step = 0; musicStep(); }
+    const key = eyeBoss ? 'eye'
+      : ['MEMORY LEAK', 'DIGITAL CATHEDRAL'].includes(arena.name) ? 'memory'
+      : ['VIRUS HIVE', 'CORRUPTED BIOS'].includes(arena.name) ? 'virus'
+      : arena.name === 'BLACK HOLE NEXUS' ? 'nexus' : 'sector';
+    if (started && musicKey === key) return; // don't restart on each sector
+    stopMusic();
+    started = true;
+    musicKey = key;
+    loadTrack();
   }
-  function stopMusic() { started = false; if (mTimer) clearTimeout(mTimer); mTimer = null; }
+  function stopMusic() {
+    started = false;
+    playRequest++;
+    if (mTimer) clearTimeout(mTimer);
+    mTimer = null;
+    if (musicEl) { musicEl.pause(); musicEl.currentTime = 0; }
+    musicKey = null;
+  }
   function setGlitch(a) { glitchAmt = a; }
 
   return { init, setVolume, setMuted, sfx, countdown, startMusic, stopMusic, setGlitch };
