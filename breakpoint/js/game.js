@@ -708,7 +708,7 @@ const game = {
         nb.flashT = 0.3;
         this.bricks.push(nb);
         FX.spawn(sx + CFG.BRICK_W / 2, sy + CFG.BRICK_H / 2, '#7dff5a', 8, { spd: 90 });
-        return;
+        return nb;
       }
     }
   },
@@ -884,7 +884,7 @@ const game = {
         AudioSys.sfx('teleport');
         break;
       }
-      case 'memoryLeak': this.leakT = 0.8; break;
+      case 'memoryLeak': this.leakT = 1.5; this.leaked = 0; break;
       case 'systemError': this.errT = 0.2; break;
     }
   },
@@ -1134,11 +1134,19 @@ const game = {
       // stretch a 6s event past 15 real seconds
       this.eventT -= rawDt;
       if (this.activeEvent.id === 'memoryLeak') {
+        // MEMORY LEAK drops green copies of random bricks. It used to drop one every
+        // 1.2s (about 5 a leak), and each was a clone brick that then copied itself
+        // too, so the board snowballed. Now: one every 2.5s, at most 3 a leak, and
+        // the leaked copies don't copy themselves.
         this.leakT -= rawDt;
-        if (this.leakT <= 0) {
-          this.leakT = 1.2;   // paced so a longer leak can't make a board unclearable
+        if (this.leakT <= 0 && this.leaked < 3) {
+          this.leakT = 2.5;
           const clones = this.bricks.filter(b => b.alive && b.type !== 'barrier');
-          if (clones.length) this.tryCloneBrick(choice(clones));
+          if (clones.length) {
+            const nb = this.tryCloneBrick(choice(clones));
+            if (nb) nb.leaked = true;
+          }
+          this.leaked++;
         }
       }
       if (this.activeEvent.id === 'systemError') {
