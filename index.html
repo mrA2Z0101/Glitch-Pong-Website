@@ -427,7 +427,53 @@ body.gc-touch .gc-controls.touch { display: grid; }
 }
 body.bp-playing #gcBreakPoint { opacity: 1; }
 
+/* ── Title menu: GLITCHCADE over live footage of the arcade (intro only; the
+   pause screen keeps the centred card) ── */
+#gcFootage { display: none; }
+body.gc-intro #gcFootage {
+  display: block;
+  position: absolute; inset: 0;
+  pointer-events: none;
+  font: 13px 'Share Tech Mono', monospace;
+  letter-spacing: .18em;
+  color: rgba(238,247,255,.85);
+  text-shadow: 0 0 6px rgba(0,0,0,.8);
+  background: repeating-linear-gradient(0deg, rgba(0,0,0,.18) 0 1px, transparent 1px 3px);
+}
+body.gc-intro #gcFootage::after {
+  content: ''; position: absolute; inset: 0;
+  background: radial-gradient(ellipse at 60% 50%, transparent 55%, rgba(0,0,0,.55) 100%);
+}
+.gc-rec { position: absolute; top: 26px; right: 92px; display: flex; align-items: center; gap: 8px; color: #ff4d6d; }
+.gc-rec i { width: 11px; height: 11px; border-radius: 50%; background: #ff4d6d; box-shadow: 0 0 10px #ff4d6d; animation: gcRec 1.2s steps(1, end) infinite; }
+@keyframes gcRec { 50% { opacity: 0; } }
+.gc-cam { position: absolute; bottom: 30px; right: 38px; text-align: right; display: grid; gap: 4px; }
+.gc-cam b { font-weight: normal; color: var(--cyan); }
+.gc-tc { position: absolute; top: 26px; right: 190px; color: rgba(238,247,255,.7); }
+.gc-corner { position: absolute; width: 34px; height: 34px; border: 2px solid rgba(238,247,255,.5); }
+.gc-corner.tl { top: 16px; left: 16px; border-right: 0; border-bottom: 0; }
+.gc-corner.bl { bottom: 16px; left: 16px; border-right: 0; border-top: 0; }
+.gc-corner.br { bottom: 16px; right: 16px; border-left: 0; border-top: 0; }
+body.gc-intro #gcStart {
+  justify-content: flex-start;
+  padding-left: clamp(24px, 6vw, 96px);
+  background: linear-gradient(90deg, rgba(3,4,10,.94) 0%, rgba(3,4,10,.78) 34%, rgba(3,4,10,.15) 62%, rgba(3,4,10,0) 75%);
+}
+body.gc-intro .gc-card {
+  position: relative;
+  width: min(760px, 100%);
+  padding: 0;
+  background: none; border: 0; box-shadow: none;
+  text-align: left;
+}
+body.gc-intro .gc-title { font-size: clamp(34px, 5.6vw, 74px); margin: 12px 0 14px; }
+body.gc-intro .gc-sub, body.gc-intro .gc-controls { max-width: 540px; }
+body.gc-intro .gc-status { justify-content: flex-start; }
+body.gc-intro .gc-controls { margin-left: 0; }
+
 @media (max-width: 640px) {
+  body.gc-intro #gcStart { padding: 24px; background: rgba(3,4,10,.72); }
+  .gc-tc, .gc-cam span { display: none; }
   .gc-card { padding: 24px 18px 20px; }
   #gcRobotSay { font-size: 12px; bottom: calc(22% + 64px); }
   .gc-controls { grid-template-columns: 1fr; }
@@ -466,6 +512,13 @@ body.bp-playing #gcBreakPoint { opacity: 1; }
   </div>
 
   <div id="gcStart">
+    <!-- security-cam overlay for the arcade footage behind the title menu -->
+    <div id="gcFootage" aria-hidden="true">
+      <div class="gc-rec"><i></i>REC</div>
+      <div class="gc-cam"><b id="gcCamId">CAM 01</b><span id="gcCamLabel">STREET // FRONT ENTRANCE</span></div>
+      <div class="gc-tc" id="gcTimecode">00:00:00:00</div>
+      <span class="gc-corner tl"></span><span class="gc-corner bl"></span><span class="gc-corner br"></span>
+    </div>
     <div class="gc-card">
       <p class="gc-eyebrow" id="gcEyebrow">Signal acquired</p>
       <h1 class="gc-title" id="gcTitle">GLITCHCADE</h1>
@@ -532,7 +585,7 @@ body.bp-playing #gcBreakPoint { opacity: 1; }
 <!-- Served by the local multiplayer server. This 404s harmlessly in static-only mode. -->
 <script src="/socket.io/socket.io.js"></script>
 <script src="glitchpong-site.js?v=glitchcade-8"></script>
-<script type="module" src="glitchcade.js?v=glitchcade-6"></script>
+<script type="module" src="glitchcade.js?v=glitchcade-7"></script>
 
 <script>
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
