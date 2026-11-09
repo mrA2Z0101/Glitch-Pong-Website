@@ -3973,6 +3973,17 @@ function refreshMenuStats(w = Wallet.get()) {
   $('gmPrizes').textContent = `${w.prizes.length}/${PRIZES.length}`;
 }
 menuEnter.addEventListener('click', () => enterBtn.click());
+// Straight into a game from the menu: the footage camera flies into that cabinet
+function launchFromMenu(id) {
+  if (gameState !== 'intro') return;
+  const cab = cabinets.find((c) => c.id === id);
+  if (!cab) return;
+  audio.unlock(audioWorld);
+  if (id === 'breakpoint') launchBreakPoint(cab);
+  else launchGlitchPong(cab);
+}
+$('gcMenuGP').addEventListener('click', () => launchFromMenu('glitch-pong'));
+$('gcMenuBP').addEventListener('click', () => launchFromMenu('breakpoint'));
 $('gcMenuControls').addEventListener('click', () => showMenuScreen('gcMenuHelp'));
 $('gcMenuBack').addEventListener('click', () => showMenuScreen('gcMenu'));
 window.addEventListener('keydown', (e) => {
@@ -4250,6 +4261,7 @@ function showFatal(msg) {
   enterBtn.textContent = isTouch ? 'Tap to enter' : 'Enter the Glitchcade';
   menuEnter.disabled = false;
   menuEnter.textContent = 'Enter';
+  $('gcMenuGP').disabled = $('gcMenuBP').disabled = false;
   menuEnter.focus({ preventScroll: true });
 
   // Hooks for automated testing / debugging from the console.
