@@ -27,6 +27,9 @@ const Meta = {
 const $ = (id) => document.getElementById(id);
 const canvas = $('game');
 const mainCtx = canvas.getContext('2d');
+// touch screens (phones, tablets): touch-specific hints, buttons and sizing
+const IS_TOUCH = window.matchMedia?.('(pointer: coarse)').matches || 'ontouchstart' in window;
+document.body.classList.toggle('touch', IS_TOUCH);
 const scene = document.createElement('canvas');
 scene.width = CFG.W; scene.height = CFG.H;
 const ctx = scene.getContext('2d');
@@ -191,6 +194,7 @@ const game = {
 
   // ======== attract mode (AI demo behind the menu) ========
   startAttract() {
+    applyLayout();               // back on the menu: catch up with any rotation during the run
     this.attract = true;
     this.autoplay = false;
     $('aiBadge').classList.remove('on');
@@ -281,6 +285,7 @@ const game = {
   get sentient() { return Meta.data.sentience !== false; },
 
   startRun(mode) {
+    applyLayout();               // the phone may have been rotated on the menu
     this.stopAttract();
     AudioSys.init();
     this.mode = mode;
@@ -431,8 +436,8 @@ const game = {
           if (r === 3) type = 'heavy';
           else if (r < 3 && (c + r) % 2 === 0) type = 'explosive';
         } else if (layout === 2) { // shield fortress
-          if (r <= 1 && c >= 3 && c <= 8) type = 'shield';
-          else if (r === 2 && (c === 2 || c === 9)) type = 'generator';
+          if (r <= 1 && c >= 3 && c <= cols - 4) type = 'shield';
+          else if (r === 2 && (c === 2 || c === cols - 3)) type = 'generator';
           else if (r >= 3 && r <= 4 && c % 2 === 0) type = 'normal';
         } else if (layout === 3) { // teleport maze
           if ((r * cols + c) % 5 === 0) type = 'teleport';
@@ -1521,6 +1526,16 @@ const game = {
     const king = this.rivalLeader();
     if (king) this.renderCrown(king);
     if (this.paddle) this.paddle.render(ctx);
+    // touch, upright: the strip under the paddle is where your thumb goes
+    if (IS_TOUCH && !this.attract && this.state === 'serve' && CFG.H - CFG.PADDLE_Y > 80) {
+      ctx.save();
+      ctx.globalAlpha = 0.32;
+      ctx.fillStyle = PaddleColor.hex;
+      ctx.font = '700 13px Orbitron';
+      ctx.textAlign = 'center';
+      ctx.fillText('◀   DRAG   ▶', CFG.W / 2, CFG.PADDLE_Y + 66);
+      ctx.restore();
+    }
     // serve hint
     if (this.state === 'serve' && !this.countdown) {
       ctx.save();
@@ -1528,7 +1543,7 @@ const game = {
       ctx.fillStyle = COL.white;
       ctx.font = '700 13px Orbitron';
       ctx.textAlign = 'center';
-      ctx.fillText('SPACE / CLICK TO LAUNCH', CFG.W / 2, 500);
+      ctx.fillText(IS_TOUCH ? 'TAP TO LAUNCH' : 'SPACE / CLICK TO LAUNCH', CFG.W / 2, CFG.PADDLE_Y - 100);
       ctx.restore();
     }
     // corruption vignette
@@ -1618,6 +1633,15 @@ const game = {
     $('btnPauseHud').classList.toggle('on', !this.attract && (this.state === 'play' || this.state === 'serve'));
     // ability
     const ab = $('abil');
+    const abBtn = $('btnAbility');
+    const hasAbility = Meta.rank('emp') || Meta.rank('laser');
+    abBtn.classList.toggle('on', !!hasAbility && !this.attract && (this.state === 'play' || this.state === 'serve'));
+    if (hasAbility) {
+      const label = Meta.rank('emp') ? 'EMP' : 'LZR';
+      const txt = this.abilityCd > 0 ? String(Math.ceil(this.abilityCd)) : label;
+      if (abBtn.textContent !== txt) abBtn.textContent = txt;
+      abBtn.classList.toggle('ready', this.abilityCd <= 0);
+    }
     if (Meta.rank('emp') || Meta.rank('laser')) {
       hudHtml(ab, this.abilityCd > 0 ? `[X] ${Math.ceil(this.abilityCd)}s` : `[X] <b>READY</b>`);
     } else hudHtml(ab, '');
@@ -1681,7 +1705,8 @@ function buildModeGrid() {
       mods = '<div>' + names.map(x => `<span class="modtag">${x}</span>`).join('') + '</div>';
       if (Meta.data.daily.date === today) extra = `<span class="cost">TODAY ${Meta.data.daily.score.toLocaleString()}</span>`;
     }
-    card.innerHTML = `<h3>${m.name}${extra}</h3><p>${m.desc}</p>${mods}`;
+    const desc = IS_TOUCH ? m.desc.replace('Press [T] any time to take over.', 'Tap the AI badge any time to take over.') : m.desc;
+    card.innerHTML = `<h3>${m.name}${extra}</h3><p>${desc}</p>${mods}`;
     card.onclick = () => { AudioSys.sfx('click'); game.startRun(id); };
     grid.appendChild(card);
   }
@@ -1796,6 +1821,14 @@ $('btnSentience').onclick = () => {
   refreshSentienceBtn();
 };
 $('btnPauseHud').onclick = (e) => { e.currentTarget.blur(); game.togglePause(); };
+// touch has no [T] key: tap the AI badge to take the paddle back
+if (IS_TOUCH) $('aiBadge').innerHTML = 'AI PLAYING &nbsp;<b>TAP TO TAKE OVER</b>';
+$('aiBadge').addEventListener('click', () => {
+  if (game.autoplay && (game.state === 'play' || game.state === 'serve')) game.setAutoplay(false);
+});
+// touch: the [X] ability on its own button (the two-finger tap still works)
+$('btnAbility').addEventListener('touchstart', (e) => { e.preventDefault(); e.stopPropagation(); game.onAbility(); }, { passive: false });
+$('btnAbility').onclick = (e) => { e.currentTarget.blur(); game.onAbility(); };
 $('btnWipe').onclick = () => {
   AudioSys.sfx('click');
   if (confirm('Erase all BREAKPOINT save data — credits, upgrades, achievements and best scores?')) {
@@ -1836,15 +1869,95 @@ refreshPaddleColorBtn();
 refreshSentienceBtn();
 applyFxSetting();
 
-// scale the fixed-size 980px cabinet to fit the window (never upscaled past 1:1)
+// ---------------- layout: the playfield takes the screen's shape ----------------
+// It used to be a fixed 960x640 field shrunk to fit, which on a phone held upright
+// left a thin strip across the middle of the screen. Now:
+//  - upright screens (phones) get a tall field 600 wide: 8 brick columns, the
+//    paddle raised over a strip at the bottom for your thumb, and the height
+//    picked so the whole cabinet fills the screen
+//  - wide touch screens keep the 640-high field and widen it (up to 1560, with
+//    more brick columns) to fill; desktop keeps the original 960x640
+// A layout change rebuilds the level, so it only happens on the menu or at the
+// start of a run; rotating mid-run just rescales until you're back on the menu.
+let layoutKey = '';
+
+function screenArea() {
+  // the page's padding is the notch / home-indicator safe area
+  const cs = getComputedStyle(document.body);
+  const px = (v) => parseFloat(v) || 0;
+  return {
+    w: Math.max(200, window.innerWidth - px(cs.paddingLeft) - px(cs.paddingRight)),
+    h: Math.max(200, window.innerHeight - px(cs.paddingTop) - px(cs.paddingBottom)),
+  };
+}
+
+// Returns true if the field changed shape. Desktop windows always get 960x640
+// unless they're taller than wide.
+function applyLayout() {
+  const { w: vw, h: vh } = screenArea();
+  const portrait = vh > vw * 1.1;
+  document.body.classList.toggle('portrait', portrait);
+  const wrap = $('wrap');
+  let W, H;
+  if (portrait) {
+    W = 600;
+    wrap.style.width = (W + 20) + 'px';
+    const hud = $('hudTop').offsetHeight + $('hudBot').offsetHeight;
+    // canvas shows at (W+20) css px wide, so its css height is H*(W+20)/W
+    H = Math.round(clamp(((vh / vw) * (W + 20) - hud) * W / (W + 20), 760, 1300));
+  } else {
+    H = 640;
+    let best = 960, bestErr = Infinity;
+    // wide phones / tablets: widen to fill. Desktop keeps the original 960 field.
+    for (let w = 960; w <= (IS_TOUCH ? 1560 : 960); w += 8) {
+      wrap.style.width = (w + 20) + 'px';
+      const hud = $('hudTop').offsetHeight + $('hudBot').offsetHeight;
+      const err = Math.abs((w + 20) / ((w + 20) * H / w + hud) - vw / vh);
+      if (err < bestErr) { bestErr = err; best = w; }
+    }
+    W = best;
+  }
+  const key = W + 'x' + H;
+  wrap.style.width = (W + 20) + 'px';
+  if (key === layoutKey) { fitToScreen(); return false; }
+  layoutKey = key;
+  CFG.W = W; CFG.H = H;
+  // wide phones in landscape get extra columns rather than empty sides
+  CFG.BRICK_COLS = portrait ? 8 : clamp(Math.floor((W - 60) / (CFG.BRICK_W + CFG.BRICK_GAP)), 12, 20);
+  CFG.PADDLE_W = portrait ? 100 : 110;
+  CFG.PADDLE_Y = portrait ? H - 120 : 600;   // upright: room under the paddle for your thumb
+  canvas.width = scene.width = W;
+  canvas.height = scene.height = H;
+  input.mouseX = W / 2;
+  fitToScreen();
+  return true;
+}
+
+// Scale the cabinet to the screen. Desktop never scales past 1:1 (it would blur);
+// touch screens may scale up so tablets fill too.
 function fitToScreen() {
   const w = $('wrap');
-  const s = Math.min(window.innerWidth / w.offsetWidth, window.innerHeight / w.offsetHeight, 1);
-  w.style.transform = s < 0.999 ? `scale(${s.toFixed(4)})` : '';
+  const { w: vw, h: vh } = screenArea();
+  const s = Math.min(vw / w.offsetWidth, vh / w.offsetHeight, IS_TOUCH ? 1.6 : 1);
+  w.style.transform = Math.abs(s - 1) > 0.001 ? `scale(${s.toFixed(4)})` : '';
 }
-window.addEventListener('resize', fitToScreen);
-fitToScreen();
-document.fonts?.ready.then(fitToScreen);   // HUD height settles once the web fonts land
+
+// On the menu, a new screen shape re-lays the demo level behind it; mid-run it just rescales.
+function onScreenChange() {
+  if (!game.attract) { fitToScreen(); return; }
+  const open = document.querySelector('.screen.on');
+  if (applyLayout()) {
+    game.startLevel();
+    if (open) showScreen(open.id);
+  }
+}
+let screenChangeT = 0;
+const queueScreenChange = () => { clearTimeout(screenChangeT); screenChangeT = setTimeout(onScreenChange, 120); };
+window.addEventListener('resize', queueScreenChange);
+window.addEventListener('orientationchange', queueScreenChange);
+window.visualViewport?.addEventListener('resize', queueScreenChange);
+applyLayout();
+document.fonts?.ready.then(() => { if (game.attract) onScreenChange(); else fitToScreen(); });   // HUD height settles once the web fonts land
 
 let lastT = performance.now();
 function frame(now) {

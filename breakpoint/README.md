@@ -42,6 +42,10 @@ No build step. Either:
 
 There is also a secret. Old-school arcade rules: it's three letters and typed on the main menu.
 
+## On phones
+
+The playfield takes the screen's shape. Held upright, a phone gets a tall, narrow field (8 brick columns) sized to fill the screen, with the paddle raised over a thumb strip: drag anywhere to steer, tap to launch, and use the round button for your [X] ability. Turned sideways, phones and tablets get a wider field with extra columns. Desktop keeps the original 960×640. Pinch/double-tap zoom is off, the notch is respected, and the page can be added to the home screen to run full-screen.
+
 ## In the Glitchcade
 
 Break Point is **cabinet 02** in Glitch Pong's 3D arcade. The arcade opens `index.html?cabinet` in a full-screen frame; in that mode the main menu shows **Exit to arcade** (or press Esc on the main menu) to walk away from the machine.
