@@ -532,12 +532,12 @@ class Turret extends Enemy {
 
 // player assist drone (powerup)
 class AssistDrone {
-  constructor() { this.x = CFG.W / 2; this.y = 520; this.t = 0; this.shootT = 1; this.life = POWERUPS.drone.dur; this.dead = false; }
+  constructor() { this.x = CFG.W / 2; this.y = CFG.PADDLE_Y - 80; this.t = 0; this.shootT = 1; this.life = POWERUPS.drone.dur; this.dead = false; }
   update(dt, g) {
     this.t += dt; this.life -= dt;
     if (this.life <= 0) { this.dead = true; return; }
     this.x = lerp(this.x, g.paddle.x + Math.sin(this.t * 2) * 80, dt * 4);
-    this.y = 500 + Math.sin(this.t * 3) * 14;
+    this.y = CFG.PADDLE_Y - 100 + Math.sin(this.t * 3) * 14;   // hovers above the paddle
     this.shootT -= dt;
     if (this.shootT <= 0) {
       this.shootT = 1.1;

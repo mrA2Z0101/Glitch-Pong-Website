@@ -2,7 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- phone: no pinch / double-tap zoom, draw under the notch (body pads by the safe area),
+     and run full-screen when added to the home screen -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Breakpoint">
 <title>BREAKPOINT — The Machine Sees You</title>
 <meta name="theme-color" content="#03040a">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -31,11 +37,13 @@
   --glow-p: 0 0 32px rgba(255,88,217,0.45);
 }
 *{margin:0;padding:0;box-sizing:border-box;user-select:none;-webkit-user-select:none}
-html,body{height:100%;background:var(--void);overflow:hidden}
+html,body{height:100%;background:var(--void);overflow:hidden;overscroll-behavior:none;touch-action:manipulation;-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none}
 body{
   font-family:'Share Tech Mono',monospace;color:var(--text);
   display:flex;align-items:center;justify-content:center;
   background:radial-gradient(circle at 50% 30%, #0a1020 0%, #050813 45%, var(--void) 100%);
+  /* keep the cabinet clear of the notch and home indicator (js/game.js fits inside this) */
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 /* global scanlines, Glitch Pong style */
 body::after{
@@ -214,11 +222,36 @@ button:disabled{opacity:.35;cursor:default}
   font-family:'Orbitron',monospace;font-size:9px;font-weight:700;letter-spacing:2px;color:#c084fc;
   text-transform:uppercase;box-shadow:0 0 18px rgba(154,93,255,.25)}
 #aiBadge.on{display:flex}
+body.touch #aiBadge{cursor:pointer;padding:12px 16px;font-size:14px}
 /* on-screen pause (touch players have no P / Esc key) */
 #btnPauseHud{position:absolute;top:10px;right:12px;z-index:9;min-width:0;width:34px;height:30px;padding:0;
   font-family:'VT323',monospace;font-size:20px;letter-spacing:0;color:var(--cyan);
   outline-color:rgba(113,239,255,.35);background:rgba(8,12,28,.6);clip-path:none;display:none}
 #btnPauseHud.on{display:block}
+/* touch: the [X] ability gets a thumb-sized button, bottom-right over the field */
+#btnAbility{display:none;position:absolute;right:14px;bottom:16px;z-index:9;min-width:0;width:74px;height:74px;padding:0;
+  border-radius:50%;clip-path:none;font-family:'Orbitron',monospace;font-size:15px;font-weight:900;letter-spacing:1px;
+  color:var(--muted);background:rgba(6,10,22,.7);outline:2px solid rgba(113,239,255,.25)}
+body.touch #btnAbility.on{display:block}
+#btnAbility.ready{color:var(--cyan);outline-color:var(--cyan);box-shadow:0 0 18px rgba(113,239,255,.45)}
+#btnAbility:hover{transform:none}
+/* ---------- upright phones: tall, narrow field (see applyLayout in js/game.js) ---------- */
+body.portrait #hudTop .grp{gap:12px}
+body.portrait .hval{font-size:24px}
+body.portrait #hArena{font-size:9px;letter-spacing:2px}
+body.portrait #hArena b{font-size:11px;letter-spacing:3px}
+body.portrait #hudBot{gap:8px;letter-spacing:2px}
+body.portrait #abil{display:none}
+body.portrait #puList{min-width:0}
+body.portrait .grid{grid-template-columns:1fr;max-height:74%;width:94%}
+body.portrait .px-btn{width:420px;max-width:86%;font-size:24px;padding:26px 18px}
+body.portrait .px-row, body.portrait #scrMenu .px-btn.arcade{width:420px;max-width:86%}
+body.portrait .px-btn.sm{width:auto;font-size:10px;padding:14px 4px}
+body.touch #btnPauseHud{width:60px;height:52px;font-size:30px;top:12px;right:12px}
+body.portrait .px-title{font-size:44px}
+body.portrait .px-sub{font-size:10px}
+body.portrait button.small{padding:14px 22px;font-size:12px}
+body.portrait .klist{max-width:94%}
 #btnPauseHud:hover{transform:none;outline-color:var(--cyan);box-shadow:0 0 14px rgba(113,239,255,.4)}
 /* reduced screen FX: no CRT flicker strobe, no title jitter */
 body.reduced-fx #flick{display:none}
@@ -343,6 +376,7 @@ input[type=range]{accent-color:var(--cyan);width:160px}
     <div id="toasts"></div>
     <div id="aiBadge">AI PLAYING &nbsp;<b>[T] TAKE OVER</b></div>
     <button id="btnPauseHud" title="Pause (P / Esc)" aria-label="Pause">II</button>
+    <button id="btnAbility" type="button" aria-label="Special ability">EMP</button>
 
     <!-- MAIN MENU — BREAKPOINT (AI demo plays behind it) -->
     <div class="screen on" id="scrMenu">
@@ -478,11 +512,11 @@ input[type=range]{accent-color:var(--cyan);width:160px}
     <div id="puList"></div>
   </div>
 </div>
-<script src="js/config.js?v=3"></script>
-<script src="js/audio.js?v=3"></script>
-<script src="js/effects.js?v=3"></script>
-<script src="js/wallet.js?v=3"></script>
-<script src="js/entities.js?v=3"></script>
-<script src="js/game.js?v=3"></script>
+<script src="js/config.js?v=4"></script>
+<script src="js/audio.js?v=4"></script>
+<script src="js/effects.js?v=4"></script>
+<script src="js/wallet.js?v=4"></script>
+<script src="js/entities.js?v=4"></script>
+<script src="js/game.js?v=4"></script>
 </body>
 </html>
