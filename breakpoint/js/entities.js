@@ -42,7 +42,8 @@ class Paddle {
   }
   render(ctx) {
     const { x, y, w, h } = this;
-    const col = this.hasLaser ? COL.red : this.magnetic ? COL.violet : COL.cyan;
+    // your Glitch Pong paddle colour, unless a powerup is recolouring it
+    const col = this.hasLaser ? COL.red : this.magnetic ? COL.violet : PaddleColor.hex;
     ctx.save();
     ctx.shadowColor = col; ctx.shadowBlur = 16 + this.glow * 20;
     ctx.fillStyle = col;
@@ -79,12 +80,18 @@ class Ball {
     this.trail = [];
     this.dead = false;
     this.invisible = 0;
+    // sentience (see Game.sentientSteer): paddle returns since this ball last
+    // broke a brick, and its current mood — null, 'bored' or 'grudge'
+    this.dull = 0;
+    this.mood = null;
   }
   get color() {
     if (this.fire > 0) return COL.orange;
     if (this.pierce > 0) return COL.magenta;
     if (this.boom > 0) return COL.red;
     if (this.grav > 0) return COL.violet;
+    if (this.mood === 'bored') return '#8d97ad';
+    if (this.mood === 'grudge') return '#ff8fb8';
     return COL.white;
   }
   setSpeed(s) {

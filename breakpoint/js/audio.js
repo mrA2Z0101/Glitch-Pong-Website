@@ -24,6 +24,35 @@ const AudioSys = (() => {
     master.connect(comp); comp.connect(ctx.destination);
     musicGain = ctx.createGain(); musicGain.gain.value = 0.5; musicGain.connect(master);
     sfxGain = ctx.createGain(); sfxGain.gain.value = 0.9; sfxGain.connect(master);
+    loadClips();
+  }
+
+  // ---- recorded clips: Glitch Pong's countdown voice ----
+  // Loaded once the AudioContext exists. Opening index.html straight from disk
+  // can't fetch them, so countdown() falls back to synth beeps.
+  const CLIP_FILES = { '3': 'sounds/sfx/3.mp3', '2': 'sounds/sfx/2.mp3', '1': 'sounds/sfx/1.mp3', GO: 'sounds/sfx/GO.mp3' };
+  const clips = {};
+  function loadClips() {
+    for (const [k, url] of Object.entries(CLIP_FILES)) {
+      fetch(url)
+        .then(r => { if (!r.ok) throw new Error(url); return r.arrayBuffer(); })
+        .then(buf => ctx.decodeAudioData(buf))
+        .then(b => { clips[k] = b; })
+        .catch(() => {});
+    }
+  }
+  function countdown(key) {
+    if (!ctx) return;
+    const b = clips[key];
+    if (b) {
+      const src = ctx.createBufferSource(), g = ctx.createGain();
+      g.gain.value = 0.85;
+      src.buffer = b; src.connect(g); g.connect(sfxGain);
+      src.start();
+      return;
+    }
+    if (key === 'GO') { tone(660, 0.12, { vol: 0.2 }); tone(990, 0.3, { vol: 0.2, when: 0.1 }); }
+    else tone(440, 0.14, { vol: 0.2 });
   }
   function setVolume(v) { volume = v; if (master && !muted) master.gain.value = v; }
   // silence everything (attract-mode demo) without disturbing the saved volume
@@ -117,5 +146,5 @@ const AudioSys = (() => {
   function stopMusic() { started = false; if (mTimer) clearTimeout(mTimer); mTimer = null; }
   function setGlitch(a) { glitchAmt = a; }
 
-  return { init, setVolume, setMuted, sfx, startMusic, stopMusic, setGlitch };
+  return { init, setVolume, setMuted, sfx, countdown, startMusic, stopMusic, setGlitch };
 })();

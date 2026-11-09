@@ -45,6 +45,28 @@ function toast(title, body) {
   setTimeout(() => el.remove(), 3800);
 }
 
+// Glitch Pong's 3-2-1-GO, played at the start of every sector. The paddle can
+// line up during it; the ball launches itself as GO clears.
+const COUNTDOWN = [
+  { key: '3', dur: 0.57 },
+  { key: '2', dur: 0.57 },
+  { key: '1', dur: 0.57 },
+  { key: 'GO', dur: 0.63 },
+];
+const COUNTDOWN_IMG = {};
+for (const { key } of COUNTDOWN) {
+  const img = new Image();
+  img.src = 'assets/' + key + '.png';
+  COUNTDOWN_IMG[key] = img;
+}
+
+// The ball is sentient (as in Glitch Pong), with moods of its own here:
+//  BORED  — after this many paddle returns without breaking a brick it gets
+//           restless and bends its own path toward the nearest brick
+//  GRUDGE — it remembers THE EYE from the Pong arena and leans toward it
+//  LOYAL  — on your last life it refuses to fall past a near miss, once a sector
+const BORED_AFTER = 5;
+
 function statChips(pairs) {
   return '<div class="statline">' + pairs.map(([label, val, hl]) =>
     `<span class="sc${hl ? ' hl' : ''}"><i>${label}</i><b>${val}</b></span>`).join('') + '</div>';
@@ -250,6 +272,8 @@ const game = {
   },
 
   // ======== run lifecycle ========
+  get sentient() { return Meta.data.sentience !== false; },
+
   startRun(mode) {
     this.stopAttract();
     AudioSys.init();
@@ -296,6 +320,12 @@ const game = {
     this.surgeApplied = false;   // a level ending mid-DATA SURGE used to strand this true, disabling the event for the rest of the run
     this.levelTime = 0;
     this.sectorAssisted = this.autoplay;
+    this.loyaltyUsed = false;
+    this.countdown = null;
+    if (!this.attract) {
+      this.countdown = { i: 0, t: 0 };
+      AudioSys.countdown(COUNTDOWN[0].key);
+    }
     this.corruptT = 5;
     this.nextEventT = rand(12, 20);
     this.enemySpawnT = rand(8, 14);
@@ -431,20 +461,9 @@ const game = {
   // ======== input actions ========
   onFire() {
     AudioSys.init();
+    if (this.countdown) return;   // the ball waits for GO
     if (this.state === 'serve' || this.state === 'play') {
-      let launched = false;
-      for (const b of this.balls) {
-        if (b.stuck) {
-          b.stuck = false;
-          // a magnet-caught ball launches like a paddle bounce from where it sits,
-          // so the player can aim; a fresh serve (dead centre) keeps the random spread
-          const rel = clamp(b.stuckDx / (this.paddle.w / 2), -1, 1);
-          const a = Math.abs(rel) > 0.02 ? -Math.PI / 2 + rel * 1.05 : -Math.PI / 2 + rand(-0.35, 0.35);
-          b.vx = Math.cos(a) * b.speed; b.vy = Math.sin(a) * b.speed;
-          launched = true;
-        }
-      }
-      if (launched) { this.state = 'play'; AudioSys.sfx('paddle', 0.5); return; }
+      if (this.launchStuckBalls()) return;
       if (this.paddle.hasLaser && this.laserCd <= 0) {
         this.laserCd = 0.34;
         this.lasers.push(new Laser(this.paddle.x - this.paddle.w / 2 + 3, this.paddle.y - 10));
@@ -453,7 +472,36 @@ const game = {
       }
     }
   },
+  launchStuckBalls() {
+    let launched = false;
+    for (const b of this.balls) {
+      if (b.stuck) {
+        b.stuck = false;
+        // a magnet-caught ball launches like a paddle bounce from where it sits,
+        // so the player can aim; a fresh serve (dead centre) keeps the random spread
+        const rel = clamp(b.stuckDx / (this.paddle.w / 2), -1, 1);
+        const a = Math.abs(rel) > 0.02 ? -Math.PI / 2 + rel * 1.05 : -Math.PI / 2 + rand(-0.35, 0.35);
+        b.vx = Math.cos(a) * b.speed; b.vy = Math.sin(a) * b.speed;
+        launched = true;
+      }
+    }
+    if (launched) { this.state = 'play'; AudioSys.sfx('paddle', 0.5); }
+    return launched;
+  },
+
+  tickCountdown(rawDt) {
+    const cd = this.countdown;
+    cd.t += rawDt;
+    if (cd.t < COUNTDOWN[cd.i].dur) return;
+    cd.t = 0;
+    cd.i++;
+    if (cd.i < COUNTDOWN.length) { AudioSys.countdown(COUNTDOWN[cd.i].key); return; }
+    this.countdown = null;
+    this.launchStuckBalls();
+  },
+
   onAbility() {
+    if (this.countdown) return;
     if (this.state !== 'play' && this.state !== 'serve') return;
     if (this.abilityCd > 0) return;
     if (Meta.rank('emp')) {
@@ -1056,6 +1104,15 @@ const game = {
       this.paddle.update(dt, input);
     }
 
+    // 3-2-1-GO: only the paddle moves; everything else waits for the launch
+    if (this.countdown) {
+      this.levelTime -= dt;           // Time Attack's clock starts at GO
+      for (const b of this.balls) b.update(rawDt, this);
+      FX.update(rawDt);
+      this.tickCountdown(rawDt);
+      return;
+    }
+
     // ---- glitch events schedule ----
     if (this.activeEvent) {
       // drain on WALL-CLOCK time: draining on scaled time let slow-motion / lag-spike
@@ -1151,8 +1208,13 @@ const game = {
         if (ball.dead || ball.stuck) break;
         this.collidePaddle(ball);
         if (ball.stuck) break;   // magnet caught it
+        this.ballLoyalty(ball);
         this.collideBricks(ball);
-        if (this.boss && !this.boss.dead) this.boss.collideBall(ball, this);
+        if (this.boss && !this.boss.dead) {
+          const hpBefore = this.boss.hp;
+          this.boss.collideBall(ball, this);
+          if (this.boss.hp < hpBefore) ball.dull = 0;   // landing hits on a boss isn't boring
+        }
         // ball vs enemies — bounce away from the enemy instead of flipping vy every
         // frame, which left the ball jittering inside tougher enemies like turrets
         for (const e of this.enemies) {
@@ -1226,7 +1288,7 @@ const game = {
       return;
     }
     const rel = clamp((ball.x - p.x) / (p.w / 2), -1, 1);
-    const angle = -Math.PI / 2 + rel * 1.05; // up to ±60°
+    const angle = this.sentientSteer(ball, -Math.PI / 2 + rel * 1.05); // up to ±60°, then the ball's own say
     ball.setSpeed(Math.min(CFG.BALL_MAX, ball.speed * CFG.BALL_ACCEL));
     ball.vx = Math.cos(angle) * ball.speed;
     ball.vy = Math.sin(angle) * ball.speed;
@@ -1234,7 +1296,64 @@ const game = {
     this.combo = 0;
     p.glow = 1;
     AudioSys.sfx('paddle', (rel + 1) / 2);
-    FX.spawn(ball.x, p.y - p.h / 2, COL.cyan, 6, { spd: 120, dir: -Math.PI / 2, spread: 1.6 });
+    FX.spawn(ball.x, p.y - p.h / 2, PaddleColor.hex, 6, { spd: 120, dir: -Math.PI / 2, spread: 1.6 });
+  },
+
+  // ======== the sentient ball ========
+  // Called as the ball leaves the paddle with the angle the paddle gave it;
+  // returns the angle the ball actually takes.
+  sentientSteer(ball, angle) {
+    ball.dull++;
+    if (!this.sentient) { ball.mood = null; return angle; }
+    let mood = null, target = null, pull = 0;
+    const boss = this.boss && !this.boss.dead ? this.boss : null;
+    if (boss instanceof TheEye) {
+      // GRUDGE: it hasn't forgotten the Pong arena
+      mood = 'grudge'; target = boss; pull = 0.16;
+    } else if (ball.dull >= BORED_AFTER) {
+      // BORED: no bricks for a while — it goes looking for one, more insistently the longer it waits
+      target = this.nearestBrick(ball) || boss;
+      if (target) { mood = 'bored'; pull = Math.min(0.34, 0.1 + (ball.dull - BORED_AFTER) * 0.04); }
+    }
+    if (mood !== ball.mood && mood && !this.attract) {
+      FX.text(ball.x, ball.y - 26, mood === 'bored' ? 'BORED...' : 'GRUDGE', mood === 'bored' ? '#8d97ad' : '#ff8fb8', 12);
+    }
+    ball.mood = mood;
+    if (!target) return angle;
+    const tx = target.cxm ?? target.x, ty = target.cym ?? target.y;
+    let d = Math.atan2(ty - ball.y, tx - ball.x) - angle;
+    d = Math.atan2(Math.sin(d), Math.cos(d));          // shortest way round
+    return clamp(angle + clamp(d, -pull, pull), -Math.PI + 0.3, -0.3);
+  },
+
+  nearestBrick(ball) {
+    let best = null, bestD = Infinity;
+    for (const b of this.bricks) {
+      if (!b.alive || b.type === 'barrier') continue;
+      const d = dist2(ball.x, ball.y, b.cxm, b.cym);
+      if (d < bestD) { bestD = d; best = b; }
+    }
+    return best;
+  },
+
+  // LOYAL: with no lives to spare, the ball won't slip past a near miss —
+  // once per sector, and never in Hardcore ("no mercy").
+  ballLoyalty(ball) {
+    if (!this.sentient || this.attract || this.loyaltyUsed || this.mode === 'hardcore') return;
+    const lastChance = this.mode === 'puzzle' ? this.ballsLeft <= 1 : this.lives <= 1;
+    if (!lastChance || this.balls.filter(b => !b.dead).length > 1) return;
+    const p = this.paddle;
+    if (ball.vy <= 0 || ball.y < p.y + p.h / 2 + ball.r || ball.y > p.y + 40) return;
+    if (Math.abs(ball.x - p.x) > p.w / 2 + 60) return;   // a real miss, not a near one
+    this.loyaltyUsed = true;
+    ball.vy = -Math.abs(ball.vy);
+    ball.y = p.y - p.h / 2 - ball.r - 1;
+    ball.vx += (p.x - ball.x) * 0.8;                    // drifts back over the paddle
+    ball.setSpeed(ball.speed);
+    banner('THE BALL REFUSED TO FALL');
+    FX.text(ball.x, p.y - 30, 'LOYAL', COL.green, 14);
+    FX.spawn(ball.x, p.y, COL.green, 14, { spd: 160, dir: -Math.PI / 2, spread: 1.4 });
+    AudioSys.sfx('event');
   },
 
   collideBricks(ball) {
@@ -1255,6 +1374,7 @@ const game = {
         destroyed = this.damageBrick(b, ball.fire > 0 ? 2 : 1, src);
       }
 
+      if (destroyed) ball.dull = 0;
       const phasing = (ball.pierce > 0 || ball.fire > 0) && destroyed;
       if (!phasing) {
         // reflect on dominant axis
@@ -1313,7 +1433,7 @@ const game = {
     for (const ball of this.balls) ball.render(ctx);
     if (this.paddle) this.paddle.render(ctx);
     // serve hint
-    if (this.state === 'serve') {
+    if (this.state === 'serve' && !this.countdown) {
       ctx.save();
       ctx.globalAlpha = 0.5 + 0.3 * Math.sin(performance.now() / 300);
       ctx.fillStyle = COL.white;
@@ -1331,8 +1451,33 @@ const game = {
       ctx.restore();
     }
     FX.render(ctx);
+    if (this.countdown) this.renderCountdown();
     FX.composite(mainCtx, scene);
     this.renderHud();
+  },
+
+  // Same art and easing as Glitch Pong's countdown
+  renderCountdown() {
+    const ph = COUNTDOWN[this.countdown.i];
+    const k = clamp(this.countdown.t / ph.dur, 0, 1);
+    const go = ph.key === 'GO';
+    const alpha = go ? 1 - Math.max(0, (k - 0.45) / 0.55) : 1 - Math.max(0, (k - 0.72) / 0.28);
+    const scale = go ? 0.84 + k * 0.26 : 0.72 + k * 0.2;
+    const img = COUNTDOWN_IMG[ph.key];
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, alpha);
+    ctx.shadowColor = go ? 'rgba(255,209,102,0.9)' : 'rgba(255,79,216,0.9)';
+    ctx.shadowBlur = go ? 36 : 24;
+    if (img.complete && img.naturalWidth) {
+      const w = CFG.W * 0.78 * scale, h = w * img.naturalHeight / img.naturalWidth;
+      ctx.drawImage(img, CFG.W / 2 - w / 2, CFG.H / 2 - h / 2, w, h);
+    } else {
+      ctx.font = `900 ${Math.round(120 * scale)}px Orbitron`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = go ? '#ffd166' : '#ff4fd8';
+      ctx.fillText(ph.key, CFG.W / 2, CFG.H / 2);
+    }
+    ctx.restore();
   },
 
   renderGrid() {
@@ -1528,6 +1673,27 @@ $('btnFx').onclick = () => {
   Meta.save();
   applyFxSetting();
 };
+// Paddle colour: shared with Glitch Pong (you're its blue player)
+function refreshPaddleColorBtn() {
+  const b = $('btnPaddleColor');
+  b.textContent = 'Paddle: ' + PaddleColor.name;
+  b.style.color = PaddleColor.hex;
+}
+$('btnPaddleColor').onclick = () => {
+  AudioSys.init(); AudioSys.sfx('click');
+  PaddleColor.cycle();
+  refreshPaddleColorBtn();
+};
+function refreshSentienceBtn() {
+  $('btnSentience').textContent = 'Sentient Ball: ' + (game.sentient ? 'ON' : 'OFF');
+  $('btnSentience').classList.toggle('ghostc', !game.sentient);
+}
+$('btnSentience').onclick = () => {
+  AudioSys.init(); AudioSys.sfx('click');
+  Meta.data.sentience = !game.sentient;
+  Meta.save();
+  refreshSentienceBtn();
+};
 $('btnPauseHud').onclick = (e) => { e.currentTarget.blur(); game.togglePause(); };
 $('btnWipe').onclick = () => {
   AudioSys.sfx('click');
@@ -1546,7 +1712,10 @@ $('btnOverMenu').onclick = () => goMenu();
 $('btnArcade').onclick = () => { AudioSys.sfx('click'); Cabinet.exit(); };
 if (Cabinet.active) $('btnArcade').style.display = '';
 // coins spent at the prize counter (another tab, or the arcade around this cabinet)
-window.addEventListener('storage', (e) => { if (e.key === Wallet.KEY) refreshMenuStats(); });
+window.addEventListener('storage', (e) => {
+  if (e.key === Wallet.KEY) refreshMenuStats();
+  if (e.key === PaddleColor.KEY) { PaddleColor.refresh(); refreshPaddleColorBtn(); }   // changed in Glitch Pong
+});
 $('vol').oninput = (e) => {
   AudioSys.init();
   AudioSys.setVolume(e.target.value / 100);
@@ -1562,6 +1731,8 @@ $('volVal').textContent = $('vol').value;
 AudioSys.setVolume(($('vol').value) / 100);
 refreshMenuStats();
 refreshAiRewardsBtn();
+refreshPaddleColorBtn();
+refreshSentienceBtn();
 applyFxSetting();
 
 // scale the fixed-size 980px cabinet to fit the window (never upscaled past 1:1)
