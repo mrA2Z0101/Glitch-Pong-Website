@@ -8,7 +8,7 @@ import { RenderPass } from './vendor/three-addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from './vendor/three-addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from './vendor/three-addons/postprocessing/OutputPass.js';
 import { mergeGeometries } from './vendor/three-addons/utils/BufferGeometryUtils.js';
-import { createArcadeAudio } from './glitchcade-audio.js?v=glitchcade-3';
+import { createArcadeAudio } from './glitchcade-audio.js?v=glitchcade-4';
 
 // ─── Palette (matches the site's design tokens) ─────────────────────────────
 const C = {
@@ -2222,7 +2222,7 @@ function buildBossEye(cab) {
   });
 }
 
-// A jukebox by the door plays the Glitch Pong soundtrack. Use it to skip tracks.
+// A jukebox by the door plays PRIZETRON’s Groove and the Construct tracks. Use it to skip.
 function buildJukebox() {
   const hx = ROOM_W / 2;
   const group = new THREE.Group();

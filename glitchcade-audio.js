@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // GLITCHCADE AUDIO — 3D sound for the arcade floor
-// Reuses Glitch Pong's own soundtrack and SFX; everything else (room hum, neon
+// Scene soundtracks plus Glitch Pong's SFX; everything else (room hum, neon
 // buzz, footsteps, cabinet bleeps, glitch bursts) is synthesised on the fly.
 //
 //   master ─┬─ indoor bus ─ lowpass (muffles the arcade when you're outside)
@@ -20,11 +20,15 @@ const SFX_FILES = {
   juke: 'Juke Sound'
 };
 
-// The jukebox plays the Construct arena soundtrack — the neon one.
-const PLAYLIST = [1, 2, 3, 4, 5, 6].map((n) => ({
-  src: `sounds/music/construct_music${n}.mp3`,
-  title: `THE CONSTRUCT ${String(n).padStart(2, '0')}`
-}));
+// PRIZETRON's two takes lead the jukebox; keep the original Construct selections.
+const PLAYLIST = [
+  { src: 'sounds/music/prizetrons-groove-1.mp3', title: "PRIZETRON'S GROOVE 01" },
+  { src: 'sounds/music/prizetrons-groove-2.mp3', title: "PRIZETRON'S GROOVE 02" },
+  ...[1, 2, 3, 4, 5, 6].map((n) => ({
+    src: `sounds/music/construct_music${n}.mp3`,
+    title: `THE CONSTRUCT ${String(n).padStart(2, '0')}`
+  }))
+];
 
 const MUTE_KEY = 'glitchcade_muted';
 // Pentatonic note sets so every offline cabinet bleeps in its own key.
@@ -50,9 +54,10 @@ export function createArcadeAudio({ isTouch }) {
   let robotEmitter = null;
   let gpEmitter = null;
   let jukebox = null;
-  let trackIndex = Math.floor(Math.random() * PLAYLIST.length);
+  let trackIndex = 0;
   let musicEl = null;
-  let musicStarted = false;
+  let floorMusic = null, streetMusic = null, prizePos = null;
+  const sceneMusic = [];
 
   // Start fetching the small SFX files right away; decode once we have a context.
   const rawSfx = {};
@@ -310,17 +315,38 @@ export function createArcadeAudio({ isTouch }) {
   }
 
   // ── Jukebox (streams the soundtrack through a positional panner) ──────────
-  function setupJukebox(pos) {
+  function setupJukebox(pos, counterPos) {
     musicEl = new Audio();
-    musicEl.preload = 'auto';
+    musicEl.preload = 'none';
     musicEl.addEventListener('ended', () => api.nextTrack(false));
     const src = ctx.createMediaElementSource(musicEl);
     const g = ctx.createGain();
     g.gain.value = 0.55;
-    const panner = makePanner(pos, { ref: 5, rolloff: 0.7 });
+    const panner = makePanner(pos, { ref: 1.5, rolloff: 2 });
     src.connect(g).connect(panner).connect(indoorIn);
+    // The same song comes from the prize counter's speakers, in sync.
+    prizePos = counterPos;
+    g.connect(makePanner(counterPos, { ref: 2, rolloff: 2 })).connect(indoorIn);
     jukebox = { panner };
     loadTrack();
+  }
+
+  function setupSceneMusic(stem, dest, initialGain) {
+    const el = new Audio();
+    el.preload = 'none';
+    const gain = ctx.createGain();
+    gain.gain.value = initialGain;
+    ctx.createMediaElementSource(el).connect(gain).connect(dest);
+    let take = 1;
+    el.src = `sounds/music/${stem}-${take}.mp3`;
+    el.addEventListener('ended', () => {
+      take = take === 1 ? 2 : 1;
+      el.src = `sounds/music/${stem}-${take}.mp3`;
+      if (!muted && (mode === 'explore' || mode === 'paused')) el.play().catch(() => {});
+    });
+    const stream = { el, gain };
+    sceneMusic.push(stream);
+    return stream;
   }
 
   function loadTrack() {
@@ -328,10 +354,12 @@ export function createArcadeAudio({ isTouch }) {
   }
 
   function playMusic() {
-    if (!musicEl || muted) return;
-    const p = musicEl.play();
-    if (p && p.catch) p.catch(() => {});
-    musicStarted = true;
+    // Prime the media elements during the title-menu gesture too. Safari needs
+    // play() inside that gesture; the intro's master gain keeps it silent.
+    if (!musicEl || muted || mode === 'playing') return;
+    for (const el of [musicEl, ...sceneMusic.map(s => s.el)]) {
+      if (el.paused) el.play().catch(() => {});
+    }
   }
 
   // ── Mixing per mode ────────────────────────────────────────────────────
@@ -345,13 +373,14 @@ export function createArcadeAudio({ isTouch }) {
       ramp(indoorIn.gain, 0.15, 0.7);
       ramp(outdoorIn.gain, 0.1, 0.7);
     }
-    if (mode === 'playing' || muted) {
+    if (mode === 'playing' || mode === 'intro' || muted) {
       if (musicEl) musicEl.pause();
+      sceneMusic.forEach(s => s.el.pause());
       // Glitch Pong has its own audio; put the arcade to sleep entirely.
       if (mode === 'playing') suspendTimer = setTimeout(() => ctx.suspend().catch(() => {}), 400);
     } else if (mode === 'explore' || mode === 'paused') {
       if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-      if (musicEl && musicEl.paused) playMusic();
+      playMusic();
     }
   }
 
@@ -392,12 +421,15 @@ export function createArcadeAudio({ isTouch }) {
           robotEmitter = hologramEmitter(world.robotPos);
           world.soonCabinets.forEach((cab, i) => cabinetEmitter(cab, i));
           gpEmitter = { pos: world.gpScreen };
-          setupJukebox(world.jukeboxPos);
+          setupJukebox(world.jukeboxPos, world.robotPos);
           jukebox.pos = world.jukeboxPos;
+          floorMusic = setupSceneMusic('arcade-main', indoorIn, 0);
+          streetMusic = setupSceneMusic('neon-on-wet-asphalt', outdoorIn, 0.45);
         }
       }
       if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-      if (!musicStarted) playMusic();
+      // Also retries after a browser blocks playback until a gesture.
+      playMusic();
     },
 
     setMode(next) {
@@ -445,6 +477,13 @@ export function createArcadeAudio({ isTouch }) {
         indoorFilter.frequency.setTargetAtTime(500 + inside * 17500, now(), 0.25);
         indoorIn.gain.setTargetAtTime(0.4 + inside * 0.6, now(), 0.25);
         outdoorIn.gain.setTargetAtTime(1 - inside * 0.8, now(), 0.25);
+        if (floorMusic && streetMusic) {
+          const distance = pos => Math.hypot(p.x - pos.x, p.z - pos.z);
+          const nearSpeakers = Math.max(0, 1 - Math.min(distance(jukebox.pos), distance(prizePos)) / 7);
+          // Let the local groove take over near the jukebox and prize counter.
+          floorMusic.gain.gain.setTargetAtTime(0.4 * inside * (1 - nearSpeakers), now(), 0.5);
+          streetMusic.gain.gain.setTargetAtTime(0.45 * (1 - inside), now(), 0.5);
+        }
       }
       if (mode !== 'explore') return;
       for (const em of emitters) {

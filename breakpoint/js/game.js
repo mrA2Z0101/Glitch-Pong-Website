@@ -221,7 +221,6 @@ const game = {
     this.attractResetT = rand(22, 38);
     this.startLevel();
     showScreen('scrMenu');         // keep the menu overlaid on top of the demo
-    AudioSys.startMusic(this.arenaIdx);
   },
   stopAttract() {
     this.attract = false;
@@ -325,7 +324,6 @@ const game = {
     this.runCoins = 0;
     this.level = 1;
     this.startLevel();
-    AudioSys.startMusic(this.arenaIdx);
   },
 
   startLevel() {
@@ -382,6 +380,7 @@ const game = {
     this.updateArenaHud();
     hideScreens();
     this.state = 'serve';
+    if (!this.attract) AudioSys.startMusic(this.arenaIdx, this.boss instanceof TheEye);
   },
 
   genLevel(lv) {
@@ -990,7 +989,6 @@ const game = {
     if (this.level >= 10) this.unlock('sector10');
     if (this.mode === 'hardcore' && this.level >= 3) this.unlock('hardcore3');
     this.startLevel();
-    AudioSys.startMusic(this.arenaIdx);
   },
 
   onBossDeath(boss) {
