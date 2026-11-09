@@ -65,6 +65,12 @@ for (const { key } of COUNTDOWN) {
 //           restless and bends its own path toward the nearest brick
 //  GRUDGE — it remembers THE EYE from the Pong arena and leans toward it
 //  LOYAL  — on your last life it refuses to fall past a near miss, once a sector
+//  RAMPAGE    — once it breaks through behind the wall it turns gold and runs
+//               wild: a little faster, double score until it drops back out
+//  PROTECTIVE — if an enemy stuns your paddle, it bends toward that enemy on the
+//               next return and hits it for double damage
+//  RIVALRY    — in multi-ball the balls compete: the one with the most bricks
+//               wears a crown (+50% brick score); the last one left gets a bonus
 const BORED_AFTER = 5;
 
 function statChips(pairs) {
@@ -321,6 +327,8 @@ const game = {
     this.levelTime = 0;
     this.sectorAssisted = this.autoplay;
     this.loyaltyUsed = false;
+    this.paddleAttacker = null;
+    this.ballsPrev = 0;
     this.countdown = null;
     if (!this.attract) {
       this.countdown = { i: 0, t: 0 };
@@ -632,8 +640,8 @@ const game = {
         // corrupt nearby bricks: mutate their behavior
         let n = 0;
         for (const o of this.bricks) {
-          if (!o.alive || o === b || n >= 3) continue;
-          if (dist2(b.cxm, b.cym, o.cxm, o.cym) < 110 ** 2 && chance(0.7)) {
+          if (!o.alive || o === b || n >= 2) continue;          // was up to 3 at 70%: spread slower
+          if (dist2(b.cxm, b.cym, o.cxm, o.cym) < 110 ** 2 && chance(0.5)) {
             o.corrupt = 1;
             o.morph(choice(['virus', 'moving', 'quantum', 'clone']));
             n++;
@@ -723,7 +731,7 @@ const game = {
       this.addGlitch(2);
     }
   },
-  paddleHitByProjectile() {
+  paddleHitByProjectile(shot) {
     if (this.timers.shield > 0) {
       AudioSys.sfx('wall');
       FX.spawn(this.paddle.x, this.paddle.y, COL.green, 10);
@@ -731,6 +739,8 @@ const game = {
     }
     this.paddle.stun = 2.2;
     this.combo = 0;
+    // PROTECTIVE: the ball remembers which enemy did that (bosses have their own story)
+    if (shot && shot.src instanceof Enemy && !shot.src.dead) { this.paddleAttacker = shot.src; this.paddleAttackerT = this.time; }
     AudioSys.sfx('lose');
     FX.shake(6); FX.flash(COL.red, 0.2);
     FX.text(this.paddle.x, this.paddle.y - 24, 'STUNNED', COL.red, 12);
@@ -741,7 +751,7 @@ const game = {
     if (this.enemies.filter(e => !e.dead).length >= cap) return;
     const kinds = [];
     if (lv >= 3) kinds.push(DroneEnemy);
-    if (lv >= 4) kinds.push(VirusOrb);
+    if (lv >= 6) kinds.push(VirusOrb);   // turns bricks green: held back with the virus and clone bricks
     if (lv >= 6) kinds.push(RepairBot, Turret);
     if (!kinds.length) return;
     const K = choice(kinds);
@@ -1210,6 +1220,7 @@ const game = {
         if (ball.stuck) break;   // magnet caught it
         this.ballLoyalty(ball);
         this.collideBricks(ball);
+        this.ballRampage(ball);
         if (this.boss && !this.boss.dead) {
           const hpBefore = this.boss.hp;
           this.boss.collideBall(ball, this);
@@ -1220,7 +1231,8 @@ const game = {
         for (const e of this.enemies) {
           if (e.dead) continue;
           if (dist2(ball.x, ball.y, e.x, e.y) < (e.r + ball.r) ** 2) {
-            this.damageEnemy(e, 2);
+            this.damageEnemy(e, ball.protecting === e ? 4 : 2);
+            if (ball.protecting === e) this.avenged(ball, e);
             if (!(ball.pierce > 0)) ball.vy = ball.y < e.y ? -Math.abs(ball.vy) : Math.abs(ball.vy);
           }
         }
@@ -1235,6 +1247,7 @@ const game = {
     }
     const before = this.balls.length;
     this.balls = this.balls.filter(b => !b.dead);
+    this.siblingRivalry();
     if (this.balls.length === 0 && before > 0 && this.state === 'play') this.loseLife();
 
     FX.update(rawDt);
@@ -1307,7 +1320,13 @@ const game = {
     if (!this.sentient) { ball.mood = null; return angle; }
     let mood = null, target = null, pull = 0;
     const boss = this.boss && !this.boss.dead ? this.boss : null;
-    if (boss instanceof TheEye) {
+    const foe = this.paddleAttacker;
+    if (foe && (foe.dead || this.time - this.paddleAttackerT > 10)) this.paddleAttacker = null;
+    if (this.paddleAttacker) {
+      // PROTECTIVE: someone stunned your paddle — it goes after them
+      mood = 'protective'; target = foe; pull = 0.32;
+      ball.protecting = foe;
+    } else if (boss instanceof TheEye) {
       // GRUDGE: it hasn't forgotten the Pong arena
       mood = 'grudge'; target = boss; pull = 0.16;
     } else if (ball.dull >= BORED_AFTER) {
@@ -1316,14 +1335,76 @@ const game = {
       if (target) { mood = 'bored'; pull = Math.min(0.34, 0.1 + (ball.dull - BORED_AFTER) * 0.04); }
     }
     if (mood !== ball.mood && mood && !this.attract) {
-      FX.text(ball.x, ball.y - 26, mood === 'bored' ? 'BORED...' : 'GRUDGE', mood === 'bored' ? '#8d97ad' : '#ff8fb8', 12);
+      const say = { bored: ['BORED...', '#8d97ad'], grudge: ['GRUDGE', '#ff8fb8'], protective: ['HOW DARE YOU', '#ff8a3d'] }[mood];
+      FX.text(ball.x, ball.y - 26, say[0], say[1], 12);
     }
     ball.mood = mood;
+    if (mood !== 'protective') ball.protecting = null;
     if (!target) return angle;
     const tx = target.cxm ?? target.x, ty = target.cym ?? target.y;
     let d = Math.atan2(ty - ball.y, tx - ball.x) - angle;
     d = Math.atan2(Math.sin(d), Math.cos(d));          // shortest way round
     return clamp(angle + clamp(d, -pull, pull), -Math.PI + 0.3, -0.3);
+  },
+
+  // PROTECTIVE pays off
+  avenged(ball, e) {
+    ball.protecting = null;
+    ball.mood = null;
+    this.paddleAttacker = null;
+    FX.text(e.x, e.y - 22, 'AVENGED', '#ff8a3d', 14);
+    FX.spawn(e.x, e.y, '#ff8a3d', 18, { spd: 240 });
+  },
+
+  // RAMPAGE: near the ceiling with live bricks underneath it means it got behind
+  // the wall. It ends once it drops back below the lowest brick.
+  ballRampage(ball) {
+    if (!this.sentient || this.attract) { if (ball.rampaging) this.endRampage(ball); return; }
+    if (!ball.rampaging) {
+      if (ball.y > 64) return;
+      const behind = this.bricks.some(b => b.alive && b.type !== 'barrier' && b.y > ball.y && Math.abs(b.cxm - ball.x) < b.w);
+      if (!behind) return;
+      ball.rampaging = true;
+      ball.rampage = 0;
+      ball.setSpeed(ball.speed * 1.08);
+      FX.text(ball.x, ball.y + 26, 'RAMPAGE!', '#ffd166', 15);
+      AudioSys.sfx('event');
+      return;
+    }
+    let lowest = 0;
+    for (const b of this.bricks) if (b.alive && b.type !== 'barrier') lowest = Math.max(lowest, b.y + b.h);
+    if (ball.y > lowest + 14) this.endRampage(ball);
+  },
+  endRampage(ball) {
+    ball.rampaging = false;
+    ball.setSpeed(ball.speed / 1.08);
+    if (ball.rampage > 0 && !this.attract) FX.text(ball.x, ball.y - 20, 'RAMPAGE x' + ball.rampage, '#ffd166', 14);
+    ball.rampage = 0;
+  },
+
+  // SIBLING RIVALRY: who's winning the multi-ball, if anyone
+  rivalLeader() {
+    if (!this.sentient || this.balls.length < 2) return null;
+    let best = null, tie = false;
+    for (const b of this.balls) {
+      if (b.breaks <= 0) continue;
+      if (!best || b.breaks > best.breaks) { best = b; tie = false; }
+      else if (b.breaks === best.breaks) tie = true;
+    }
+    return tie ? null : best;
+  },
+  siblingRivalry() {
+    const n = this.balls.length, prev = this.ballsPrev;
+    this.ballsPrev = n;
+    if (n > 1 && prev <= 1) for (const b of this.balls) b.breaks = 0;   // a fresh multi-ball: everyone starts level
+    if (n === 1 && prev > 1 && this.sentient && !this.attract) {
+      const last = this.balls[0];
+      if (last.breaks > 0) {
+        const bonus = 150 * last.breaks;
+        this.addScore(bonus);
+        FX.text(last.x, last.y - 24, 'LAST BALL STANDING +' + bonus, '#ffd166', 13);
+      }
+    }
   },
 
   nearestBrick(ball) {
@@ -1374,7 +1455,13 @@ const game = {
         destroyed = this.damageBrick(b, ball.fire > 0 ? 2 : 1, src);
       }
 
-      if (destroyed) ball.dull = 0;
+      if (destroyed) {
+        ball.dull = 0;
+        ball.breaks++;
+        const base = BRICKS[b.type]?.score || 0;
+        if (ball.rampaging) { ball.rampage++; this.addScore(base); }                     // RAMPAGE: double
+        if (this.balls.length > 1 && this.rivalLeader() === ball) this.addScore(base * 0.5);   // the crown: +50%
+      }
       const phasing = (ball.pierce > 0 || ball.fire > 0) && destroyed;
       if (!phasing) {
         // reflect on dominant axis
@@ -1431,6 +1518,8 @@ const game = {
       ctx.restore();
     }
     for (const ball of this.balls) ball.render(ctx);
+    const king = this.rivalLeader();
+    if (king) this.renderCrown(king);
     if (this.paddle) this.paddle.render(ctx);
     // serve hint
     if (this.state === 'serve' && !this.countdown) {
@@ -1454,6 +1543,18 @@ const game = {
     if (this.countdown) this.renderCountdown();
     FX.composite(mainCtx, scene);
     this.renderHud();
+  },
+
+  renderCrown(ball) {
+    const x = ball.x, y = ball.y - ball.r - 5;
+    ctx.save();
+    ctx.fillStyle = '#ffd166';
+    ctx.shadowColor = '#ffd166'; ctx.shadowBlur = 10;
+    ctx.beginPath();
+    ctx.moveTo(x - 8, y); ctx.lineTo(x - 8, y - 7); ctx.lineTo(x - 4, y - 3); ctx.lineTo(x, y - 9);
+    ctx.lineTo(x + 4, y - 3); ctx.lineTo(x + 8, y - 7); ctx.lineTo(x + 8, y);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
   },
 
   // Same art and easing as Glitch Pong's countdown

@@ -26,7 +26,7 @@ No build step. Either:
 
 ## Systems
 
-- **15 brick types** — normal, heavy (cracks), shield + generators, virus (corrupts neighbors), healing, teleport, clone, explosive, firewall (needs fire/laser/explosives), quantum, invisible, moving, rotating, boss core (locked behind generators), event barriers
+- **15 brick types** (the green virus and clone bricks hold off until sectors 5 and 6, and spread slowly) — normal, heavy (cracks), shield + generators, virus (corrupts neighbors), healing, teleport, clone, explosive, firewall (needs fire/laser/explosives), quantum, invisible, moving, rotating, boss core (locked behind generators), event barriers
 - **10 glitch events** — System Error, Packet Loss, Time Freeze, Memory Leak, Kernel Panic, Data Surge, Firewall Activated, Lag Spike, Overclock, Quantum Shift
 - **20 powerups** (they stack) · **4 enemy types** · **5 mini bosses** rotate through every 5th sector, with **THE EYE** claiming every 10th
 - **12 arenas** with unique palettes, procedural synthwave soundtracks, and hazards (gravity wells, laser sweeps, teleport gates, moving barriers, corrupted zones)
@@ -35,7 +35,7 @@ No build step. Either:
 - **9 modes** — Classic, Endless, Corruption, Hardcore, Time Attack, Puzzle, Boss Rush, Daily Glitch (date-seeded mutators, local best), AI Autoplay
 - **Screen FX: Reduced** setting (defaults on with OS reduce-motion) — softer shake, capped flashes, no tearing
 - **Meta progression** — XP, credits, 12 permanent upgrades, 16 achievements, saved to `localStorage`
-- **Sentient ball** — like Glitch Pong's, but with its own moods: **Bored** (five returns without breaking a brick and it bends toward the nearest one), **Grudge** (it leans toward THE EYE), **Loyal** (on your last life it refuses to fall past a near miss, once per sector, never in Hardcore). Toggle in Settings.
+- **Sentient ball** — like Glitch Pong's, but with its own moods: **Bored** (five returns without breaking a brick and it bends toward the nearest one), **Grudge** (it leans toward THE EYE), **Loyal** (on your last life it refuses to fall past a near miss, once per sector, never in Hardcore), **Rampage** (behind the wall it turns gold, speeds up a little and scores double until it drops back out), **Protective** (if an enemy stuns your paddle, it chases that enemy down for double damage), **Sibling rivalry** (in multi-ball the ball with the most bricks wears a crown for +50% brick score; the last ball standing gets a bonus). Toggle in Settings.
 - **3-2-1-GO countdown** at the start of every sector, with Glitch Pong's art and voice; the paddle can line up, and the ball launches on GO
 - **Paddle colour** shared with Glitch Pong (you're its blue player); change it in Settings and it changes in both games
 - **Glitchcade coins** — every sector you clear pays 2 coins (a boss sector pays 10) into the same wallet Glitch Pong uses; spend them at PRIZETRON-80's prize counter. Sectors the AI played don't pay.
