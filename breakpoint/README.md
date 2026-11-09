@@ -35,6 +35,9 @@ No build step. Either:
 - **9 modes** — Classic, Endless, Corruption, Hardcore, Time Attack, Puzzle, Boss Rush, Daily Glitch (date-seeded mutators, local best), AI Autoplay
 - **Screen FX: Reduced** setting (defaults on with OS reduce-motion) — softer shake, capped flashes, no tearing
 - **Meta progression** — XP, credits, 12 permanent upgrades, 16 achievements, saved to `localStorage`
+- **Sentient ball** — like Glitch Pong's, but with its own moods: **Bored** (five returns without breaking a brick and it bends toward the nearest one), **Grudge** (it leans toward THE EYE), **Loyal** (on your last life it refuses to fall past a near miss, once per sector, never in Hardcore). Toggle in Settings.
+- **3-2-1-GO countdown** at the start of every sector, with Glitch Pong's art and voice; the paddle can line up, and the ball launches on GO
+- **Paddle colour** shared with Glitch Pong (you're its blue player); change it in Settings and it changes in both games
 - **Glitchcade coins** — every sector you clear pays 2 coins (a boss sector pays 10) into the same wallet Glitch Pong uses; spend them at PRIZETRON-80's prize counter. Sectors the AI played don't pay.
 
 There is also a secret. Old-school arcade rules: it's three letters and typed on the main menu.
@@ -51,7 +54,7 @@ Coins are shared through `localStorage` (key `glitchcade_wallet_v1`), which brow
 index.html      shell, HUD, menus, CRT overlay CSS
 js/config.js    data: bricks, arenas, powerups, events, modes, upgrades, achievements
 js/audio.js     WebAudio: per-arena synthwave scheduler + all SFX
-js/wallet.js    Glitchcade coin wallet (shared with Glitch Pong) + cabinet exit bridge
+js/wallet.js    shared with Glitch Pong: coin wallet, paddle colour, cabinet exit bridge
 js/effects.js   particles, floating text, screen shake, RGB split, slice tearing
 js/entities.js  paddle, ball, bricks, enemies, bosses, hazards
 js/game.js      state machine, level generation, collisions, events, progression, UI
