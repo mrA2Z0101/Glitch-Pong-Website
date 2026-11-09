@@ -29,6 +29,8 @@ be heard. Both speakers share one stream. The jukebox starts with PRIZETRON's
 two recordings, followed by the six existing Construct tracks; interacting with
 it still skips songs. All arcade music pauses while either cabinet is playing
 and resumes on return. Browser audio starts after a user gesture.
+The opening menu also plays its current scene's music after the first click,
+tap, or key press, including the street track during the exterior camera shot.
 
 Music uses streamed media elements routed through Web Audio instead of decoding
 the entire soundtrack into memory. No build step or extra dependency is needed.

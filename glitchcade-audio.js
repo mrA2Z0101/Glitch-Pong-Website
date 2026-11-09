@@ -342,7 +342,7 @@ export function createArcadeAudio({ isTouch }) {
     el.addEventListener('ended', () => {
       take = take === 1 ? 2 : 1;
       el.src = `sounds/music/${stem}-${take}.mp3`;
-      if (!muted && (mode === 'explore' || mode === 'paused')) el.play().catch(() => {});
+      if (!muted && ['intro', 'explore', 'paused'].includes(mode)) el.play().catch(() => {});
     });
     const stream = { el, gain };
     sceneMusic.push(stream);
@@ -354,8 +354,7 @@ export function createArcadeAudio({ isTouch }) {
   }
 
   function playMusic() {
-    // Prime the media elements during the title-menu gesture too. Safari needs
-    // play() inside that gesture; the intro's master gain keeps it silent.
+    // Start during the title-menu gesture too: Safari needs play() inside it.
     if (!musicEl || muted || mode === 'playing') return;
     for (const el of [musicEl, ...sceneMusic.map(s => s.el)]) {
       if (el.paused) el.play().catch(() => {});
@@ -366,19 +365,19 @@ export function createArcadeAudio({ isTouch }) {
   function applyMode() {
     if (!ctx) return;
     clearTimeout(suspendTimer);
-    const level = muted ? 0 : { intro: 0, explore: 1, paused: 0.3, launching: 0.6, playing: 0 }[mode];
+    const level = muted ? 0 : { intro: 0.7, explore: 1, paused: 0.3, launching: 0.6, playing: 0 }[mode];
     ramp(master.gain, level, mode === 'playing' ? 0.25 : 0.4);
     if (mode === 'launching') {
       // the room drains away as you lean into the screen
       ramp(indoorIn.gain, 0.15, 0.7);
       ramp(outdoorIn.gain, 0.1, 0.7);
     }
-    if (mode === 'playing' || mode === 'intro' || muted) {
+    if (mode === 'playing' || muted) {
       if (musicEl) musicEl.pause();
       sceneMusic.forEach(s => s.el.pause());
       // Glitch Pong has its own audio; put the arcade to sleep entirely.
       if (mode === 'playing') suspendTimer = setTimeout(() => ctx.suspend().catch(() => {}), 400);
-    } else if (mode === 'explore' || mode === 'paused') {
+    } else if (['intro', 'explore', 'paused'].includes(mode)) {
       if (ctx.state === 'suspended') ctx.resume().catch(() => {});
       playMusic();
     }
@@ -426,6 +425,9 @@ export function createArcadeAudio({ isTouch }) {
           floorMusic = setupSceneMusic('arcade-main', indoorIn, 0);
           streetMusic = setupSceneMusic('neon-on-wet-asphalt', outdoorIn, 0.45);
         }
+        // setMode('intro') often ran before the first gesture created ctx.
+        // Apply it now so the new master isn't left at buildGraph's zero gain.
+        applyMode();
       }
       if (ctx.state === 'suspended') ctx.resume().catch(() => {});
       // Also retries after a browser blocks playback until a gesture.
@@ -449,7 +451,7 @@ export function createArcadeAudio({ isTouch }) {
       trackIndex = (trackIndex + 1) % PLAYLIST.length;
       loadTrack();
       if (api.onTrack) api.onTrack(PLAYLIST[trackIndex].title);
-      if (mode === 'explore' || mode === 'paused') playMusic();
+      if (['intro', 'explore', 'paused'].includes(mode)) playMusic();
       if (announce) {
         play('juke', { volume: 0.4, at: jukebox && jukebox.pos, bus: 'indoor' });
         noiseBurst({ dur: 0.18, type: 'bandpass', freq: 2400, volume: 0.15, dest: selfBus });
