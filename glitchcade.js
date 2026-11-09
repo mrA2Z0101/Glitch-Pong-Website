@@ -3820,7 +3820,7 @@ function onGameExit() {
     setExploring(true);
   } else {
     const name = cab.id === 'breakpoint' ? 'Breakpoint' : 'Glitch Pong';
-    showPauseCard('Welcome back', 'GLITCHCADE', `${name} is waiting whenever you are. Click to keep exploring.`, 'Keep exploring');
+    showPauseCard('Welcome back', 'GLITCHCADE', `${name} is waiting whenever you are.`, 'Continue');
     gameState = 'paused';
     setExploring(false);
   }
@@ -3961,7 +3961,7 @@ function showPauseCard(eyebrow, title, sub, button) {
   enterBtn.textContent = button;
 }
 
-// ── Title menu (intro only): ENTER does what the card's button does ──
+// ── Title menu (intro only): ENTER does what the pause screen's button does ──
 const menuEnter = $('gcMenuEnter');
 function showMenuScreen(id) {
   document.querySelectorAll('.gm-screen').forEach((el) => el.classList.toggle('on', el.id === id));
@@ -4207,9 +4207,6 @@ function frame(now) {
 }
 
 function showFatal(msg) {
-  const el = $('gcError');
-  el.textContent = msg;
-  el.style.display = 'block';
   enterBtn.style.display = 'none';
   $('gcMenuEnter').style.display = 'none';   // can run before menuEnter is declared (WebGL check)
   $('gcMenuError').textContent = msg;
@@ -4258,7 +4255,6 @@ function showFatal(msg) {
   resize();
   requestAnimationFrame((t) => { lastFrame = t; frame(t); });
   enterBtn.disabled = false;
-  enterBtn.textContent = isTouch ? 'Tap to enter' : 'Enter the Glitchcade';
   menuEnter.disabled = false;
   menuEnter.textContent = 'Enter';
   $('gcMenuGP').disabled = $('gcMenuBP').disabled = false;
