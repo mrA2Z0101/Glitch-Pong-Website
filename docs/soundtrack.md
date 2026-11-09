@@ -23,10 +23,14 @@ controls also control recorded music, while SFX and countdown voices are kept.
 If both recordings for a Breakpoint theme fail to load, its procedural synth
 soundtrack is used as a fallback.
 
-The arcade crossfades its floor theme and street music at the doorway, and
-reduces the floor theme near the jukebox or prize counter so the local song can
-be heard. Both speakers share one stream. The jukebox starts with PRIZETRON's
-two recordings, followed by the six existing Construct tracks; interacting with
+The arcade selects one music zone: street, arcade floor, or local speakers.
+The outgoing song fades to silence over 0.65 seconds, followed by a 50 ms gap,
+then the incoming song fades up over 1.1 seconds. PRIZETRON’s music is fully silent outside the local
+speaker zone, and the floor theme is fully silent inside that zone. Separate
+enter/leave thresholds at the door and around the speakers prevent repeated
+switching near their edges. Turning around during a fade reverses smoothly and
+cancels the old scheduled fade-in. Both speakers share one stream. The jukebox
+starts with PRIZETRON's two recordings, followed by the six existing Construct tracks; interacting with
 it still skips songs. All arcade music pauses while either cabinet is playing
 and resumes on return. Browser audio starts after a user gesture.
 The opening menu also plays its current scene's music after the first click,

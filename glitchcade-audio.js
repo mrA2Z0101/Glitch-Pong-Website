@@ -31,6 +31,7 @@ const PLAYLIST = [
 ];
 
 const MUTE_KEY = 'glitchcade_muted';
+const MUSIC_LEVELS = { street: 0.45, floor: 0.4, groove: 0.55 };
 // Pentatonic note sets so every offline cabinet bleeps in its own key.
 const SCALES = [[0, 3, 5, 7, 10], [0, 2, 4, 7, 9], [0, 2, 3, 7, 8], [0, 4, 5, 7, 11]];
 
@@ -57,6 +58,7 @@ export function createArcadeAudio({ isTouch }) {
   let trackIndex = 0;
   let musicEl = null;
   let floorMusic = null, streetMusic = null, prizePos = null;
+  let musicZone = null;
   const sceneMusic = [];
 
   // Start fetching the small SFX files right away; decode once we have a context.
@@ -321,13 +323,13 @@ export function createArcadeAudio({ isTouch }) {
     musicEl.addEventListener('ended', () => api.nextTrack(false));
     const src = ctx.createMediaElementSource(musicEl);
     const g = ctx.createGain();
-    g.gain.value = 0.55;
+    g.gain.value = 0;
     const panner = makePanner(pos, { ref: 1.5, rolloff: 2 });
     src.connect(g).connect(panner).connect(indoorIn);
     // The same song comes from the prize counter's speakers, in sync.
     prizePos = counterPos;
     g.connect(makePanner(counterPos, { ref: 2, rolloff: 2 })).connect(indoorIn);
-    jukebox = { panner };
+    jukebox = { panner, gain: g };
     loadTrack();
   }
 
@@ -361,6 +363,49 @@ export function createArcadeAudio({ isTouch }) {
     }
   }
 
+  function musicGains() {
+    return { street: streetMusic.gain.gain, floor: floorMusic.gain.gain, groove: jukebox.gain.gain };
+  }
+
+  function changeMusicZone(zone) {
+    if (zone === musicZone) return;
+    musicZone = zone;
+    const gains = musicGains();
+    const t = now();
+    const fadeOut = 0.65, fadeIn = 1.1;
+    const outgoing = Object.entries(gains).some(([key, gain]) => key !== zone && gain.value > 0);
+    for (const [key, gain] of Object.entries(gains)) {
+      // Hold the current level when someone turns around during a fade, and
+      // cancel the previous incoming song's scheduled fade-in as well.
+      const current = gain.value;
+      if (gain.cancelAndHoldAtTime) gain.cancelAndHoldAtTime(t);
+      else gain.cancelScheduledValues(t);
+      // Anchor even a settled gain: otherwise a new linear ramp can start at
+      // an older automation event and immediately jump partway down the fade.
+      gain.setValueAtTime(current, t);
+      if (key !== zone) {
+        gain.linearRampToValueAtTime(0, t + fadeOut);
+      } else {
+        // These tracks have different beats: finish fading the old one to
+        // exactly zero before bringing in the new one. No distant music bleed.
+        const start = outgoing ? t + fadeOut + 0.05 : t;
+        gain.setValueAtTime(outgoing ? 0 : current, start);
+        gain.linearRampToValueAtTime(MUSIC_LEVELS[key], start + fadeIn);
+      }
+    }
+  }
+
+  function updateMusicZone(position, inside) {
+    if (!floorMusic || !streetMusic || !jukebox) return;
+    // Separate enter/leave thresholds keep doorways and speaker-zone edges
+    // from repeatedly switching songs when the player lingers there.
+    const indoors = inside > (musicZone === 'street' || !musicZone ? 0.65 : 0.25);
+    const distance = pos => Math.hypot(position.x - pos.x, position.z - pos.z);
+    const speakerDistance = Math.min(distance(jukebox.pos), distance(prizePos));
+    const nearSpeakers = speakerDistance < (musicZone === 'groove' ? 6.75 : 5.5);
+    changeMusicZone(!indoors ? 'street' : nearSpeakers ? 'groove' : 'floor');
+  }
+
   // ── Mixing per mode ────────────────────────────────────────────────────
   function applyMode() {
     if (!ctx) return;
@@ -391,6 +436,12 @@ export function createArcadeAudio({ isTouch }) {
     // debugging / tests
     get contextState() { return ctx ? ctx.state : 'none'; },
     get musicPlaying() { return !!musicEl && !musicEl.paused; },
+    get musicMix() {
+      if (!floorMusic || !streetMusic || !jukebox) return null;
+      return { zone: musicZone, ...Object.fromEntries(Object.entries(musicGains()).map(
+        ([key, gain]) => [key, gain.value / MUSIC_LEVELS[key]]
+      )) };
+    },
     level() {
       if (!ctx) return 0;
       if (!api._analyser) {
@@ -423,7 +474,7 @@ export function createArcadeAudio({ isTouch }) {
           setupJukebox(world.jukeboxPos, world.robotPos);
           jukebox.pos = world.jukeboxPos;
           floorMusic = setupSceneMusic('arcade-main', indoorIn, 0);
-          streetMusic = setupSceneMusic('neon-on-wet-asphalt', outdoorIn, 0.45);
+          streetMusic = setupSceneMusic('neon-on-wet-asphalt', outdoorIn, 0);
         }
         // setMode('intro') often ran before the first gesture created ctx.
         // Apply it now so the new master isn't left at buildGraph's zero gain.
@@ -479,13 +530,7 @@ export function createArcadeAudio({ isTouch }) {
         indoorFilter.frequency.setTargetAtTime(500 + inside * 17500, now(), 0.25);
         indoorIn.gain.setTargetAtTime(0.4 + inside * 0.6, now(), 0.25);
         outdoorIn.gain.setTargetAtTime(1 - inside * 0.8, now(), 0.25);
-        if (floorMusic && streetMusic) {
-          const distance = pos => Math.hypot(p.x - pos.x, p.z - pos.z);
-          const nearSpeakers = Math.max(0, 1 - Math.min(distance(jukebox.pos), distance(prizePos)) / 7);
-          // Let the local groove take over near the jukebox and prize counter.
-          floorMusic.gain.gain.setTargetAtTime(0.4 * inside * (1 - nearSpeakers), now(), 0.5);
-          streetMusic.gain.gain.setTargetAtTime(0.45 * (1 - inside), now(), 0.5);
-        }
+        updateMusicZone(p, inside);
       }
       if (mode !== 'explore') return;
       for (const em of emitters) {
