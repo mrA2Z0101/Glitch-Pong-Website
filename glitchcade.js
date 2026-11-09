@@ -711,13 +711,15 @@ function createComingSoonScreen() {
 
 // Glitch Pong attract mode: an actual little rally on the cabinet screen.
 // `onEvent('paddle' | 'wall' | 'score')` lets the cabinet make the real game's sounds.
-function createGlitchPongScreen(onEvent = () => {}) {
+// `opts.prompt: false` drops the PRESS E call to action (the ceiling TVs use it),
+// `opts.t0` starts the loop part-way through so several feeds don't run in step.
+function createGlitchPongScreen(onEvent = () => {}, opts = {}) {
   const W = 512, H = 384;
   const cv = makeCanvas(W, H);
   const ctx = cv.getContext('2d');
   const tex = canvasTexture(cv);
   const s = {
-    t: 0,
+    t: opts.t0 || 0,
     ball: { x: W / 2, y: H / 2, vx: 230, vy: 140 },
     left: H / 2, right: H / 2,
     score: [0, 0],
@@ -823,7 +825,7 @@ function createGlitchPongScreen(onEvent = () => {}) {
     }
 
     // blinking call to action
-    if (Math.floor(s.t * 1.6) % 2 === 0) {
+    if (opts.prompt !== false && Math.floor(s.t * 1.6) % 2 === 0) {
       ctx.font = '700 18px Orbitron, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -964,14 +966,14 @@ function makeBreakPointSideArt() {
 }
 
 // Break Point attract mode: an AI paddle chipping away at a brick wall.
-function createBreakPointScreen() {
+function createBreakPointScreen(opts = {}) {
   const W = 384, H = 288;
   const cv = makeCanvas(W, H);
   const ctx = cv.getContext('2d');
   const tex = canvasTexture(cv);
   const COLS = 10, ROWS = 5, BW = 34, BH = 12, BX = (W - COLS * (BW + 2)) / 2, BY = 40;
   const PAD_W = 64, PAD_Y = H - 26;
-  const s = { t: 0, bricks: [], ball: null, pad: W / 2, score: 0, burst: 0, glitchFor: 0, trail: [] };
+  const s = { t: opts.t0 || 0, bricks: [], ball: null, pad: W / 2, score: 0, burst: 0, glitchFor: 0, trail: [] };
   const promptText = isTouch ? 'TAP  USE  TO  PLAY' : 'PRESS  E  TO  PLAY';
 
   function reset() {
@@ -1059,7 +1061,7 @@ function createBreakPointScreen() {
       ctx.restore();
     }
 
-    if (Math.floor(s.t * 1.6) % 2 === 0) {
+    if (opts.prompt !== false && Math.floor(s.t * 1.6) % 2 === 0) {
       ctx.font = '700 15px Orbitron, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -1918,6 +1920,200 @@ function buildBreakPointCabinet(slot) {
   addFloorGlow(scene, new THREE.Color(C.purple), 1.6, 1.4,
     slot.x + entry.forward.x * 1.1, slot.z + entry.forward.z * 1.1, 0.2);
   return entry;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CEILING TVs — old CRT sets hung over the aisle, tilted down at the floor,
+// flicking between Glitch Pong and Breakpoint gameplay
+// ═══════════════════════════════════════════════════════════════════════════
+const TV_PAIRS_Z = [-7.5, -15, -22.5];   // back-to-back pairs on drop poles down the centre aisle
+const TV_Y = 4.25;                        // screen centre height (ceiling at ROOM_H)
+const TV_TILT = 0.34;                     // radians the screens tip toward the floor
+const tvs = [];                           // { mat, feed, next, flip }
+let tvFeeds = [];
+let tvStatic = null;
+
+function makeWoodTexture() {
+  const W = 256, H = 128;
+  const cv = makeCanvas(W, H);
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#4a2c1a';
+  ctx.fillRect(0, 0, W, H);
+  const rand = seeded(91);
+  for (let i = 0; i < 70; i++) {
+    const y = rand() * H;
+    ctx.strokeStyle = `rgba(${rand() < 0.5 ? '30,16,8' : '110,70,40'},${0.25 + rand() * 0.35})`;
+    ctx.lineWidth = 1 + rand() * 2;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    for (let x = 0; x <= W; x += 16) ctx.lineTo(x, y + Math.sin(x * 0.04 + i) * 3);
+    ctx.stroke();
+  }
+  return canvasTexture(cv);
+}
+
+// Shared snow for channel changes
+function createTvStatic() {
+  const W = 128, H = 96;
+  const cv = makeCanvas(W, H);
+  const ctx = cv.getContext('2d');
+  const tex = canvasTexture(cv);
+  const img = ctx.createImageData(W, H);
+  function draw() {
+    const d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const v = (Math.random() * 255) | 0;
+      d[i] = d[i + 1] = d[i + 2] = v;
+      d[i + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.fillRect(0, (Math.random() * H) | 0, W, 8);
+    tex.needsUpdate = true;
+  }
+  draw();
+  return { tex, draw };
+}
+
+// A curved CRT face: a plane bowed out toward the viewer
+function crtGeometry(w, h, bulge) {
+  const geo = new THREE.PlaneGeometry(w, h, 10, 8);
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const u = pos.getX(i) / (w / 2), v = pos.getY(i) / (h / 2);
+    pos.setZ(i, bulge * (1 - u * u * 0.6) * (1 - v * v * 0.6));
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+
+let tvShared = null;
+function buildTv() {
+  if (!tvShared) {
+    const wood = makeWoodTexture();
+    const lcv = makeCanvas(256, 32);
+    const lctx = lcv.getContext('2d');
+    lctx.fillStyle = '#16131c';
+    lctx.fillRect(0, 0, 256, 32);
+    lctx.font = '700 18px Orbitron, sans-serif';
+    lctx.textAlign = 'center';
+    lctx.textBaseline = 'middle';
+    lctx.fillStyle = '#c9c2d8';
+    lctx.fillText('GLITCHVISION', 128, 17);
+    tvShared = {
+      wood: new THREE.MeshStandardMaterial({ map: wood, roughness: 0.55, metalness: 0.05 }),
+      plastic: new THREE.MeshStandardMaterial({ color: 0x1a1720, roughness: 0.6, metalness: 0.2 }),
+      chrome: new THREE.MeshStandardMaterial({ color: 0xc8c8d4, roughness: 0.25, metalness: 0.9 }),
+      grille: new THREE.MeshStandardMaterial({ color: 0x0c0b10, roughness: 0.9 }),
+      badge: new THREE.MeshBasicMaterial({ map: canvasTexture(lcv), toneMapped: false, color: 0xbbbbbb }),
+      led: new THREE.MeshBasicMaterial({ color: 0xff3b3b, toneMapped: false }),
+      screenGeo: crtGeometry(0.74, 0.56, 0.035)
+    };
+  }
+  const M = tvShared;
+  const tv = new THREE.Group();
+  // wooden cabinet, its picture-tube hump tapering out the back
+  const cabinet = new THREE.Mesh(new THREE.BoxGeometry(1.12, 0.8, 0.5), M.wood);
+  cabinet.position.z = -0.25;
+  const hump = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.6, 0.36), M.plastic);
+  hump.position.z = -0.66;
+  const humpCap = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.12), M.plastic);
+  humpCap.position.z = -0.88;
+  // front: bezel around the tube, controls down the right
+  const bezel = new THREE.Mesh(new THREE.BoxGeometry(0.84, 0.66, 0.03), M.plastic);
+  bezel.position.set(-0.11, 0.02, 0.005);
+  const screen = new THREE.Mesh(M.screenGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false }));
+  screen.position.set(-0.11, 0.02, 0.022);
+  screen.userData.noBake = true;               // its picture changes channel
+  const panel = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.66, 0.02), M.plastic);
+  panel.position.set(0.42, 0.02, 0.01);
+  tv.add(cabinet, hump, humpCap, bezel, screen, panel);
+  [0.22, 0.04].forEach((y) => {
+    const knob = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.05, 0.05, 16), M.chrome);
+    knob.rotation.x = Math.PI / 2;
+    knob.position.set(0.42, y, 0.045);
+    tv.add(knob);
+  });
+  for (let i = 0; i < 5; i++) {
+    const slot = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.012, 0.01), M.grille);
+    slot.position.set(0.42, -0.1 - i * 0.035, 0.025);
+    tv.add(slot);
+  }
+  const led = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.02, 0.01), M.led);
+  led.position.set(0.48, -0.27, 0.025);
+  const badge = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.04), M.badge);
+  badge.position.set(-0.11, -0.335, 0.003);
+  tv.add(led, badge);
+  return { group: tv, screen };
+}
+
+function pickTvFeed(not) {
+  const options = tvFeeds.filter((f) => f !== not);
+  return options[Math.floor(Math.random() * options.length)];
+}
+
+function buildTvs() {
+  // Two feeds per game, each starting at a different point in its loop
+  tvFeeds = [
+    createGlitchPongScreen(() => {}, { prompt: false, t0: 2 }),
+    createGlitchPongScreen(() => {}, { prompt: false, t0: 8 }),
+    createBreakPointScreen({ prompt: false, t0: 0 }),
+    createBreakPointScreen({ prompt: false, t0: 6 })
+  ];
+  tvStatic = createTvStatic();
+  const pole = new THREE.MeshStandardMaterial({ color: 0x2a2633, roughness: 0.4, metalness: 0.7 });
+  TV_PAIRS_Z.forEach((z) => {
+    const mount = new THREE.Group();
+    mount.position.set(0, 0, z);
+    scene.add(mount);
+    // drop pole from the ceiling, a plate where it meets it, and a cross-yoke
+    const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, ROOM_H - TV_Y - 0.3, 10), pole);
+    rod.position.y = (ROOM_H + TV_Y + 0.3) / 2;
+    const plate = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.03, 16), pole);
+    plate.position.y = ROOM_H - 0.015;
+    const yoke = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.06, 1.9), pole);
+    yoke.position.y = TV_Y + 0.42;
+    mount.add(rod, plate, yoke);
+    // one set facing the door, one facing the back of the room
+    [0, Math.PI].forEach((yaw) => {
+      const facing = new THREE.Group();
+      facing.rotation.y = yaw;
+      mount.add(facing);
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.12, 0.06), pole);
+      arm.position.set(0, TV_Y + 0.35, 0.92);
+      facing.add(arm);
+      const set = buildTv();
+      set.group.position.set(0, TV_Y, 1.12);   // the cabinet's back hangs toward the pole
+      set.group.rotation.x = TV_TILT;
+      facing.add(set.group);
+      const feed = pickTvFeed();
+      set.screen.material.map = feed.tex;
+      tvs.push({ mat: set.screen.material, feed, next: 4 + Math.random() * 10, flip: 0 });
+    });
+  });
+}
+
+// Channel surfing: every so often a set flips to another feed through a burst of snow
+function updateTvs(dt) {
+  let snowing = false;
+  for (const tv of tvs) {
+    if (tv.flip > 0) {
+      tv.flip -= dt;
+      snowing = true;
+      if (tv.flip <= 0) {
+        tv.feed = pickTvFeed(tv.feed);
+        tv.mat.map = tv.feed.tex;
+        tv.next = 7 + Math.random() * 10;
+      }
+      continue;
+    }
+    tv.next -= dt;
+    if (tv.next <= 0) {
+      tv.flip = reducedMotion ? 0.12 : 0.35;
+      tv.mat.map = tvStatic.tex;
+    }
+  }
+  return snowing;
 }
 
 function buildBossEye(cab) {
@@ -3375,6 +3571,74 @@ function worldGlitch(small = false) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// TITLE MENU FOOTAGE — security-cam shots touring the arcade behind the menu
+// ═══════════════════════════════════════════════════════════════════════════
+// Each shot dollies the camera from `from` to `to` while it looks from `look`
+// toward `lookTo`, then hard-cuts (with a glitch) to the next. Shots aimed at
+// a cabinet are worked out from where that cabinet stands.
+const V = (x, y, z) => new THREE.Vector3(x, y, z);
+let tourShots = [];
+const tour = { i: 0, t: 0, tc: 0, labelled: -1 };
+
+function cabinetShot(cam, label, cab, side) {
+  const right = V(0, 1, 0).cross(cab.forward).normalize().multiplyScalar(side);
+  const at = cab.screenCenter.clone();
+  return {
+    cam, label,
+    from: at.clone().addScaledVector(cab.forward, 2.7).addScaledVector(right, 1.4).setY(at.y + 0.5),
+    to: at.clone().addScaledVector(cab.forward, 1.5).addScaledVector(right, -0.3).setY(at.y + 0.1),
+    look: at.clone().setY(at.y - 0.05),
+    lookTo: at.clone()
+  };
+}
+
+function buildTour() {
+  const bp = cabinets.find((c) => c.id === 'breakpoint');
+  const gp = cabinets.find((c) => c.id === 'glitch-pong');
+  tourShots = [
+    { cam: 'CAM 01', label: 'STREET // FRONT ENTRANCE', from: V(1.6, 1.8, 14), to: V(0.2, 1.7, 6.5), look: V(0, 4.2, 0), lookTo: V(0, 2.6, -4) },
+    { cam: 'CAM 02', label: 'MAIN FLOOR', from: V(0, 2.5, -1.2), to: V(0, 2.1, -9.5), look: V(0, 1.6, -20), lookTo: V(0, 1.7, -28) },
+    cabinetShot('CAM 03', 'CABINET 02 // BREAKPOINT', bp, 1),
+    { cam: 'CAM 04', label: 'GLITCHVISION // CEILING FEEDS', from: V(1.9, 2.3, -11.4), to: V(-1.5, 2.6, -12.3), look: V(0, TV_Y - 0.1, -15), lookTo: V(0, TV_Y - 0.1, -15) },
+    cabinetShot('CAM 05', 'CABINET 01 // GLITCH PONG', gp, -1),
+    { cam: 'CAM 06', label: 'PRIZE COUNTER // PRIZETRON-80', from: V(2.8, 1.8, -24.2), to: V(-2.4, 1.7, -25.6), look: V(0, 1.7, -30.4), lookTo: V(0, 1.6, -30.4) },
+    { cam: 'CAM 07', label: 'CABINETS 03–10 // COMPILING', from: V(5.6, 2.0, -2.5), to: V(5.8, 1.7, -14), look: V(9.4, 1.3, -6), lookTo: V(9.4, 1.3, -17) }
+  ];
+}
+
+const tourLook = new THREE.Vector3();
+function updateTour(dt) {
+  if (!tourShots.length) return;
+  const dur = reducedMotion ? 9 : 6.5;
+  tour.t += dt;
+  tour.tc += dt;
+  if (tour.t >= dur) {
+    tour.t = 0;
+    tour.i = (tour.i + 1) % tourShots.length;
+    if (!reducedMotion) {   // a glitch cut, picture only (the arcade's sound may not be unlocked yet)
+      root.classList.remove('gc-glitch');
+      void root.offsetWidth;
+      root.classList.add('gc-glitch');
+      setTimeout(() => root.classList.remove('gc-glitch'), 340);
+    }
+  }
+  const shot = tourShots[tour.i];
+  const k = tour.t / dur;
+  const e = k * k * (3 - 2 * k);                      // ease in and out of each move
+  camera.position.lerpVectors(shot.from, shot.to, reducedMotion ? k * 0.5 : e);
+  tourLook.lerpVectors(shot.look, shot.lookTo, e);
+  camera.lookAt(tourLook);
+  if (tour.labelled !== tour.i) {
+    tour.labelled = tour.i;
+    $('gcCamId').textContent = shot.cam;
+    $('gcCamLabel').textContent = shot.label;
+  }
+  const f = Math.floor(tour.tc * 30);
+  const pad = (n) => String(n).padStart(2, '0');
+  $('gcTimecode').textContent = `${pad(Math.floor(f / 108000))}:${pad(Math.floor(f / 1800) % 60)}:${pad(Math.floor(f / 30) % 60)}:${pad(f % 30)}`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // GAME HAND-OFF
 // ═══════════════════════════════════════════════════════════════════════════
 // intro → explore ⇄ paused → launching → playing → (exit) → paused/explore
@@ -3778,6 +4042,11 @@ jumpBtn.addEventListener('touchstart', (e) => { e.preventDefault(); jump(); }, {
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
   camera.aspect = w / h;
+  // On the title menu the left of the screen is taken by the menu, so the footage
+  // is framed off-centre: shift the picture right so each shot's subject sits in
+  // the open part of the screen. (Narrow screens stack the menu over everything.)
+  if (gameState === 'intro' && w > 640) camera.setViewOffset(w, h, -w * 0.2, 0, w, h);
+  else camera.clearViewOffset();
   camera.updateProjectionMatrix();
   viewCamera.aspect = w / h;
   viewCamera.updateProjectionMatrix();
@@ -3794,6 +4063,8 @@ let lastFrame = performance.now();
 let elapsed = 0;
 let screenTimer = 0;
 let soonTimer = 0;
+let tvTimer = 0;
+let menuMode = null;
 
 const listenerDir = new THREE.Vector3();
 const gpScreenPos = new THREE.Vector3();
@@ -3850,11 +4121,12 @@ function frame(now) {
 
   if (gameState === 'explore') updatePlayer(dt);
   else if (gameState === 'launching') updateLaunch(dt);
-  else if (gameState === 'intro') {
-    // slow drift on the title screen
-    player.yaw = Math.sin(elapsed * 0.15) * 0.25;
-    camera.position.set(player.pos.x, EYE_HEIGHT + 0.3, player.pos.z + 1.5);
-    camera.rotation.set(0.04, player.yaw, 0);
+  else if (gameState === 'intro') updateTour(dt);   // footage behind the title menu
+  if (gameState !== menuMode) {
+    menuMode = gameState;
+    document.body.classList.toggle('gc-intro', gameState === 'intro');
+    if (arms) arms.left.visible = arms.right.visible = gameState !== 'intro';   // no hands in the footage
+    resize();   // footage framing on/off
   }
   updateFocus();
 
@@ -3872,6 +4144,16 @@ function frame(now) {
   if (soonTimer > 1 / 12) {
     if (inside) soonScreen.draw(soonTimer);
     soonTimer = 0;
+  }
+  // ceiling TVs: four shared feeds at ~15 fps, snow only while a set is changing channel
+  tvTimer += dt;
+  if (tvTimer > 1 / 15) {
+    const snowing = updateTvs(tvTimer);
+    if (inside) {
+      tvFeeds.forEach((f) => f.draw(tvTimer));
+      if (snowing) tvStatic.draw();
+    }
+    tvTimer = 0;
   }
 
   audio.update(dt, camera, listenerDir, insideFactor());
@@ -3914,9 +4196,11 @@ function showFatal(msg) {
   await loadAssets();
   buildEnvironment();
   buildCabinets();
+  buildTvs();
   buildJukebox();
   buildPrizeCounter();
   buildArms();
+  buildTour();
   gpScreenPos.copy(cabinets.find((c) => c.id === 'glitch-pong').screenCenter);
   bpScreenPos.copy(cabinets.find((c) => c.id === 'breakpoint').screenCenter);
   const batched = bakeScene();
@@ -3986,6 +4270,7 @@ function showFatal(msg) {
       perf.frames = 0; perf.cpu = 0;
       return out;
     },
-    robot: () => robot
+    robot: () => robot,
+    seekTour(i, t = 2) { tour.i = i % tourShots.length; tour.t = t; }
   };
 })();
