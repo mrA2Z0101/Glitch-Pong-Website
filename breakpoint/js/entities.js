@@ -88,6 +88,10 @@ class Ball {
     this.rampaging = false;
     this.breaks = 0;           // bricks broken this multi-ball (sibling rivalry)
     this.protecting = null;    // the enemy it's going after for stunning your paddle
+    this.showoff = false;      // SHOW-OFF: on a hot combo it gets flashy and a bit reckless
+    this.met = new WeakSet();  // CURIOUS: bricks it has already touched
+    this.mourn = 0;            // MOURNING: seconds left of the slow, dim launch after a lost life
+    this.mournPending = false;
   }
   get color() {
     if (this.fire > 0) return COL.orange;
@@ -110,6 +114,10 @@ class Ball {
   // so sub-stepping fast balls doesn't shorten the visual trail
   update(dt, g, recordTrail = true) {
     for (const k of ['fire', 'pierce', 'boom', 'grav']) if (this[k] > 0) this[k] -= dt;
+    if (this.mourn > 0 && !this.stuck) {
+      this.mourn -= dt;
+      if (this.mourn <= 0) this.setSpeed(this.speed / 0.78);   // back to itself
+    }
     this.invisible = Math.max(0, this.invisible - dt);
     if (this.stuck) {
       const p = g.paddle;
@@ -142,21 +150,22 @@ class Ball {
 
     if (!recordTrail) return;
     this.trail.unshift({ x: this.x, y: this.y });
-    if (this.trail.length > 14) this.trail.pop();
+    if (this.trail.length > (this.showoff ? 28 : 14)) this.trail.pop();
   }
   render(ctx) {
     if (this.invisible > 0 && Math.floor(this.invisible * 10) % 2 === 0) return;
     ctx.save();
+    const dim = this.mourn > 0 ? 0.5 + 0.5 * (1 - Math.min(1, this.mourn / 3.5)) : 1;
     // trail
     for (let i = this.trail.length - 1; i > 0; i--) {
       const t = this.trail[i], a = 1 - i / this.trail.length;
-      ctx.globalAlpha = a * 0.28;
+      ctx.globalAlpha = a * (this.showoff ? 0.55 : 0.28) * dim;
       ctx.fillStyle = this.color;
       const s = this.r * 2 * a;
       ctx.fillRect(t.x - s / 2, t.y - s / 2, s, s);
     }
-    ctx.globalAlpha = 1;
-    ctx.shadowColor = this.color; ctx.shadowBlur = 18;
+    ctx.globalAlpha = dim;
+    ctx.shadowColor = this.color; ctx.shadowBlur = this.showoff ? 30 : 18;
     ctx.fillStyle = this.color;
     ctx.beginPath(); ctx.arc(this.x, this.y, this.r, 0, 7); ctx.fill();
     ctx.shadowBlur = 0;

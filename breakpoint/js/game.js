@@ -74,7 +74,15 @@ for (const { key } of COUNTDOWN) {
 //               next return and hits it for double damage
 //  RIVALRY    — in multi-ball the balls compete: the one with the most bricks
 //               wears a crown (+50% brick score); the last one left gets a bonus
+//  SHOW-OFF   — a hot combo goes to its head: longer, brighter trail and a little
+//               faster, until it touches the paddle again
+//  CURIOUS    — strange bricks it hasn't touched yet (teleport, quantum, clone)
+//               pull it gently toward them
+//  MOURNING   — after a lost life the next ball launches slower and dimmer for a
+//               few seconds while the lost ball's last path fades out
 const BORED_AFTER = 5;
+const SHOWOFF_AT = 6;                                   // combo (bricks since the last paddle touch)
+const CURIOUS_OF = new Set(['teleport', 'quantum', 'clone']);
 
 function statChips(pairs) {
   return '<div class="statline">' + pairs.map(([label, val, hl]) =>
@@ -334,6 +342,8 @@ const game = {
     this.loyaltyUsed = false;
     this.paddleAttacker = null;
     this.ballsPrev = 0;
+    this.ghost = null;
+    this.mournNext = false;
     this.countdown = null;
     if (!this.attract) {
       this.countdown = { i: 0, t: 0 };
@@ -465,6 +475,7 @@ const game = {
   serve() {
     const b = new Ball(this.paddle.x, this.paddle.y - 20, -Math.PI / 2, CFG.BALL_SPD * (this.mods.doubleSpeed ? 1.5 : 1) * (1 + this.level * 0.015));
     b.stuck = true; b.stuckDx = 0;
+    if (this.mournNext) { b.mournPending = true; this.mournNext = false; }
     // mid DATA SURGE the new ball must be surged too, or endEvent's /1.55 leaves it crawling
     if (this.surgeApplied) b.setSpeed(b.speed * 1.55);
     this.balls = [b];
@@ -495,6 +506,12 @@ const game = {
         const rel = clamp(b.stuckDx / (this.paddle.w / 2), -1, 1);
         const a = Math.abs(rel) > 0.02 ? -Math.PI / 2 + rel * 1.05 : -Math.PI / 2 + rand(-0.35, 0.35);
         b.vx = Math.cos(a) * b.speed; b.vy = Math.sin(a) * b.speed;
+        if (b.mournPending && this.sentient) {
+          b.mournPending = false;
+          b.mourn = 3.5;
+          b.setSpeed(b.speed * 0.78);
+          FX.text(b.x, b.y - 24, '...', '#9aa7c7', 14);
+        }
         launched = true;
       }
     }
@@ -907,6 +924,10 @@ const game = {
     AudioSys.sfx('lose');
     FX.shake(10); FX.flash(COL.red, 0.3); FX.setRgb(0.8);
     if (this.attract) { this.serve(); this.state = 'serve'; return; } // demo never dies
+    if (this.sentient && this.lastLostTrail?.length) {
+      this.ghost = { pts: this.lastLostTrail, t: 2.6 };
+      this.mournNext = true;
+    }
     if (this.mode === 'puzzle') {
       this.ballsLeft--;
       if (this.ballsLeft <= 0) return this.endRun(false);
@@ -1259,6 +1280,8 @@ const game = {
       }
     }
     const before = this.balls.length;
+    const lost = this.balls.find(b => b.dead);
+    if (lost) this.lastLostTrail = lost.trail.slice(0, 14);
     this.balls = this.balls.filter(b => !b.dead);
     this.siblingRivalry();
     if (this.balls.length === 0 && before > 0 && this.state === 'play') this.loseLife();
@@ -1313,6 +1336,7 @@ const game = {
       this.combo = 0;
       return;
     }
+    if (ball.showoff) { ball.showoff = false; ball.setSpeed(ball.speed / 1.06); }   // SHOW-OFF: back to earth
     const rel = clamp((ball.x - p.x) / (p.w / 2), -1, 1);
     const angle = this.sentientSteer(ball, -Math.PI / 2 + rel * 1.05); // up to ±60°, then the ball's own say
     ball.setSpeed(Math.min(CFG.BALL_MAX, ball.speed * CFG.BALL_ACCEL));
@@ -1347,8 +1371,13 @@ const game = {
       target = this.nearestBrick(ball) || boss;
       if (target) { mood = 'bored'; pull = Math.min(0.34, 0.1 + (ball.dull - BORED_AFTER) * 0.04); }
     }
+    if (!target) {
+      // CURIOUS: a strange brick it hasn't touched yet
+      target = this.nearestBrick(ball, (b) => CURIOUS_OF.has(b.type) && !ball.met.has(b));
+      if (target) { mood = 'curious'; pull = 0.12; }
+    }
     if (mood !== ball.mood && mood && !this.attract) {
-      const say = { bored: ['BORED...', '#8d97ad'], grudge: ['GRUDGE', '#ff8fb8'], protective: ['HOW DARE YOU', '#ff8a3d'] }[mood];
+      const say = { bored: ['BORED...', '#8d97ad'], grudge: ['GRUDGE', '#ff8fb8'], protective: ['HOW DARE YOU', '#ff8a3d'], curious: ['?', '#eef7ff'] }[mood];
       FX.text(ball.x, ball.y - 26, say[0], say[1], 12);
     }
     ball.mood = mood;
@@ -1420,10 +1449,11 @@ const game = {
     }
   },
 
-  nearestBrick(ball) {
+  nearestBrick(ball, filter = null) {
     let best = null, bestD = Infinity;
     for (const b of this.bricks) {
       if (!b.alive || b.type === 'barrier') continue;
+      if (filter && !filter(b)) continue;
       const d = dist2(ball.x, ball.y, b.cxm, b.cym);
       if (d < bestD) { bestD = d; best = b; }
     }
@@ -1468,9 +1498,16 @@ const game = {
         destroyed = this.damageBrick(b, ball.fire > 0 ? 2 : 1, src);
       }
 
+      ball.met.add(b);
+      if (ball.mood === 'curious' && CURIOUS_OF.has(b.type)) ball.mood = null;
       if (destroyed) {
         ball.dull = 0;
         ball.breaks++;
+        if (!ball.showoff && this.combo >= SHOWOFF_AT && this.sentient && !this.attract) {
+          ball.showoff = true;
+          ball.setSpeed(ball.speed * 1.06);
+          FX.text(ball.x, ball.y - 24, 'SHOW-OFF', '#ff58d9', 13);
+        }
         const base = BRICKS[b.type]?.score || 0;
         if (ball.rampaging) { ball.rampage++; this.addScore(base); }                     // RAMPAGE: double
         if (this.balls.length > 1 && this.rivalLeader() === ball) this.addScore(base * 0.5);   // the crown: +50%
@@ -1530,7 +1567,17 @@ const game = {
       ctx.beginPath(); ctx.moveTo(0, CFG.H - 8); ctx.lineTo(CFG.W, CFG.H - 8); ctx.stroke();
       ctx.restore();
     }
+    if (this.ghost) this.renderGhost();
     for (const ball of this.balls) ball.render(ctx);
+    for (const ball of this.balls) {
+      if (ball.mood === 'curious' && !ball.stuck) {
+        ctx.save();
+        ctx.fillStyle = '#eef7ff'; ctx.globalAlpha = 0.85;
+        ctx.font = '700 13px Orbitron'; ctx.textAlign = 'center';
+        ctx.fillText('?', ball.x, ball.y - ball.r - 6);
+        ctx.restore();
+      }
+    }
     const king = this.rivalLeader();
     if (king) this.renderCrown(king);
     if (this.paddle) this.paddle.render(ctx);
@@ -1566,6 +1613,22 @@ const game = {
     if (this.countdown) this.renderCountdown();
     FX.composite(mainCtx, scene);
     this.renderHud();
+  },
+
+  // MOURNING: the lost ball's last path, fading out
+  renderGhost() {
+    const g = this.ghost;
+    g.t -= 1 / 60;
+    if (g.t <= 0) { this.ghost = null; return; }
+    const fade = Math.min(1, g.t / 2.6);
+    ctx.save();
+    g.pts.forEach((p, i) => {
+      const a = (1 - i / g.pts.length) * 0.35 * fade;
+      ctx.globalAlpha = a;
+      ctx.fillStyle = '#9aa7c7';
+      ctx.beginPath(); ctx.arc(p.x, p.y, CFG.BALL_R * (1 - i / (g.pts.length * 1.5)), 0, 7); ctx.fill();
+    });
+    ctx.restore();
   },
 
   renderCrown(ball) {
