@@ -455,6 +455,7 @@ body.gc-intro #gcFootage::after {
 .gc-corner.bl { bottom: 16px; left: 16px; border-right: 0; border-top: 0; }
 .gc-corner.br { bottom: 16px; right: 16px; border-left: 0; border-top: 0; }
 /* the menu itself — Press Start 2P title, green pixel buttons, as in the games */
+body.gc-intro:not(.gc-fonts) .gm-screen { visibility: hidden; }
 .gm-screen { display: none; }
 body.gc-intro .gc-card { display: none; }
 body.gc-intro #gcStart {
@@ -562,7 +563,20 @@ body.gc-touch .gm-keys.touch { display: grid; }
 }
 </style>
 </head>
-<body>
+<!-- gc-intro from the first paint: the arcade starts on its title menu. Without it the
+     old centred card (the pause screen) showed until the 3D scene loaded. -->
+<body class="gc-intro">
+<script>
+// Hold the title menu back until its pixel font is in, so it doesn't flash in a
+// fallback font first. Never waits more than 1.5s.
+(function () {
+  var done = function () { document.body.classList.add('gc-fonts'); };
+  setTimeout(done, 1500);
+  if (document.fonts && document.fonts.load) {
+    Promise.all([document.fonts.load('20px "Press Start 2P"'), document.fonts.load('11px "Orbitron"')]).then(done, done);
+  } else done();
+})();
+</script>
 
 <div id="glitchcade">
   <canvas id="gcCanvas" tabindex="-1" aria-label="The Glitchcade, a 3D arcade you explore in first person"></canvas>
