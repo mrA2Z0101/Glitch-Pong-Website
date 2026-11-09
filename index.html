@@ -415,6 +415,18 @@ body.gc-touch .gc-controls.touch { display: grid; }
   body.gp-playing #gpRotatePrompt { display: flex; }
 }
 
+/* Breakpoint (cabinet 02) runs in a full-screen frame over the arcade */
+#gcBreakPoint {
+  position: fixed; inset: 0;
+  width: 100%; height: 100%;
+  border: 0;
+  background: var(--void);
+  z-index: 2147483000;
+  opacity: 0;
+  transition: opacity .25s ease;
+}
+body.bp-playing #gcBreakPoint { opacity: 1; }
+
 @media (max-width: 640px) {
   .gc-card { padding: 24px 18px 20px; }
   #gcRobotSay { font-size: 12px; bottom: calc(22% + 64px); }
@@ -438,7 +450,7 @@ body.gc-touch .gc-controls.touch { display: grid; }
   </button>
 
   <div id="gcHud">
-    <div class="gc-badge">GLITCHCADE <b>//</b> <span id="gcOnline">1/10</span> ONLINE</div>
+    <div class="gc-badge">GLITCHCADE <b>//</b> <span id="gcOnline">2/10</span> ONLINE</div>
     <div id="gcCoins" aria-live="polite"></div>
     <div id="gcRobotSay" role="status" aria-live="polite"><b>PRIZETRON-80</b><span id="gcRobotText"></span></div>
     <div id="gcCrosshair"></div>
@@ -457,10 +469,10 @@ body.gc-touch .gc-controls.touch { display: grid; }
     <div class="gc-card">
       <p class="gc-eyebrow" id="gcEyebrow">Signal acquired</p>
       <h1 class="gc-title" id="gcTitle">GLITCHCADE</h1>
-      <p class="gc-sub" id="gcSub">The arcade where the machines fight back. Beat Glitch Pong, earn coins, and cash them in at the prize counter.</p>
+      <p class="gc-sub" id="gcSub">The arcade where the machines fight back. Beat Glitch Pong, purge sectors in Breakpoint, earn coins, and cash them in at the prize counter.</p>
       <div class="gc-status">
-        <span class="gc-chip">1 CABINET ONLINE</span>
-        <span class="gc-chip warn">9 COMING SOON</span>
+        <span class="gc-chip">2 CABINETS ONLINE</span>
+        <span class="gc-chip warn">8 COMING SOON</span>
         <span class="gc-chip coin">WIN = 10 COINS // PRIZE COUNTER OPEN</span>
       </div>
       <div class="gc-controls desk">
@@ -520,7 +532,7 @@ body.gc-touch .gc-controls.touch { display: grid; }
 <!-- Served by the local multiplayer server. This 404s harmlessly in static-only mode. -->
 <script src="/socket.io/socket.io.js"></script>
 <script src="glitchpong-site.js?v=glitchcade-8"></script>
-<script type="module" src="glitchcade.js?v=glitchcade-5"></script>
+<script type="module" src="glitchcade.js?v=glitchcade-6"></script>
 
 <script>
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
