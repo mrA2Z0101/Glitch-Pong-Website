@@ -1,5 +1,5 @@
-const SHELL_CACHE = "glitch-pong-shell-v32";
-const RUNTIME_CACHE = "glitch-pong-runtime-v32";
+const SHELL_CACHE = "glitch-pong-shell-v33";
+const RUNTIME_CACHE = "glitch-pong-runtime-v33";
 
 const SHELL_FILES = [
   "./",
@@ -7,8 +7,8 @@ const SHELL_FILES = [
   "./glitch-pong.html",
   "./styles.css",
   "./glitchpong-site.js",
-  "./glitchcade.js?v=glitchcade-13",
-  "./glitchcade-audio.js?v=glitchcade-5",
+  "./glitchcade.js?v=glitchcade-14",
+  "./glitchcade-audio.js?v=glitchcade-6",
   "./glitchpong-site.js?v=glitchcade-8",
   "./vendor/three.module.min.js",
   "./vendor/three-addons/utils/BufferGeometryUtils.js",
