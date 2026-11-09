@@ -84,12 +84,18 @@ class Ball {
     // broke a brick, and its current mood — null, 'bored' or 'grudge'
     this.dull = 0;
     this.mood = null;
+    this.rampage = 0;          // bricks broken since it got behind the wall (0 = not rampaging)
+    this.rampaging = false;
+    this.breaks = 0;           // bricks broken this multi-ball (sibling rivalry)
+    this.protecting = null;    // the enemy it's going after for stunning your paddle
   }
   get color() {
     if (this.fire > 0) return COL.orange;
     if (this.pierce > 0) return COL.magenta;
     if (this.boom > 0) return COL.red;
     if (this.grav > 0) return COL.violet;
+    if (this.rampaging) return '#ffd166';
+    if (this.mood === 'protective') return '#ff8a3d';
     if (this.mood === 'bored') return '#8d97ad';
     if (this.mood === 'grudge') return '#ff8fb8';
     return COL.white;
@@ -225,7 +231,9 @@ class Brick {
       }
       case 'clone': {
         if (this.timer <= 0) {
-          this.timer = rand(5, 9);
+          // first copy only after 8-14s (the shared start timer is 1.5-4s), then every 10-16s
+          if (!this.cloneArmed) { this.cloneArmed = true; this.timer = rand(6.5, 10); break; }
+          this.timer = rand(10, 16);
           g.tryCloneBrick(this);
         }
         break;
@@ -340,14 +348,16 @@ class PowerUp {
 class Projectile { // enemy shot
   constructor(x, y, vx, vy, color = COL.red) {
     this.x = x; this.y = y; this.vx = vx; this.vy = vy; this.color = color; this.dead = false; this.r = 4;
+    this.src = null;   // the enemy or boss that fired it
   }
+  from(src) { this.src = src; return this; }
   update(dt, g) {
     this.x += this.vx * dt; this.y += this.vy * dt;
     if (this.y > CFG.H + 20 || this.y < -20 || this.x < -20 || this.x > CFG.W + 20) this.dead = true;
     const p = g.paddle;
     if (Math.abs(this.x - p.x) < p.w / 2 + this.r && Math.abs(this.y - p.y) < p.h / 2 + this.r) {
       this.dead = true;
-      g.paddleHitByProjectile();
+      g.paddleHitByProjectile(this);
     }
   }
   render(ctx) {
@@ -409,7 +419,7 @@ class DroneEnemy extends Enemy {
     this.shootT -= dt;
     if (this.shootT <= 0) {
       this.shootT = rand(2.5, 4.5);
-      g.projectiles.push(new Projectile(this.x, this.y + 10, 0, 260));
+      g.projectiles.push(new Projectile(this.x, this.y + 10, 0, 260).from(this));
       AudioSys.sfx('laser');
     }
   }
@@ -506,7 +516,7 @@ class Turret extends Enemy {
     if (this.shootT <= 0) {
       this.shootT = rand(2.8, 4.2);
       const a = Math.atan2(g.paddle.y - this.y, g.paddle.x - this.x);
-      g.projectiles.push(new Projectile(this.x, this.y, Math.cos(a) * 240, Math.sin(a) * 240, COL.orange));
+      g.projectiles.push(new Projectile(this.x, this.y, Math.cos(a) * 240, Math.sin(a) * 240, COL.orange).from(this));
       AudioSys.sfx('laser');
     }
   }
@@ -621,7 +631,7 @@ class MemoryGuardian extends Boss {
     if (this.attackT <= 0) {
       this.attackT = rand(3.5, 5);
       const a = Math.atan2(g.paddle.y - this.y, g.paddle.x - this.x);
-      g.projectiles.push(new Projectile(this.x, this.y, Math.cos(a) * 220, Math.sin(a) * 220, COL.violet));
+      g.projectiles.push(new Projectile(this.x, this.y, Math.cos(a) * 220, Math.sin(a) * 220, COL.violet).from(this));
     }
     // rotating shield deflects balls
     for (const ball of g.balls) {
@@ -690,8 +700,8 @@ class FirewallTitan extends Boss {
     this.attackT -= dt;
     if (this.attackT <= 0) {
       this.attackT = rand(2.5, 4);
-      g.projectiles.push(new Projectile(this.x - 20, this.y + 30, 0, 250, COL.orange));
-      g.projectiles.push(new Projectile(this.x + 20, this.y + 30, 0, 250, COL.orange));
+      g.projectiles.push(new Projectile(this.x - 20, this.y + 30, 0, 250, COL.orange).from(this));
+      g.projectiles.push(new Projectile(this.x + 20, this.y + 30, 0, 250, COL.orange).from(this));
     }
   }
   collideBall(ball, g) {
@@ -738,7 +748,7 @@ class QuantumCore extends Boss {
       AudioSys.sfx('teleport');
       if (chance(0.4)) {
         const a = Math.atan2(g.paddle.y - this.y, g.paddle.x - this.x);
-        g.projectiles.push(new Projectile(this.x, this.y, Math.cos(a) * 230, Math.sin(a) * 230, COL.white));
+        g.projectiles.push(new Projectile(this.x, this.y, Math.cos(a) * 230, Math.sin(a) * 230, COL.white).from(this));
       }
     }
   }
@@ -803,7 +813,7 @@ class DataHydra extends Boss {
       this.attackT = rand(2.2, 3.6);
       const h = choice(this.aliveHeads);
       const a = Math.atan2(g.paddle.y - h.y, g.paddle.x - h.x);
-      g.projectiles.push(new Projectile(h.x, h.y, Math.cos(a) * 240, Math.sin(a) * 240, COL.cyan));
+      g.projectiles.push(new Projectile(h.x, h.y, Math.cos(a) * 240, Math.sin(a) * 240, COL.cyan).from(this));
     }
   }
   render(ctx) {
@@ -922,7 +932,7 @@ class TheEye extends Boss {
       const base = Math.atan2(g.paddle.y - this.y, g.paddle.x - this.x);
       for (let i = 0; i < 6; i++) {
         const a = base + (i - 2.5) * 0.16;
-        g.projectiles.push(new Projectile(this.x, this.y + 20, Math.cos(a) * 230, Math.sin(a) * 230, COL.violet));
+        g.projectiles.push(new Projectile(this.x, this.y + 20, Math.cos(a) * 230, Math.sin(a) * 230, COL.violet).from(this));
       }
       AudioSys.sfx('event');
       FX.text(this.x, this.y - this.ry - 14, 'THE EYE SEES YOU', COL.magenta, 13);

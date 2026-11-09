@@ -71,8 +71,11 @@ const BRICKS = {
 function brickWeights(lv) {
   const w = { normal: 60, heavy: 8 + lv * 2 };
   if (lv >= 2) w.explosive = 6;
-  if (lv >= 3) w.virus = 5;
-  if (lv >= 4) { w.teleport = 4; w.clone = 4; }
+  // the green ones (virus, clone) used to arrive at sectors 3 and 4 and swamp
+  // the board early; they now hold off until 5 and 6
+  if (lv >= 4) w.teleport = 4;
+  if (lv >= 5) w.virus = 5;
+  if (lv >= 6) w.clone = 4;
   if (lv >= 5) { w.healing = 4; w.moving = 5; }
   if (lv >= 6) { w.quantum = 4; w.invisible = 4; }
   if (lv >= 7) { w.firewall = 4; w.rotating = 4; }
