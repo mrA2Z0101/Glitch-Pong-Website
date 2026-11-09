@@ -24,6 +24,28 @@ const C = {
   paddleRed: '#ff3b5c'
 };
 
+// The games planned for cabinets 03–10, glitched takes on arcade classics.
+// Still compiling: their marquees, side art and prompts carry the names.
+const COMING_SOON_GAMES = {
+  3: 'SIGNAL LOST',          // maze chase
+  4: 'FIREWALL',             // invaders
+  5: 'DEFRAG',               // falling blocks
+  6: 'BLACK-HOLE NEXUS',     // spin-and-thrust rocks
+  7: 'STACK OVERFLOW',       // girder climb
+  8: 'PACKET HOP',           // lane crossing
+  9: 'SWARM PROTOCOL',       // formation shooter
+  10: 'MISSILE DEFENSE.EXE'  // missile defense
+};
+
+// Shrink a font (given as '<weight> <size>px <family>') until `text` fits `maxW`.
+function fitFont(ctx, text, weight, size, family, maxW) {
+  for (; size > 8; size -= 2) {
+    ctx.font = `${weight} ${size}px ${family}`;
+    if (ctx.measureText(text).width <= maxW) break;
+  }
+  return size;
+}
+
 const COMING_SOON_ACCENTS = ['#ffd27a', '#50fa7b', '#9a5dff', '#ff7a3d', '#4d7cff', '#ff4d6d', '#71efff', '#ff58d9', '#c6ff4d'];
 
 const isTouch = window.matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0;
@@ -486,7 +508,7 @@ function makeGlitchPongMarquee() {
   return canvasTexture(cv);
 }
 
-function makeComingSoonMarquee(accent, slot) {
+function makeComingSoonMarquee(accent, slot, name = 'COMING SOON') {
   const W = 512, H = 160;
   const cv = makeCanvas(W, H);
   const ctx = cv.getContext('2d');
@@ -512,13 +534,13 @@ function makeComingSoonMarquee(accent, slot) {
     ctx.fill();
   }
   ctx.restore();
-  ctx.font = '900 54px Orbitron, "Arial Black", sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  chromaText(ctx, 'COMING SOON', W / 2, 66, 3, '#ffffff', accent);
+  fitFont(ctx, name, 900, 54, 'Orbitron, "Arial Black", sans-serif', W - 44);
+  chromaText(ctx, name, W / 2, 66, 3, '#ffffff', accent);
   ctx.font = '18px "Share Tech Mono", monospace';
   ctx.fillStyle = hexToRgba(accent, 0.9);
-  ctx.fillText(`// CABINET ${String(slot).padStart(2, '0')} — COMPILING //`, W / 2, 113);
+  ctx.fillText(`// COMING SOON — CABINET ${String(slot).padStart(2, '0')} //`, W / 2, 113);
   ctx.lineWidth = 6;
   ctx.strokeStyle = accent;
   ctx.strokeRect(3, 3, W - 6, H - 6);
@@ -623,7 +645,7 @@ function makeGlitchPongSideArt() {
   return canvasTexture(cv);
 }
 
-function makeComingSoonSideArt(accent, seed) {
+function makeComingSoonSideArt(accent, seed, name = 'COMING SOON') {
   const W = 256, H = 512;
   const cv = makeCanvas(W, H);
   const ctx = cv.getContext('2d');
@@ -656,10 +678,10 @@ function makeComingSoonSideArt(accent, seed) {
   ctx.save();
   ctx.translate(30, 488);
   ctx.rotate(-Math.PI / 2);
-  ctx.font = '700 26px Orbitron, sans-serif';
   ctx.textAlign = 'left';
+  fitFont(ctx, name, 700, 30, 'Orbitron, sans-serif', 450);
   ctx.fillStyle = hexToRgba(accent, 0.85);
-  ctx.fillText('COMING SOON', 0, 0);
+  ctx.fillText(name, 0, 0);
   ctx.restore();
   scanlines(ctx, W, H, 0.16, 4);
   return canvasTexture(cv);
@@ -1887,14 +1909,14 @@ function buildCabinets() {
       bodyColor: 0x0d0b18,
       trimLeft: accent,
       trimRight: accent,
-      sideArt: makeComingSoonSideArt(accent, i + 10),
-      marqueeTex: makeComingSoonMarquee(accent, i + 2),
+      sideArt: makeComingSoonSideArt(accent, i + 10, COMING_SOON_GAMES[i + 2]),
+      marqueeTex: makeComingSoonMarquee(accent, i + 2, COMING_SOON_GAMES[i + 2]),
       screenMat: mat,
       coinTex: makeCoinDoor('COMING SOON', accent),
       accent
     });
     registerCabinet(cab, slot.x, slot.z, slot.rotY, {
-      id: `soon-${i + 2}`, title: 'COMING SOON', slot: i + 2, playable: false, accent, screenMaterial: mat
+      id: `soon-${i + 2}`, title: COMING_SOON_GAMES[i + 2] || 'COMING SOON', slot: i + 2, playable: false, accent, screenMaterial: mat
     });
   });
 }
@@ -3483,7 +3505,7 @@ function updateFocus() {
     promptEl.innerHTML = `<span class="key">${key}</span>PLAY GLITCH PONG<small>CABINET 01 // ONLINE</small>`;
   } else {
     promptEl.className = 'show soon';
-    promptEl.innerHTML = `<span class="key">${key}</span>COMING SOON<small>CABINET ${String(focused.slot).padStart(2, '0')} // STILL COMPILING</small>`;
+    promptEl.innerHTML = `<span class="key">${key}</span>${focused.title}<small>CABINET ${String(focused.slot).padStart(2, '0')} // COMING SOON</small>`;
   }
 }
 
@@ -3530,7 +3552,7 @@ function interact() {
   }
   const cab = focused;
   audio.comingSoon(cab.screenCenter);
-  toast(`CABINET ${String(cab.slot).padStart(2, '0')} IS COMING SOON — this machine is still compiling.`);
+  toast(`${cab.title} (CABINET ${String(cab.slot).padStart(2, '0')}) IS COMING SOON — this machine is still compiling.`);
   // the screen freaks out for a moment
   const original = cab.screenMaterial.color.clone();
   let n = 0;
