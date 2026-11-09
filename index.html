@@ -12,7 +12,7 @@
 <link rel="icon" type="image/png" sizes="128x128" href="icons/icon128.png">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" sizes="128x128" href="icons/apple-touch-icon.png">
-<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;800;900&family=Share+Tech+Mono&family=VT323&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;800;900&family=Press+Start+2P&family=Share+Tech+Mono&family=VT323&display=swap" rel="stylesheet">
 <style>
 :root {
   --void:   #03040a;
@@ -454,25 +454,102 @@ body.gc-intro #gcFootage::after {
 .gc-corner.tl { top: 16px; left: 16px; border-right: 0; border-bottom: 0; }
 .gc-corner.bl { bottom: 16px; left: 16px; border-right: 0; border-top: 0; }
 .gc-corner.br { bottom: 16px; right: 16px; border-left: 0; border-top: 0; }
+/* the menu itself — Press Start 2P title, green pixel buttons, as in the games */
+.gm-screen { display: none; }
+body.gc-intro .gc-card { display: none; }
 body.gc-intro #gcStart {
-  justify-content: flex-start;
-  padding-left: clamp(24px, 6vw, 96px);
-  background: linear-gradient(90deg, rgba(3,4,10,.94) 0%, rgba(3,4,10,.78) 34%, rgba(3,4,10,.15) 62%, rgba(3,4,10,0) 75%);
+  background: radial-gradient(ellipse at center, rgba(3,4,10,.62) 0%, rgba(3,4,10,.38) 45%, rgba(3,4,10,.12) 80%);
 }
-body.gc-intro .gc-card {
+body.gc-intro .gm-screen.on {
   position: relative;
-  width: min(760px, 100%);
-  padding: 0;
-  background: none; border: 0; box-shadow: none;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 14px;
+  text-align: center;
+}
+.gm-sub {
+  font: 10px 'Press Start 2P', monospace;
+  letter-spacing: 2px;
+  color: var(--amber);
+  opacity: .9;
+  text-transform: uppercase;
+  text-shadow: 0 2px 8px rgba(0,0,0,.9);
+}
+.gm-title {
+  font: clamp(30px, 7vw, 72px)/1 'Press Start 2P', monospace;
+  letter-spacing: 2px;
+  color: #7d5cc0;
+  margin: 4px 0 18px;
+  text-shadow: -4px 0 0 var(--cyan), 4px 0 0 var(--pink), 0 0 30px rgba(154,93,255,.45), 0 2px 14px rgba(0,0,0,.9);
+  animation: gmGlitch 4.5s steps(1) infinite;
+}
+.gm-title-sm { font-size: clamp(22px, 4vw, 34px); margin-bottom: 6px; }
+@keyframes gmGlitch {
+  0%, 88%, 100% { text-shadow: -4px 0 0 var(--cyan), 4px 0 0 var(--pink), 0 0 30px rgba(154,93,255,.45), 0 2px 14px rgba(0,0,0,.9); transform: translate(0); }
+  89% { text-shadow: -7px 0 0 var(--cyan), 7px 0 0 var(--pink), 0 0 40px rgba(154,93,255,.7); transform: translate(3px,-1px); }
+  90% { text-shadow: -2px 0 0 var(--pink), 2px 0 0 var(--cyan); transform: translate(-3px,1px); }
+  91% { text-shadow: -4px 0 0 var(--cyan), 4px 0 0 var(--pink); transform: translate(0); }
+  93% { text-shadow: -9px 0 0 var(--pink), 9px 0 0 var(--cyan), 0 0 46px rgba(154,93,255,.9); transform: translate(-4px,0); }
+  94% { text-shadow: -4px 0 0 var(--cyan), 4px 0 0 var(--pink), 0 0 30px rgba(154,93,255,.45); transform: translate(0); }
+}
+.gm-btn {
+  font: 20px 'Press Start 2P', monospace;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  text-decoration: none;
+  width: 340px; max-width: 78vw;
+  padding: 22px 18px;
+  border: 0; border-radius: 14px;
+  cursor: pointer;
+  color: #6fb0ea;
+  background: linear-gradient(#4d7c63 0%, #40694f 14%, #37604a 100%);
+  box-shadow: inset 0 3px 0 rgba(196,255,222,.28), inset 0 -7px 0 rgba(0,0,0,.32), inset 0 0 0 3px #2c5344, 0 6px 0 #21402f, 0 12px 18px rgba(0,0,0,.55);
+  text-shadow: 0 2px 0 rgba(0,0,0,.5);
+  transition: transform .08s ease, filter .12s ease;
+}
+.gm-btn:hover, .gm-btn:focus-visible { filter: brightness(1.13); transform: translateY(-2px); outline: none; }
+.gm-btn:active { transform: translateY(4px); box-shadow: inset 0 3px 0 rgba(196,255,222,.24), inset 0 -4px 0 rgba(0,0,0,.3), inset 0 0 0 3px #2c5344, 0 2px 0 #21402f, 0 4px 8px rgba(0,0,0,.5); }
+.gm-btn:disabled { filter: grayscale(.6) brightness(.8); cursor: wait; transform: none; }
+.gm-btn.blue { color: #6fb0ea; }
+.gm-btn.red { color: #ec8080; }
+.gm-btn.sm {
+  font-size: 9px; letter-spacing: 1px;
+  width: auto; flex: 1;
+  padding: 12px 6px; border-radius: 9px;
+  box-shadow: inset 0 2px 0 rgba(196,255,222,.24), inset 0 -4px 0 rgba(0,0,0,.3), inset 0 0 0 2px #2c5344, 0 4px 0 #21402f, 0 7px 11px rgba(0,0,0,.5);
+}
+.gm-row { display: flex; gap: 8px; width: 340px; max-width: 78vw; margin-top: 2px; }
+.gm-stats {
+  display: flex; gap: 18px; justify-content: center; flex-wrap: wrap;
+  margin-top: 4px;
+  font: 11px 'Orbitron', monospace;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-shadow: 0 2px 8px rgba(0,0,0,.9);
+}
+.gm-stats b { font: 19px 'VT323', monospace; color: var(--text); letter-spacing: 1px; }
+.gm-error { display: none; font: 13px 'Share Tech Mono', monospace; color: var(--pink); }
+.gm-keys {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 34px;
+  padding: 22px 28px;
+  background: rgba(6,8,22,.78);
+  border: 1px solid var(--line);
+  font: 13px 'Share Tech Mono', monospace;
   text-align: left;
 }
-body.gc-intro .gc-title { font-size: clamp(34px, 5.6vw, 74px); margin: 12px 0 14px; }
-body.gc-intro .gc-sub, body.gc-intro .gc-controls { max-width: 540px; }
-body.gc-intro .gc-status { justify-content: flex-start; }
-body.gc-intro .gc-controls { margin-left: 0; }
+.gm-keys div { display: grid; grid-template-columns: 9.5em 1fr; gap: 10px; }
+.gm-keys b { font-weight: normal; color: var(--cyan); }
+.gm-keys span { color: var(--muted); }
+.gm-keys.touch, body.gc-touch .gm-keys.desk { display: none; }
+body.gc-touch .gm-keys.touch { display: grid; }
+.gm-note { font: 12px/1.7 'Share Tech Mono', monospace; color: var(--muted); letter-spacing: .06em; text-shadow: 0 2px 8px rgba(0,0,0,.9); }
+.gm-back { flex: none; width: 160px; }
 
 @media (max-width: 640px) {
-  body.gc-intro #gcStart { padding: 24px; background: rgba(3,4,10,.72); }
+  body.gc-intro #gcStart { padding: 24px; background: rgba(3,4,10,.55); }
+  .gm-btn { font-size: 16px; padding: 18px 14px; }
+  .gm-keys { grid-template-columns: 1fr; }
   .gc-tc, .gc-cam span { display: none; }
   .gc-card { padding: 24px 18px 20px; }
   #gcRobotSay { font-size: 12px; bottom: calc(22% + 64px); }
@@ -480,7 +557,7 @@ body.gc-intro .gc-controls { margin-left: 0; }
   #gcPrompt { font-size: 12px; padding: 10px 14px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .gc-title { animation: none; }
+  .gc-title, .gm-title { animation: none; }
   #glitchcade.gc-glitch #gcCanvas { animation: none; }
 }
 </style>
@@ -519,6 +596,45 @@ body.gc-intro .gc-controls { margin-left: 0; }
       <div class="gc-tc" id="gcTimecode">00:00:00:00</div>
       <span class="gc-corner tl"></span><span class="gc-corner bl"></span><span class="gc-corner br"></span>
     </div>
+
+    <!-- TITLE MENU: same pixel look as Glitch Pong's and Breakpoint's menus -->
+    <div id="gcMenu" class="gm-screen on">
+      <p class="gm-sub">Signal acquired // the machines fight back</p>
+      <h1 class="gm-title">GLITCHCADE</h1>
+      <button id="gcMenuEnter" class="gm-btn blue" type="button" disabled>Loading</button>
+      <button id="gcMenuControls" class="gm-btn red" type="button">Controls</button>
+      <div class="gm-row">
+        <a class="gm-btn sm" href="glitch-pong.html">Glitch Pong</a>
+        <a class="gm-btn sm" href="breakpoint/index.html">Breakpoint</a>
+      </div>
+      <div class="gm-stats">
+        <span>Cabinets <b>2/10</b></span>
+        <span>◎ Coins <b id="gmCoins">0</b></span>
+        <span>Prizes <b id="gmPrizes">0/12</b></span>
+      </div>
+      <p id="gcMenuError" class="gm-error"></p>
+    </div>
+    <div id="gcMenuHelp" class="gm-screen">
+      <h2 class="gm-title gm-title-sm">CONTROLS</h2>
+      <div class="gm-keys desk">
+        <div><b>W A S D</b><span>walk</span></div>
+        <div><b>Mouse</b><span>look around</span></div>
+        <div><b>Shift</b><span>run</span></div>
+        <div><b>Space</b><span>jump</span></div>
+        <div><b>E / Click</b><span>use a cabinet</span></div>
+        <div><b>M</b><span>mute sound</span></div>
+        <div><b>Esc</b><span>pause</span></div>
+      </div>
+      <div class="gm-keys touch">
+        <div><b>Left stick</b><span>walk</span></div>
+        <div><b>Drag right side</b><span>look</span></div>
+        <div><b>USE</b><span>play a cabinet</span></div>
+        <div><b>JUMP</b><span>jump</span></div>
+      </div>
+      <p class="gm-note">Win at Glitch Pong or purge sectors in Breakpoint for coins.<br>Spend them at PRIZETRON-80's prize counter.</p>
+      <button id="gcMenuBack" class="gm-btn sm gm-back" type="button">◀ Back</button>
+    </div>
+
     <div class="gc-card">
       <p class="gc-eyebrow" id="gcEyebrow">Signal acquired</p>
       <h1 class="gc-title" id="gcTitle">GLITCHCADE</h1>
@@ -585,7 +701,7 @@ body.gc-intro .gc-controls { margin-left: 0; }
 <!-- Served by the local multiplayer server. This 404s harmlessly in static-only mode. -->
 <script src="/socket.io/socket.io.js"></script>
 <script src="glitchpong-site.js?v=glitchcade-8"></script>
-<script type="module" src="glitchcade.js?v=glitchcade-7"></script>
+<script type="module" src="glitchcade.js?v=glitchcade-8"></script>
 
 <script>
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
