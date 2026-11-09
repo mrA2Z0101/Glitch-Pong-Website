@@ -232,6 +232,7 @@ class Brick {
       case 'clone': {
         if (this.timer <= 0) {
           // first copy only after 8-14s (the shared start timer is 1.5-4s), then every 10-16s
+          if (this.leaked) break;   // MEMORY LEAK copies stay put
           if (!this.cloneArmed) { this.cloneArmed = true; this.timer = rand(6.5, 10); break; }
           this.timer = rand(10, 16);
           g.tryCloneBrick(this);
