@@ -3144,6 +3144,7 @@ function buildCollectionCase() {
 // Sync shelves, case, counter screen and HUD with the wallet.
 function refreshPrizes() {
   const w = Wallet.get();
+  refreshMenuStats(w);
   const firstSync = !refreshPrizes.ran;
   refreshPrizes.ran = true;
   prizeSlots.forEach((s) => {
@@ -3960,6 +3961,24 @@ function showPauseCard(eyebrow, title, sub, button) {
   enterBtn.textContent = button;
 }
 
+// ── Title menu (intro only): ENTER does what the card's button does ──
+const menuEnter = $('gcMenuEnter');
+function showMenuScreen(id) {
+  document.querySelectorAll('.gm-screen').forEach((el) => el.classList.toggle('on', el.id === id));
+  const first = $(id).querySelector('button:not(:disabled)');
+  if (first) first.focus({ preventScroll: true });
+}
+function refreshMenuStats(w = Wallet.get()) {
+  $('gmCoins').textContent = w.coins;
+  $('gmPrizes').textContent = `${w.prizes.length}/${PRIZES.length}`;
+}
+menuEnter.addEventListener('click', () => enterBtn.click());
+$('gcMenuControls').addEventListener('click', () => showMenuScreen('gcMenuHelp'));
+$('gcMenuBack').addEventListener('click', () => showMenuScreen('gcMenu'));
+window.addEventListener('keydown', (e) => {
+  if (gameState === 'intro' && e.code === 'Escape' && $('gcMenuHelp').classList.contains('on')) showMenuScreen('gcMenu');
+});
+
 enterBtn.addEventListener('click', () => {
   if (gameState !== 'intro' && gameState !== 'paused') return;
   if (isTouch) {
@@ -4042,11 +4061,6 @@ jumpBtn.addEventListener('touchstart', (e) => { e.preventDefault(); jump(); }, {
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
   camera.aspect = w / h;
-  // On the title menu the left of the screen is taken by the menu, so the footage
-  // is framed off-centre: shift the picture right so each shot's subject sits in
-  // the open part of the screen. (Narrow screens stack the menu over everything.)
-  if (gameState === 'intro' && w > 640) camera.setViewOffset(w, h, -w * 0.2, 0, w, h);
-  else camera.clearViewOffset();
   camera.updateProjectionMatrix();
   viewCamera.aspect = w / h;
   viewCamera.updateProjectionMatrix();
@@ -4126,7 +4140,6 @@ function frame(now) {
     menuMode = gameState;
     document.body.classList.toggle('gc-intro', gameState === 'intro');
     if (arms) arms.left.visible = arms.right.visible = gameState !== 'intro';   // no hands in the footage
-    resize();   // footage framing on/off
   }
   updateFocus();
 
@@ -4187,6 +4200,9 @@ function showFatal(msg) {
   el.textContent = msg;
   el.style.display = 'block';
   enterBtn.style.display = 'none';
+  $('gcMenuEnter').style.display = 'none';   // can run before menuEnter is declared (WebGL check)
+  $('gcMenuError').textContent = msg;
+  $('gcMenuError').style.display = 'block';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -4232,7 +4248,9 @@ function showFatal(msg) {
   requestAnimationFrame((t) => { lastFrame = t; frame(t); });
   enterBtn.disabled = false;
   enterBtn.textContent = isTouch ? 'Tap to enter' : 'Enter the Glitchcade';
-  enterBtn.focus({ preventScroll: true });
+  menuEnter.disabled = false;
+  menuEnter.textContent = 'Enter';
+  menuEnter.focus({ preventScroll: true });
 
   // Hooks for automated testing / debugging from the console.
   window.__glitchcade = {
