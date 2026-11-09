@@ -31,7 +31,7 @@ No build step. Either:
 - **20 powerups** (they stack) · **4 enemy types** · **5 mini bosses** rotate through every 5th sector, with **THE EYE** claiming every 10th
 - **12 arenas** with unique palettes, recorded soundtracks, and hazards (gravity wells, laser sweeps, teleport gates, moving barriers, corrupted zones)
 - **Glitch Meter** — risk vs. reward: up to x3 score, but more corruption, events and enemies
-- **Procedural corruption** — bricks mutate, duplicate, dissolve; visuals and audio degrade
+- **Procedural corruption** — bricks mutate, duplicate, dissolve; visuals and audio degrade. Recorded music switches themes for active glitches and reacts with slowdown, dropouts, echoes, filtering, and pitch changes, then returns to the arena song.
 - **9 modes** — Classic, Endless, Corruption, Hardcore, Time Attack, Puzzle, Boss Rush, Daily Glitch (date-seeded mutators, local best), AI Autoplay
 - **Screen FX: Reduced** setting (defaults on with OS reduce-motion) — softer shake, capped flashes, no tearing
 - **Meta progression** — XP, credits, 12 permanent upgrades, 16 achievements, saved to `localStorage`

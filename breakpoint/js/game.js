@@ -380,7 +380,10 @@ const game = {
     this.updateArenaHud();
     hideScreens();
     this.state = 'serve';
-    if (!this.attract) AudioSys.startMusic(this.arenaIdx, this.boss instanceof TheEye);
+    if (!this.attract) {
+      AudioSys.setGlitch(Math.max(this.glitch / 100, this.corruption / 130));
+      AudioSys.startMusic(this.arenaIdx, this.boss instanceof TheEye);
+    }
   },
 
   genLevel(lv) {
@@ -873,6 +876,7 @@ const game = {
   triggerEvent() {
     const ev = choice(EVENTS);
     this.activeEvent = ev;
+    AudioSys.setEvent(ev.id);
     this.eventT = Math.min(ev.dur, EVENT_MAX_DUR);
     banner(ev.name);
     AudioSys.sfx('event');
@@ -913,6 +917,7 @@ const game = {
       for (const b of this.balls) b.setSpeed(b.speed / 1.55);
     }
     this.activeEvent = null;
+    AudioSys.setEvent(null);
   },
 
   // ======== life / level flow ========
@@ -943,6 +948,7 @@ const game = {
   levelCleared() {
     if (this.attract) { this.level++; this.startLevel(); showScreen('scrMenu'); return; }
     this.state = 'clear';
+    AudioSys.setEvent(null);
     AudioSys.sfx('life');
     const clearBonus = 500 + this.level * 100;
     let bonus = clearBonus;

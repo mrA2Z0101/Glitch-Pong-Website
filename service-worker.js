@@ -1,5 +1,5 @@
-const SHELL_CACHE = "glitch-pong-shell-v33";
-const RUNTIME_CACHE = "glitch-pong-runtime-v33";
+const SHELL_CACHE = "glitch-pong-shell-v34";
+const RUNTIME_CACHE = "glitch-pong-runtime-v34";
 
 const SHELL_FILES = [
   "./",
