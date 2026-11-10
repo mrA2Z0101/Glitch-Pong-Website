@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // GLITCHCADE — first-person 3D arcade that hosts Glitch Pong
-// Walk in off the street, find the one cabinet that works, play it.
+// Walk in off the street, find the cabinets that work, play them.
 // ═══════════════════════════════════════════════════════════════════════════
 import * as THREE from './vendor/three.module.min.js';
 import { EffectComposer } from './vendor/three-addons/postprocessing/EffectComposer.js';
@@ -8,7 +8,7 @@ import { RenderPass } from './vendor/three-addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from './vendor/three-addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from './vendor/three-addons/postprocessing/OutputPass.js';
 import { mergeGeometries } from './vendor/three-addons/utils/BufferGeometryUtils.js';
-import { createArcadeAudio } from './glitchcade-audio.js?v=glitchcade-3';
+import { createArcadeAudio } from './glitchcade-audio.js?v=glitchcade-7';
 
 // ─── Palette (matches the site's design tokens) ─────────────────────────────
 const C = {
@@ -23,6 +23,28 @@ const C = {
   paddleBlue: '#1fd0ff',
   paddleRed: '#ff3b5c'
 };
+
+// The games planned for cabinets 03–10, glitched takes on arcade classics.
+// Still compiling: their marquees, side art and prompts carry the names.
+const COMING_SOON_GAMES = {
+  3: 'SIGNAL LOST',          // maze chase
+  4: 'FIREWALL',             // invaders
+  5: 'DEFRAG',               // falling blocks
+  6: 'BLACK-HOLE NEXUS',     // spin-and-thrust rocks
+  7: 'STACK OVERFLOW',       // girder climb
+  8: 'PACKET HOP',           // lane crossing
+  9: 'SWARM PROTOCOL',       // formation shooter
+  10: 'MISSILE DEFENSE.EXE'  // missile defense
+};
+
+// Shrink a font (given as '<weight> <size>px <family>') until `text` fits `maxW`.
+function fitFont(ctx, text, weight, size, family, maxW) {
+  for (; size > 8; size -= 2) {
+    ctx.font = `${weight} ${size}px ${family}`;
+    if (ctx.measureText(text).width <= maxW) break;
+  }
+  return size;
+}
 
 const COMING_SOON_ACCENTS = ['#ffd27a', '#50fa7b', '#9a5dff', '#ff7a3d', '#4d7cff', '#ff4d6d', '#71efff', '#ff58d9', '#c6ff4d'];
 
@@ -486,7 +508,7 @@ function makeGlitchPongMarquee() {
   return canvasTexture(cv);
 }
 
-function makeComingSoonMarquee(accent, slot) {
+function makeComingSoonMarquee(accent, slot, name = 'COMING SOON') {
   const W = 512, H = 160;
   const cv = makeCanvas(W, H);
   const ctx = cv.getContext('2d');
@@ -512,13 +534,13 @@ function makeComingSoonMarquee(accent, slot) {
     ctx.fill();
   }
   ctx.restore();
-  ctx.font = '900 54px Orbitron, "Arial Black", sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  chromaText(ctx, 'COMING SOON', W / 2, 66, 3, '#ffffff', accent);
+  fitFont(ctx, name, 900, 54, 'Orbitron, "Arial Black", sans-serif', W - 44);
+  chromaText(ctx, name, W / 2, 66, 3, '#ffffff', accent);
   ctx.font = '18px "Share Tech Mono", monospace';
   ctx.fillStyle = hexToRgba(accent, 0.9);
-  ctx.fillText(`// CABINET ${String(slot).padStart(2, '0')} — COMPILING //`, W / 2, 113);
+  ctx.fillText(`// COMING SOON — CABINET ${String(slot).padStart(2, '0')} //`, W / 2, 113);
   ctx.lineWidth = 6;
   ctx.strokeStyle = accent;
   ctx.strokeRect(3, 3, W - 6, H - 6);
@@ -623,7 +645,7 @@ function makeGlitchPongSideArt() {
   return canvasTexture(cv);
 }
 
-function makeComingSoonSideArt(accent, seed) {
+function makeComingSoonSideArt(accent, seed, name = 'COMING SOON') {
   const W = 256, H = 512;
   const cv = makeCanvas(W, H);
   const ctx = cv.getContext('2d');
@@ -656,10 +678,10 @@ function makeComingSoonSideArt(accent, seed) {
   ctx.save();
   ctx.translate(30, 488);
   ctx.rotate(-Math.PI / 2);
-  ctx.font = '700 26px Orbitron, sans-serif';
   ctx.textAlign = 'left';
+  fitFont(ctx, name, 700, 30, 'Orbitron, sans-serif', 450);
   ctx.fillStyle = hexToRgba(accent, 0.85);
-  ctx.fillText('COMING SOON', 0, 0);
+  ctx.fillText(name, 0, 0);
   ctx.restore();
   scanlines(ctx, W, H, 0.16, 4);
   return canvasTexture(cv);
@@ -711,13 +733,15 @@ function createComingSoonScreen() {
 
 // Glitch Pong attract mode: an actual little rally on the cabinet screen.
 // `onEvent('paddle' | 'wall' | 'score')` lets the cabinet make the real game's sounds.
-function createGlitchPongScreen(onEvent = () => {}) {
+// `opts.prompt: false` drops the PRESS E call to action (the ceiling TVs use it),
+// `opts.t0` starts the loop part-way through so several feeds don't run in step.
+function createGlitchPongScreen(onEvent = () => {}, opts = {}) {
   const W = 512, H = 384;
   const cv = makeCanvas(W, H);
   const ctx = cv.getContext('2d');
   const tex = canvasTexture(cv);
   const s = {
-    t: 0,
+    t: opts.t0 || 0,
     ball: { x: W / 2, y: H / 2, vx: 230, vy: 140 },
     left: H / 2, right: H / 2,
     score: [0, 0],
@@ -823,7 +847,7 @@ function createGlitchPongScreen(onEvent = () => {}) {
     }
 
     // blinking call to action
-    if (Math.floor(s.t * 1.6) % 2 === 0) {
+    if (opts.prompt !== false && Math.floor(s.t * 1.6) % 2 === 0) {
       ctx.font = '700 18px Orbitron, sans-serif';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -842,6 +866,235 @@ function createGlitchPongScreen(onEvent = () => {}) {
       ctx.globalAlpha = 0.25;
       ctx.drawImage(cv, -6, 0);
       ctx.restore();
+    }
+    scanlines(ctx, W, H, 0.22, 3);
+    const v = ctx.createRadialGradient(W / 2, H / 2, H * 0.3, W / 2, H / 2, W * 0.7);
+    v.addColorStop(0, 'rgba(0,0,0,0)');
+    v.addColorStop(1, 'rgba(0,0,0,0.55)');
+    ctx.fillStyle = v;
+    ctx.fillRect(0, 0, W, H);
+    tex.needsUpdate = true;
+  }
+
+  draw(0);
+  return { tex, draw, burst: () => { s.burst = 0.7; } };
+}
+
+// ── Break Point (cabinet 02): marquee, side art and an attract-mode screen ──
+// Brick colours borrowed from the game's own palette.
+const BP_BRICKS = ['#ff4d6d', '#ff9a00', '#ffd27a', '#50fa7b', '#71efff', '#4d7cff', '#9a5dff', '#ff58d9'];
+
+function makeBreakPointMarquee() {
+  const W = 512, H = 160;
+  const cv = makeCanvas(W, H);
+  const ctx = cv.getContext('2d');
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#0a0718');
+  g.addColorStop(0.5, '#1d0f38');
+  g.addColorStop(1, '#0a0718');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+  // a wall of bricks along the top, a few already knocked out
+  const rand = seeded(202);
+  for (let r = 0; r < 2; r++) {
+    for (let c = 0; c < 12; c++) {
+      if (rand() < 0.18) continue;
+      ctx.fillStyle = hexToRgba(BP_BRICKS[(c + r * 3) % BP_BRICKS.length], 0.75);
+      ctx.fillRect(10 + c * 41.5, 12 + r * 15, 38, 11);
+    }
+  }
+  ctx.font = '900 58px Orbitron, "Arial Black", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  chromaText(ctx, 'BREAKPOINT', W / 2, 86, 3, '#f2eaff', C.purple);
+  ctx.font = '16px "Share Tech Mono", monospace';
+  ctx.fillStyle = C.amber;
+  ctx.fillText('// CABINET 02 — SAME MACHINE //', W / 2, 128);
+  // paddle + ball
+  ctx.fillStyle = C.cyan;
+  ctx.shadowColor = C.cyan;
+  ctx.shadowBlur = 10;
+  ctx.fillRect(W / 2 - 36, H - 16, 72, 6);
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(W / 2 + 60, H - 30, 8, 8);
+  ctx.shadowBlur = 0;
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = C.purple;
+  ctx.strokeRect(3, 3, W - 6, H - 6);
+  scanlines(ctx, W, H, 0.14, 4);
+  sliceGlitch(ctx, W, H, seeded(23), 2, 12);
+  return canvasTexture(cv);
+}
+
+// Mirrored like the other side art: canvas left = back of the cabinet.
+function makeBreakPointSideArt() {
+  const W = 256, H = 512;
+  const cv = makeCanvas(W, H);
+  const ctx = cv.getContext('2d');
+  ctx.translate(W, 0);
+  ctx.scale(-1, 1);
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#0b0322');
+  g.addColorStop(1, '#05020f');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+  // a brick wall shattering upward
+  const rand = seeded(77);
+  for (let r = 0; r < 9; r++) {
+    for (let c = 0; c < 5; c++) {
+      const y = 40 + r * 22;
+      if (rand() < r * 0.09) continue;
+      const jitter = r > 4 ? (rand() - 0.5) * 18 : 0;
+      ctx.fillStyle = hexToRgba(BP_BRICKS[(r + c) % BP_BRICKS.length], 0.55 + rand() * 0.35);
+      ctx.fillRect(14 + c * 46 + jitter, y + jitter, 42, 16);
+    }
+  }
+  // the ball's path
+  ctx.save();
+  ctx.strokeStyle = C.cyan;
+  ctx.shadowColor = C.cyan;
+  ctx.shadowBlur = 14;
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  ctx.moveTo(40, 470); ctx.lineTo(200, 330); ctx.lineTo(90, 250);
+  ctx.stroke();
+  ctx.restore();
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(84, 244, 14, 14);
+  // the Eye watches from below
+  if (assets.eyeNeutral) {
+    ctx.save();
+    ctx.globalAlpha = 0.8;
+    ctx.shadowColor = C.purple;
+    ctx.shadowBlur = 24;
+    ctx.drawImage(assets.eyeNeutral, 120, 330, 120, 120);
+    ctx.restore();
+  }
+  ctx.fillStyle = C.pink;
+  ctx.shadowColor = C.pink;
+  ctx.shadowBlur = 12;
+  ctx.fillRect(20, 476, 90, 10);
+  ctx.shadowBlur = 0;
+  ctx.save();
+  ctx.translate(30, 494);
+  ctx.rotate(-Math.PI / 2);
+  ctx.font = '900 30px Orbitron, "Arial Black", sans-serif';
+  ctx.textBaseline = 'middle';
+  chromaText(ctx, 'BREAKPOINT', 0, 0, 3, '#f4ecff');
+  ctx.restore();
+  scanlines(ctx, W, H, 0.14, 4);
+  sliceGlitch(ctx, W, H, seeded(5), 4, 16);
+  return canvasTexture(cv);
+}
+
+// Break Point attract mode: an AI paddle chipping away at a brick wall.
+function createBreakPointScreen(opts = {}) {
+  const W = 384, H = 288;
+  const cv = makeCanvas(W, H);
+  const ctx = cv.getContext('2d');
+  const tex = canvasTexture(cv);
+  const COLS = 10, ROWS = 5, BW = 34, BH = 12, BX = (W - COLS * (BW + 2)) / 2, BY = 40;
+  const PAD_W = 64, PAD_Y = H - 26;
+  const s = { t: opts.t0 || 0, bricks: [], ball: null, pad: W / 2, score: 0, burst: 0, glitchFor: 0, trail: [] };
+  const promptText = isTouch ? 'TAP  USE  TO  PLAY' : 'PRESS  E  TO  PLAY';
+
+  function reset() {
+    s.bricks = [];
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) s.bricks.push({ r, c, alive: true });
+    s.ball = { x: W / 2, y: PAD_Y - 20, vx: 150 * (Math.random() < 0.5 ? -1 : 1), vy: -210 };
+    s.glitchFor = 0.4;
+  }
+  reset();
+
+  function step(dt) {
+    const b = s.ball;
+    b.x += b.vx * dt;
+    b.y += b.vy * dt;
+    if (b.x < 6 || b.x > W - 6) { b.vx *= -1; b.x = Math.max(6, Math.min(W - 6, b.x)); }
+    if (b.y < 26) { b.vy = Math.abs(b.vy); }
+    // the AI paddle lags a little so the ball sometimes gets past
+    s.pad += Math.max(-260 * dt, Math.min(260 * dt, b.x - s.pad));
+    if (b.vy > 0 && b.y > PAD_Y - 6 && b.y < PAD_Y + 4 && Math.abs(b.x - s.pad) < PAD_W / 2 + 4) {
+      b.vy = -Math.abs(b.vy);
+      b.vx += (b.x - s.pad) * 4;
+      b.vx = Math.max(-280, Math.min(280, b.vx));
+    }
+    if (b.y > H + 10) { s.glitchFor = 0.45; s.ball = { x: s.pad, y: PAD_Y - 20, vx: 150, vy: -210 }; return; }
+    for (const br of s.bricks) {
+      if (!br.alive) continue;
+      const x = BX + br.c * (BW + 2), y = BY + br.r * (BH + 2);
+      if (b.x > x - 4 && b.x < x + BW + 4 && b.y > y - 4 && b.y < y + BH + 4) {
+        br.alive = false;
+        s.score += 50;
+        b.vy *= -1;
+        break;
+      }
+    }
+    if (!s.bricks.some((br) => br.alive)) reset();
+    s.trail.push({ x: b.x, y: b.y });
+    if (s.trail.length > 10) s.trail.shift();
+  }
+
+  function draw(dt) {
+    s.t += dt;
+    s.burst = Math.max(0, s.burst - dt);
+    s.glitchFor = Math.max(0, s.glitchFor - dt);
+    const titleCard = s.t % 14 > 11;
+    if (!titleCard) step(Math.min(dt, 1 / 20));
+
+    ctx.fillStyle = '#04030c';
+    ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = 'rgba(154,93,255,0.13)';
+    ctx.lineWidth = 1;
+    for (let x = 0; x <= W; x += 24) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+    for (let y = 0; y <= H; y += 24) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+    if (titleCard) {
+      ctx.font = '900 44px Orbitron, "Arial Black", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      chromaText(ctx, 'BREAK', W / 2, H / 2 - 56, 4, '#f2eaff');
+      chromaText(ctx, 'POINT', W / 2, H / 2 - 8, 4, '#f2eaff');
+      if (assets.eyeNeutral) ctx.drawImage(assets.eyeNeutral, W / 2 - 40, H / 2 + 22, 80, 80);
+    } else {
+      ctx.font = '26px VT323, monospace';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillStyle = 'rgba(113,239,255,0.85)';
+      ctx.fillText(String(s.score).padStart(6, '0'), 10, 6);
+      for (const br of s.bricks) {
+        if (!br.alive) continue;
+        ctx.fillStyle = BP_BRICKS[br.r % BP_BRICKS.length];
+        ctx.fillRect(BX + br.c * (BW + 2), BY + br.r * (BH + 2), BW, BH);
+      }
+      s.trail.forEach((p, i) => {
+        const a = i / s.trail.length;
+        ctx.fillStyle = `rgba(113,239,255,${a * 0.45})`;
+        const sz = 3 + a * 6;
+        ctx.fillRect(p.x - sz / 2, p.y - sz / 2, sz, sz);
+      });
+      ctx.save();
+      ctx.shadowColor = C.cyan;
+      ctx.shadowBlur = 14;
+      ctx.fillStyle = C.cyan;
+      ctx.fillRect(s.pad - PAD_W / 2, PAD_Y, PAD_W, 8);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(s.ball.x - 5, s.ball.y - 5, 10, 10);
+      ctx.restore();
+    }
+
+    if (opts.prompt !== false && Math.floor(s.t * 1.6) % 2 === 0) {
+      ctx.font = '700 15px Orbitron, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillRect(W / 2 - 110, H - 72, 220, 26);
+      ctx.fillStyle = C.amber;
+      ctx.fillText(promptText, W / 2, H - 59);
+    }
+
+    if (s.glitchFor > 0 || s.burst > 0 || Math.random() < 0.02) {
+      sliceGlitch(ctx, W, H, Math.random, s.burst > 0 ? 10 : 4, s.burst > 0 ? 60 : 24);
     }
     scanlines(ctx, W, H, 0.22, 3);
     const v = ctx.createRadialGradient(W / 2, H / 2, H * 0.3, W / 2, H / 2, W * 0.7);
@@ -875,14 +1128,15 @@ function createInfoBoard() {
     chromaText(ctx, 'GLITCH PONG', 60, 120, 4, C.cyan, C.cyan);
     ctx.font = '30px "Share Tech Mono", monospace';
     const lines = [
-      ['> CABINET 01 .......... ONLINE', C.green],
-      ['> CABINETS 02–10 ...... COMPILING', C.amber],
-      ['> PRIZE COUNTER ....... 10 COINS / WIN', C.cyan],
+      ['> CABINET 01 .......... GLITCH PONG', C.green],
+      ['> CABINET 02 .......... BREAKPOINT', C.green],
+      ['> CABINETS 03–10 ...... COMPILING', C.amber],
+      ['> PRIZE COUNTER ....... COINS FOR WINS', C.cyan],
       ['> THE EYE ............. WATCHING', C.pink]
     ];
     lines.forEach(([txt, col], i) => {
       ctx.fillStyle = col;
-      ctx.fillText(txt, 64, 252 + i * 54);
+      ctx.fillText(txt, 64, 240 + i * 50);
     });
     scanlines(ctx, W, H, 0.2, 4);
     if (glitch) sliceGlitch(ctx, W, H, Math.random, 6, 60);
@@ -903,6 +1157,7 @@ let jukebox = null;
 const animated = [];         // fn(dt, t) called each frame
 let glowTex;
 let pongScreen;
+let bpScreen;
 let soonScreen;
 let neonSigns = [];
 let infoBoard;
@@ -1588,6 +1843,7 @@ function registerCabinet(cab, x, z, rotY, meta) {
 
 function buildCabinets() {
   pongScreen = createGlitchPongScreen((event) => audio.attract(event));
+  bpScreen = createBreakPointScreen();
   soonScreen = createComingSoonScreen();
 
   // ── Glitch Pong: its own stage in the back-left corner, angled at the entrance ──
@@ -1645,6 +1901,7 @@ function buildCabinets() {
     ...[-5, -8.6, -12.2, -15.8].map((z) => ({ x: hx - 0.62, z, rotY: -Math.PI / 2 }))
   ];
   slots.forEach((slot, i) => {
+    if (i === 0) { buildBreakPointCabinet(slot); return; }
     const accent = COMING_SOON_ACCENTS[i];
     const mat = new THREE.MeshBasicMaterial({ map: soonScreen.tex, color: new THREE.Color(accent).lerp(new THREE.Color('#ffffff'), 0.55), toneMapped: false });
     const cab = buildCabinet({
@@ -1652,19 +1909,235 @@ function buildCabinets() {
       bodyColor: 0x0d0b18,
       trimLeft: accent,
       trimRight: accent,
-      sideArt: makeComingSoonSideArt(accent, i + 10),
-      marqueeTex: makeComingSoonMarquee(accent, i + 2),
+      sideArt: makeComingSoonSideArt(accent, i + 10, COMING_SOON_GAMES[i + 2]),
+      marqueeTex: makeComingSoonMarquee(accent, i + 2, COMING_SOON_GAMES[i + 2]),
       screenMat: mat,
       coinTex: makeCoinDoor('COMING SOON', accent),
       accent
     });
     registerCabinet(cab, slot.x, slot.z, slot.rotY, {
-      id: `soon-${i + 2}`, title: 'COMING SOON', slot: i + 2, playable: false, accent, screenMaterial: mat
+      id: `soon-${i + 2}`, title: COMING_SOON_GAMES[i + 2] || 'COMING SOON', slot: i + 2, playable: false, accent, screenMaterial: mat
     });
   });
 }
 
 // The surveillance Eye from the boss fight keeps watch over its cabinet.
+// ── Break Point: cabinet 02, the first machine on the left as you walk in ──
+function buildBreakPointCabinet(slot) {
+  const cab = buildCabinet({
+    width: 0.98,
+    bodyColor: 0x120a26,
+    trimLeft: C.purple,
+    trimRight: C.cyan,
+    sideArt: makeBreakPointSideArt(),
+    marqueeTex: makeBreakPointMarquee(),
+    screenMat: new THREE.MeshBasicMaterial({ map: bpScreen.tex, toneMapped: false }),
+    coinTex: makeCoinDoor('INSERT COIN', C.cyan),
+    accent: C.purple,
+    accent2: C.cyan
+  });
+  const entry = registerCabinet(cab, slot.x, slot.z, slot.rotY, {
+    id: 'breakpoint', title: 'BREAKPOINT', slot: 2, playable: true, accent: C.purple
+  });
+  addFloorGlow(scene, new THREE.Color(C.purple), 1.6, 1.4,
+    slot.x + entry.forward.x * 1.1, slot.z + entry.forward.z * 1.1, 0.2);
+  return entry;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CEILING TVs — old CRT sets hung over the aisle, tilted down at the floor,
+// flicking between Glitch Pong and Breakpoint gameplay
+// ═══════════════════════════════════════════════════════════════════════════
+const TV_PAIRS_Z = [-7.5, -15, -22.5];   // back-to-back pairs on drop poles down the centre aisle
+const TV_Y = 4.25;                        // screen centre height (ceiling at ROOM_H)
+const TV_TILT = 0.34;                     // radians the screens tip toward the floor
+const tvs = [];                           // { mat, feed, next, flip }
+let tvFeeds = [];
+let tvStatic = null;
+
+function makeWoodTexture() {
+  const W = 256, H = 128;
+  const cv = makeCanvas(W, H);
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#4a2c1a';
+  ctx.fillRect(0, 0, W, H);
+  const rand = seeded(91);
+  for (let i = 0; i < 70; i++) {
+    const y = rand() * H;
+    ctx.strokeStyle = `rgba(${rand() < 0.5 ? '30,16,8' : '110,70,40'},${0.25 + rand() * 0.35})`;
+    ctx.lineWidth = 1 + rand() * 2;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    for (let x = 0; x <= W; x += 16) ctx.lineTo(x, y + Math.sin(x * 0.04 + i) * 3);
+    ctx.stroke();
+  }
+  return canvasTexture(cv);
+}
+
+// Shared snow for channel changes
+function createTvStatic() {
+  const W = 128, H = 96;
+  const cv = makeCanvas(W, H);
+  const ctx = cv.getContext('2d');
+  const tex = canvasTexture(cv);
+  const img = ctx.createImageData(W, H);
+  function draw() {
+    const d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const v = (Math.random() * 255) | 0;
+      d[i] = d[i + 1] = d[i + 2] = v;
+      d[i + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.fillRect(0, (Math.random() * H) | 0, W, 8);
+    tex.needsUpdate = true;
+  }
+  draw();
+  return { tex, draw };
+}
+
+// A curved CRT face: a plane bowed out toward the viewer
+function crtGeometry(w, h, bulge) {
+  const geo = new THREE.PlaneGeometry(w, h, 10, 8);
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const u = pos.getX(i) / (w / 2), v = pos.getY(i) / (h / 2);
+    pos.setZ(i, bulge * (1 - u * u * 0.6) * (1 - v * v * 0.6));
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+
+let tvShared = null;
+function buildTv() {
+  if (!tvShared) {
+    const wood = makeWoodTexture();
+    const lcv = makeCanvas(256, 32);
+    const lctx = lcv.getContext('2d');
+    lctx.fillStyle = '#16131c';
+    lctx.fillRect(0, 0, 256, 32);
+    lctx.font = '700 18px Orbitron, sans-serif';
+    lctx.textAlign = 'center';
+    lctx.textBaseline = 'middle';
+    lctx.fillStyle = '#c9c2d8';
+    lctx.fillText('GLITCHVISION', 128, 17);
+    tvShared = {
+      wood: new THREE.MeshStandardMaterial({ map: wood, roughness: 0.55, metalness: 0.05 }),
+      plastic: new THREE.MeshStandardMaterial({ color: 0x1a1720, roughness: 0.6, metalness: 0.2 }),
+      chrome: new THREE.MeshStandardMaterial({ color: 0xc8c8d4, roughness: 0.25, metalness: 0.9 }),
+      grille: new THREE.MeshStandardMaterial({ color: 0x0c0b10, roughness: 0.9 }),
+      badge: new THREE.MeshBasicMaterial({ map: canvasTexture(lcv), toneMapped: false, color: 0xbbbbbb }),
+      led: new THREE.MeshBasicMaterial({ color: 0xff3b3b, toneMapped: false }),
+      screenGeo: crtGeometry(0.74, 0.56, 0.035)
+    };
+  }
+  const M = tvShared;
+  const tv = new THREE.Group();
+  // wooden cabinet, its picture-tube hump tapering out the back
+  const cabinet = new THREE.Mesh(new THREE.BoxGeometry(1.12, 0.8, 0.5), M.wood);
+  cabinet.position.z = -0.25;
+  const hump = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.6, 0.36), M.plastic);
+  hump.position.z = -0.66;
+  const humpCap = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.4, 0.12), M.plastic);
+  humpCap.position.z = -0.88;
+  // front: bezel around the tube, controls down the right
+  const bezel = new THREE.Mesh(new THREE.BoxGeometry(0.84, 0.66, 0.03), M.plastic);
+  bezel.position.set(-0.11, 0.02, 0.005);
+  const screen = new THREE.Mesh(M.screenGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false }));
+  screen.position.set(-0.11, 0.02, 0.022);
+  screen.userData.noBake = true;               // its picture changes channel
+  const panel = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.66, 0.02), M.plastic);
+  panel.position.set(0.42, 0.02, 0.01);
+  tv.add(cabinet, hump, humpCap, bezel, screen, panel);
+  [0.22, 0.04].forEach((y) => {
+    const knob = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.05, 0.05, 16), M.chrome);
+    knob.rotation.x = Math.PI / 2;
+    knob.position.set(0.42, y, 0.045);
+    tv.add(knob);
+  });
+  for (let i = 0; i < 5; i++) {
+    const slot = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.012, 0.01), M.grille);
+    slot.position.set(0.42, -0.1 - i * 0.035, 0.025);
+    tv.add(slot);
+  }
+  const led = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.02, 0.01), M.led);
+  led.position.set(0.48, -0.27, 0.025);
+  const badge = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.04), M.badge);
+  badge.position.set(-0.11, -0.335, 0.003);
+  tv.add(led, badge);
+  return { group: tv, screen };
+}
+
+function pickTvFeed(not) {
+  const options = tvFeeds.filter((f) => f !== not);
+  return options[Math.floor(Math.random() * options.length)];
+}
+
+function buildTvs() {
+  // Two feeds per game, each starting at a different point in its loop
+  tvFeeds = [
+    createGlitchPongScreen(() => {}, { prompt: false, t0: 2 }),
+    createGlitchPongScreen(() => {}, { prompt: false, t0: 8 }),
+    createBreakPointScreen({ prompt: false, t0: 0 }),
+    createBreakPointScreen({ prompt: false, t0: 6 })
+  ];
+  tvStatic = createTvStatic();
+  const pole = new THREE.MeshStandardMaterial({ color: 0x2a2633, roughness: 0.4, metalness: 0.7 });
+  TV_PAIRS_Z.forEach((z) => {
+    const mount = new THREE.Group();
+    mount.position.set(0, 0, z);
+    scene.add(mount);
+    // drop pole from the ceiling, a plate where it meets it, and a cross-yoke
+    const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, ROOM_H - TV_Y - 0.3, 10), pole);
+    rod.position.y = (ROOM_H + TV_Y + 0.3) / 2;
+    const plate = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.03, 16), pole);
+    plate.position.y = ROOM_H - 0.015;
+    const yoke = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.06, 1.9), pole);
+    yoke.position.y = TV_Y + 0.42;
+    mount.add(rod, plate, yoke);
+    // one set facing the door, one facing the back of the room
+    [0, Math.PI].forEach((yaw) => {
+      const facing = new THREE.Group();
+      facing.rotation.y = yaw;
+      mount.add(facing);
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.12, 0.06), pole);
+      arm.position.set(0, TV_Y + 0.35, 0.92);
+      facing.add(arm);
+      const set = buildTv();
+      set.group.position.set(0, TV_Y, 1.12);   // the cabinet's back hangs toward the pole
+      set.group.rotation.x = TV_TILT;
+      facing.add(set.group);
+      const feed = pickTvFeed();
+      set.screen.material.map = feed.tex;
+      tvs.push({ mat: set.screen.material, feed, next: 4 + Math.random() * 10, flip: 0 });
+    });
+  });
+}
+
+// Channel surfing: every so often a set flips to another feed through a burst of snow
+function updateTvs(dt) {
+  let snowing = false;
+  for (const tv of tvs) {
+    if (tv.flip > 0) {
+      tv.flip -= dt;
+      snowing = true;
+      if (tv.flip <= 0) {
+        tv.feed = pickTvFeed(tv.feed);
+        tv.mat.map = tv.feed.tex;
+        tv.next = 7 + Math.random() * 10;
+      }
+      continue;
+    }
+    tv.next -= dt;
+    if (tv.next <= 0) {
+      tv.flip = reducedMotion ? 0.12 : 0.35;
+      tv.mat.map = tvStatic.tex;
+    }
+  }
+  return snowing;
+}
+
 function buildBossEye(cab) {
   const tex = {};
   ['eyeLeft', 'eyeNeutral', 'eyeRight'].forEach((k) => {
@@ -1749,7 +2222,7 @@ function buildBossEye(cab) {
   });
 }
 
-// A jukebox by the door plays the Glitch Pong soundtrack. Use it to skip tracks.
+// A jukebox by the door plays PRIZETRON’s Groove and the Construct tracks. Use it to skip.
 function buildJukebox() {
   const hx = ROOM_W / 2;
   const group = new THREE.Group();
@@ -1857,16 +2330,23 @@ function buildJukebox() {
 // PRIZE COUNTER — win a match, earn 10 coins, trade coins for collectables
 // ═══════════════════════════════════════════════════════════════════════════
 // Cheap prizes sit on the bottom shelves, the big-ticket ones up top.
+// Two rows of six: the first six fill the lower shelf. Break Point's prizes are
+// mixed in by price.
 const PRIZES = [
   { id: 'paddle-keychain', name: 'PIXEL PADDLE KEYCHAIN', cost: 10 },
+  { id: 'pixel-brick', name: 'PIXEL BRICK STACK', cost: 15 },
   { id: 'glitch-ball', name: 'GLITCH BALL', cost: 20 },
   { id: 'heat-gauge', name: 'HEAT GAUGE', cost: 30 },
+  { id: 'overclock-chip', name: 'OVERCLOCK CHIP', cost: 35 },
   { id: 'construct-hex', name: 'CONSTRUCT HEXAGON', cost: 40 },
   { id: 'matrix-cube', name: 'MATRIX CODE CUBE', cost: 50 },
   { id: 'black-hole-globe', name: 'BLACK HOLE GLOBE', cost: 60 },
+  { id: 'laser-paddle', name: 'LASER PADDLE', cost: 70 },
   { id: 'mini-eye', name: 'MINI BOSS EYE', cost: 80 },
+  { id: 'eye-shard', name: 'EYE SHARD', cost: 90 },
   { id: 'golden-paddle', name: 'GOLDEN PADDLE TROPHY', cost: 100 }
 ];
+const PRIZES_PER_ROW = 6;
 const ROBOT_NAME = 'PRIZETRON-80';
 const ROBOT_POS = new THREE.Vector3(0, 0, -30.35);
 
@@ -2172,14 +2652,14 @@ function greetingLine() {
   if (w.prizes.length >= PRIZES.length) return 'YOU OWN EVERY PRIZE IN THE GLITCHCADE. MY CIRCUITS ARE... PROUD.';
   const affordable = PRIZES.filter((p) => !w.prizes.includes(p.id) && p.cost <= w.coins);
   if (w.coins === 0 && w.prizes.length === 0) {
-    return `GREETINGS, HUMAN. I AM ${ROBOT_NAME}. BEAT THE AI AT GLITCH PONG AND I PAY 10 COINS PER WIN. COINS BUY PRIZES.`;
+    return `GREETINGS, HUMAN. I AM ${ROBOT_NAME}. BEAT THE AI AT GLITCH PONG FOR 10 COINS, OR PURGE SECTORS IN BREAKPOINT. COINS BUY PRIZES.`;
   }
   if (affordable.length) {
     return `WELCOME BACK. YOU HAVE ${w.coins} COINS — ENOUGH FOR ${affordable.length} PRIZE${affordable.length > 1 ? 'S' : ''}. AIM AT ONE ON MY SHELVES AND PRESS ${isTouch ? 'USE' : 'E'}.`;
   }
   const goal = nextGoal(w);
   const need = goal ? goal.cost - w.coins : 0;
-  return `YOU HAVE ${w.coins} COINS. ${goal ? `THE ${goal.name} COSTS ${goal.cost} — ${Math.ceil(need / 10)} MORE WIN${need > 10 ? 'S' : ''}.` : ''} THE GLITCH PONG CABINET AWAITS.`;
+  return `YOU HAVE ${w.coins} COINS. ${goal ? `THE ${goal.name} COSTS ${goal.cost} — ${need} MORE COIN${need > 1 ? 'S' : ''}.` : ''} THE CABINETS AWAIT.`;
 }
 
 function robotChat() {
@@ -2187,6 +2667,7 @@ function robotChat() {
   const lines = [
     greetingLine(),
     `EVERY MATCH YOU WIN AGAINST THE AI EARNS 10 COINS. YOU HAVE WON ${w.wins} SO FAR.`,
+    'BREAKPOINT PAYS 2 COINS PER SECTOR PURGED. TAKE DOWN A BOSS AND I PAY 10. CABINET 02, BY THE DOOR.',
     `YOUR COLLECTION: ${w.prizes.length} OF ${PRIZES.length}. IT IS ON DISPLAY IN THE CASE TO MY LEFT.`,
     'TIP: LONG RALLIES BUILD HEAT. AT MAX HEAT THE EYE ARRIVES. SURVIVE IT.'
   ];
@@ -2337,6 +2818,90 @@ function makePrizeModel(id) {
         o.position.set(Math.cos(a) * 0.16, 0.25 + Math.sin(a) * 0.09, Math.sin(a) * 0.04);
       });
     };
+  } else if (id === 'pixel-brick') {
+    // Break Point: three bricks stacked off-kilter, the top one flickering
+    const cols = ['#ff4d6d', '#ffd27a', '#71efff'];
+    const bricks = cols.map((c, i) => {
+      const b = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.07, 0.09), emissive(c, 0.9));
+      b.position.set((i - 1) * 0.025, 0.075 + i * 0.075, 0);
+      b.rotation.y = (i - 1) * 0.25;
+      g.add(b);
+      return b;
+    });
+    base();
+    update = (dt, t) => {
+      bricks[2].material.emissiveIntensity = Math.random() < 0.04 ? 0.15 : 0.9 + Math.sin(t * 4) * 0.2;
+      bricks[2].position.y = 0.225 + Math.sin(t * 1.8) * 0.012;
+    };
+  } else if (id === 'overclock-chip') {
+    // Break Point: a CPU running hot, pins glowing in sequence
+    const chip = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.035, 0.2), new THREE.MeshStandardMaterial({ color: 0x15121f, metalness: 0.6, roughness: 0.35 }));
+    chip.position.y = 0.2;
+    const die = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.012, 0.09), emissive(C.amber, 1.1));
+    die.position.y = 0.222;
+    const tilt = new THREE.Group();
+    tilt.position.y = 0;
+    tilt.add(chip, die);
+    const pins = [];
+    for (let side = 0; side < 4; side++) {
+      for (let i = 0; i < 4; i++) {
+        const pin = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.01, 0.03), emissive('#ff9a00', 0.4));
+        const off = -0.066 + i * 0.044;
+        const a = side * Math.PI / 2;
+        pin.position.set(Math.cos(a) * 0.115 - Math.sin(a) * off, 0.2, Math.sin(a) * 0.115 + Math.cos(a) * off);
+        pin.rotation.y = -a;
+        tilt.add(pin);
+        pins.push(pin);
+      }
+    }
+    g.add(tilt);
+    base();
+    update = (dt, t) => {
+      tilt.rotation.y = t * 0.5;
+      const hot = Math.floor(t * 12) % pins.length;
+      pins.forEach((p, i) => { p.material.emissiveIntensity = i === hot ? 1.6 : 0.35; });
+      die.material.emissiveIntensity = 0.9 + Math.sin(t * 9) * 0.3;
+    };
+  } else if (id === 'laser-paddle') {
+    // Break Point: the laser paddle power-up, firing twin beams
+    const paddle = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.045, 0.06), emissive(C.cyan, 0.9));
+    paddle.position.y = 0.12;
+    const beams = [-1, 1].map((sd) => {
+      const beam = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.2, 0.012), new THREE.MeshBasicMaterial({ color: '#ff4d6d', transparent: true, opacity: 0.9, toneMapped: false }));
+      beam.position.set(sd * 0.1, 0.25, 0);
+      g.add(beam);
+      return beam;
+    });
+    g.add(paddle);
+    base();
+    update = (dt, t) => {
+      const phase = (t * 1.5) % 1;
+      beams.forEach((b, i) => {
+        const p = (phase + i * 0.5) % 1;
+        b.position.y = 0.16 + p * 0.22;
+        b.material.opacity = 1 - p;
+      });
+    };
+  } else if (id === 'eye-shard') {
+    // Break Point: a crystal fragment of THE EYE with an iris glowing inside
+    const shard = new THREE.Mesh(new THREE.OctahedronGeometry(0.11, 0), new THREE.MeshStandardMaterial({
+      color: 0xc9b6ff, emissive: C.purple, emissiveIntensity: 0.5, transparent: true, opacity: 0.55,
+      roughness: 0.1, metalness: 0.2, flatShading: true, depthWrite: false
+    }));
+    shard.scale.set(0.8, 1.5, 0.8);
+    shard.position.y = 0.25;
+    const iris = new THREE.Mesh(new THREE.SphereGeometry(0.035, 16, 12), emissive(C.pink, 1.4));
+    iris.position.y = 0.25;
+    const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.015, 10, 8), new THREE.MeshBasicMaterial({ color: 0x000000 }));
+    pupil.position.set(0, 0.25, 0.03);
+    g.add(shard, iris, pupil);
+    base();
+    update = (dt, t) => {
+      shard.rotation.y = t * 0.6;
+      const look = Math.sin(t * 0.8) * 0.02;
+      pupil.position.x = look;
+      shard.position.y = iris.position.y = pupil.position.y = 0.25 + Math.sin(t * 1.3) * 0.015;
+    };
   } else if (id === 'golden-paddle') {
     const gold = new THREE.MeshStandardMaterial({ color: '#ffcf4a', emissive: '#7a5200', emissiveIntensity: 0.6, metalness: 0.7, roughness: 0.25 });
     const plinth = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.06, 0.16), standMat());
@@ -2428,7 +2993,7 @@ function buildPrizeCounter() {
   chromaText(fctx, 'PRIZE COUNTER', 512, 50, 3, C.text, C.purple);
   fctx.font = '20px "Share Tech Mono", monospace';
   fctx.fillStyle = C.amber;
-  fctx.fillText('◎ WIN A MATCH = 10 COINS   ◎   TRADE COINS FOR COLLECTABLES   ◎', 512, 98);
+  fctx.fillText('◎ GLITCH PONG WIN = 10   ◎   BREAKPOINT SECTOR = 2 · BOSS = 10   ◎', 512, 98);
   scanlines(fctx, 1024, 128, 0.14, 4);
   const banner = new THREE.Mesh(new THREE.PlaneGeometry(cw - 0.3, 0.72), new THREE.MeshBasicMaterial({ map: canvasTexture(fcv), color: 0xcccccc, toneMapped: false }));
   banner.position.set(0, 0.55, COUNTER.front + 0.004);
@@ -2459,7 +3024,7 @@ function buildPrizeCounter() {
   // ── prize shelves against the back wall ──
   const shelfZ = back + 0.32;
   const rows = [1.18, 1.98];
-  const columns = [-3.15, -1.7, 1.7, 3.15];
+  const columns = [-3.33, -2.43, -1.53, 1.53, 2.43, 3.33];
   [-1, 1].forEach((s) => {
     const cx = s * 2.43;
     const unit = new THREE.Group();
@@ -2487,19 +3052,19 @@ function buildPrizeCounter() {
   });
 
   PRIZES.forEach((prize, i) => {
-    const row = i < 4 ? 0 : 1;
-    const x = columns[i % 4];
+    const row = i < PRIZES_PER_ROW ? 0 : 1;
+    const x = columns[i % PRIZES_PER_ROW];
     const y = rows[row];
     const model = makePrizeModel(prize.id);
     model.group.position.set(x, y, shelfZ + 0.02);
-    model.group.scale.setScalar(1.25);
+    model.group.scale.setScalar(1.1);
     scene.add(model.group);
     const tcv = makeCanvas(256, 96);
     const tag = { ctx: tcv.getContext('2d'), tex: canvasTexture(tcv) };
-    const tagMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.62, 0.23), new THREE.MeshBasicMaterial({ map: tag.tex, toneMapped: false }));
+    const tagMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.56, 0.21), new THREE.MeshBasicMaterial({ map: tag.tex, toneMapped: false }));
     tagMesh.position.set(x, y - 0.16, shelfZ + 0.275);
     scene.add(tagMesh);
-    prizeSlots.push({ kind: 'prize', prize, model, tag, center: new THREE.Vector3(x, y + 0.28, shelfZ), radius: 0.36 });
+    prizeSlots.push({ kind: 'prize', prize, model, tag, center: new THREE.Vector3(x, y + 0.26, shelfZ), radius: 0.32 });
   });
 
   robot = buildRobot();
@@ -2564,11 +3129,11 @@ function buildCollectionCase() {
   plate.position.set(0, 2.35, 0.1);
   group.add(plate);
 
-  const xs = [-0.99, -0.33, 0.33, 0.99];
+  const xs = [-1.1, -0.66, -0.22, 0.22, 0.66, 1.1];
   PRIZES.forEach((prize, i) => {
     const anchor = new THREE.Group();
     anchor.userData.noBake = true;
-    anchor.position.set(xs[i % 4], i < 4 ? 0.92 : 1.49, 0.05);
+    anchor.position.set(xs[i % PRIZES_PER_ROW], i < PRIZES_PER_ROW ? 0.92 : 1.49, 0.05);
     group.add(anchor);
     const placeholder = new THREE.LineSegments(
       new THREE.EdgesGeometry(new THREE.BoxGeometry(0.16, 0.16, 0.16)),
@@ -2601,6 +3166,7 @@ function buildCollectionCase() {
 // Sync shelves, case, counter screen and HUD with the wallet.
 function refreshPrizes() {
   const w = Wallet.get();
+  refreshMenuStats(w);
   const firstSync = !refreshPrizes.ran;
   refreshPrizes.ran = true;
   prizeSlots.forEach((s) => {
@@ -2931,12 +3497,15 @@ function updateFocus() {
   } else if (focused.kind === 'jukebox') {
     promptEl.className = 'show';
     promptEl.innerHTML = `<span class="key">${key}</span>NEXT TRACK<small>JUKEBOX // ${audio.trackTitle}</small>`;
+  } else if (focused.id === 'breakpoint') {
+    promptEl.className = 'show';
+    promptEl.innerHTML = `<span class="key">${key}</span>PLAY BREAKPOINT<small>CABINET 02 // ONLINE</small>`;
   } else if (focused.playable) {
     promptEl.className = 'show';
     promptEl.innerHTML = `<span class="key">${key}</span>PLAY GLITCH PONG<small>CABINET 01 // ONLINE</small>`;
   } else {
     promptEl.className = 'show soon';
-    promptEl.innerHTML = `<span class="key">${key}</span>COMING SOON<small>CABINET ${String(focused.slot).padStart(2, '0')} // STILL COMPILING</small>`;
+    promptEl.innerHTML = `<span class="key">${key}</span>${focused.title}<small>CABINET ${String(focused.slot).padStart(2, '0')} // COMING SOON</small>`;
   }
 }
 
@@ -2964,7 +3533,7 @@ function interact() {
     const goal = nextGoal(w);
     robotSay(w.prizes.length
       ? `YOUR CASE HOLDS ${w.prizes.length} OF ${PRIZES.length} PRIZES.${goal ? ` NEXT UP: THE ${goal.name} FOR ${goal.cost} COINS.` : ''}`
-      : 'YOUR COLLECTION CASE IS EMPTY. WIN A MATCH OF GLITCH PONG AND COME SEE ME.');
+      : 'YOUR COLLECTION CASE IS EMPTY. WIN AT GLITCH PONG OR BREAKPOINT AND COME SEE ME.');
     return;
   }
   if (focused.kind === 'jukebox') {
@@ -2973,13 +3542,17 @@ function interact() {
     focused = null;            // refresh the prompt with the new title
     return;
   }
+  if (focused.id === 'breakpoint') {
+    launchBreakPoint(focused);
+    return;
+  }
   if (focused.playable) {
     launchGlitchPong(focused);
     return;
   }
   const cab = focused;
   audio.comingSoon(cab.screenCenter);
-  toast(`CABINET ${String(cab.slot).padStart(2, '0')} IS COMING SOON — this machine is still compiling.`);
+  toast(`${cab.title} (CABINET ${String(cab.slot).padStart(2, '0')}) IS COMING SOON — this machine is still compiling.`);
   // the screen freaks out for a moment
   const original = cab.screenMaterial.color.clone();
   let n = 0;
@@ -3013,10 +3586,79 @@ function worldGlitch(small = false) {
   neonSigns.forEach((sg) => sg.draw(true));
   if (infoBoard) infoBoard.draw(true);
   if (pongScreen) pongScreen.burst();
+  if (bpScreen) bpScreen.burst();
   setTimeout(() => {
     neonSigns.forEach((sg) => sg.draw(false));
     if (infoBoard) infoBoard.draw(false);
   }, 260);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TITLE MENU FOOTAGE — security-cam shots touring the arcade behind the menu
+// ═══════════════════════════════════════════════════════════════════════════
+// Each shot dollies the camera from `from` to `to` while it looks from `look`
+// toward `lookTo`, then hard-cuts (with a glitch) to the next. Shots aimed at
+// a cabinet are worked out from where that cabinet stands.
+const V = (x, y, z) => new THREE.Vector3(x, y, z);
+let tourShots = [];
+const tour = { i: 0, t: 0, tc: 0, labelled: -1 };
+
+function cabinetShot(cam, label, cab, side) {
+  const right = V(0, 1, 0).cross(cab.forward).normalize().multiplyScalar(side);
+  const at = cab.screenCenter.clone();
+  return {
+    cam, label,
+    from: at.clone().addScaledVector(cab.forward, 2.7).addScaledVector(right, 1.4).setY(at.y + 0.5),
+    to: at.clone().addScaledVector(cab.forward, 1.5).addScaledVector(right, -0.3).setY(at.y + 0.1),
+    look: at.clone().setY(at.y - 0.05),
+    lookTo: at.clone()
+  };
+}
+
+function buildTour() {
+  const bp = cabinets.find((c) => c.id === 'breakpoint');
+  const gp = cabinets.find((c) => c.id === 'glitch-pong');
+  tourShots = [
+    { cam: 'CAM 01', label: 'STREET // FRONT ENTRANCE', from: V(1.6, 1.8, 14), to: V(0.2, 1.7, 6.5), look: V(0, 4.2, 0), lookTo: V(0, 2.6, -4) },
+    { cam: 'CAM 02', label: 'MAIN FLOOR', from: V(0, 2.5, -1.2), to: V(0, 2.1, -9.5), look: V(0, 1.6, -20), lookTo: V(0, 1.7, -28) },
+    cabinetShot('CAM 03', 'CABINET 02 // BREAKPOINT', bp, 1),
+    { cam: 'CAM 04', label: 'GLITCHVISION // CEILING FEEDS', from: V(1.9, 2.3, -11.4), to: V(-1.5, 2.6, -12.3), look: V(0, TV_Y - 0.1, -15), lookTo: V(0, TV_Y - 0.1, -15) },
+    cabinetShot('CAM 05', 'CABINET 01 // GLITCH PONG', gp, -1),
+    { cam: 'CAM 06', label: 'PRIZE COUNTER // PRIZETRON-80', from: V(2.8, 1.8, -24.2), to: V(-2.4, 1.7, -25.6), look: V(0, 1.7, -30.4), lookTo: V(0, 1.6, -30.4) },
+    { cam: 'CAM 07', label: 'CABINETS 03–10 // COMPILING', from: V(5.6, 2.0, -2.5), to: V(5.8, 1.7, -14), look: V(9.4, 1.3, -6), lookTo: V(9.4, 1.3, -17) }
+  ];
+}
+
+const tourLook = new THREE.Vector3();
+function updateTour(dt) {
+  if (!tourShots.length) return;
+  const dur = reducedMotion ? 9 : 6.5;
+  tour.t += dt;
+  tour.tc += dt;
+  if (tour.t >= dur) {
+    tour.t = 0;
+    tour.i = (tour.i + 1) % tourShots.length;
+    if (!reducedMotion) {   // a glitch cut, picture only (the arcade's sound may not be unlocked yet)
+      root.classList.remove('gc-glitch');
+      void root.offsetWidth;
+      root.classList.add('gc-glitch');
+      setTimeout(() => root.classList.remove('gc-glitch'), 340);
+    }
+  }
+  const shot = tourShots[tour.i];
+  const k = tour.t / dur;
+  const e = k * k * (3 - 2 * k);                      // ease in and out of each move
+  camera.position.lerpVectors(shot.from, shot.to, reducedMotion ? k * 0.5 : e);
+  tourLook.lerpVectors(shot.look, shot.lookTo, e);
+  camera.lookAt(tourLook);
+  if (tour.labelled !== tour.i) {
+    tour.labelled = tour.i;
+    $('gcCamId').textContent = shot.cam;
+    $('gcCamLabel').textContent = shot.label;
+  }
+  const f = Math.floor(tour.tc * 30);
+  const pad = (n) => String(n).padStart(2, '0');
+  $('gcTimecode').textContent = `${pad(Math.floor(f / 108000))}:${pad(Math.floor(f / 1800) % 60)}:${pad(Math.floor(f / 30) % 60)}:${pad(f % 30)}`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3037,6 +3679,15 @@ function launchGlitchPong(cab) {
   }
   // Unlock audio while we still hold the user gesture.
   window.GlitchPong.unlockAudio();
+  beginLaunch(cab);
+}
+
+function launchBreakPoint(cab) {
+  beginLaunch(cab);
+}
+
+// Fly the camera into the cabinet's screen; updateLaunch starts the game on arrival.
+function beginLaunch(cab) {
   gameState = 'launching';
   focused = null;
   promptEl.classList.remove('show');
@@ -3074,14 +3725,30 @@ function updateLaunch(dt) {
   if (arms) {
     arms.left.visible = arms.right.visible = k < 0.6;
   }
+  const isBreakPoint = launch.cab.id === 'breakpoint';
   if (k >= 1 && !launch.started) {
     launch.started = true;
-    pongScreen.burst();
-    const ok = window.GlitchPong.launch({ onExit: onGameExit });
-    if (!ok) { onGameExit(); return; }
+    if (isBreakPoint) {
+      bpScreen.burst();
+      openBreakPoint();
+    } else {
+      pongScreen.burst();
+      const ok = window.GlitchPong.launch({ onExit: onGameExit });
+      if (!ok) { onGameExit(); return; }
+    }
   }
-  // the game's own glitch transition runs ~1s, then its overlay appears
-  if (launch.started && document.getElementById('__glitchcade_overlay')) {
+  if (!launch.started) return;
+  if (isBreakPoint) {
+    // Break Point's page has loaded in its frame
+    if (bpFrame && bpFrame.dataset.ready) {
+      gameState = 'playing';
+      root.classList.add('gc-hidden');
+      document.body.classList.remove('gc-launching');
+      document.body.classList.add('bp-playing');
+      try { bpFrame.contentWindow.focus(); } catch (e) {}
+    }
+  } else if (document.getElementById('__glitchcade_overlay')) {
+    // Glitch Pong's own glitch transition runs ~1s, then its overlay appears
     gameState = 'playing';
     root.classList.add('gc-hidden');
     document.body.classList.remove('gc-launching');
@@ -3089,12 +3756,55 @@ function updateLaunch(dt) {
   }
 }
 
+// ── Break Point runs as its own page in a full-screen frame over the arcade ──
+// It's served from ./breakpoint/ (same origin, so it shares the coin wallet) and
+// posts {type: 'glitchcade:exit'} when the player picks EXIT TO ARCADE.
+const BREAKPOINT_URL = 'breakpoint/index.html?cabinet';
+let bpFrame = null;
+
+function openBreakPoint() {
+  closeBreakPoint();
+  bpFrame = document.createElement('iframe');
+  bpFrame.id = 'gcBreakPoint';
+  bpFrame.title = 'Breakpoint';
+  bpFrame.allow = 'autoplay; fullscreen';
+  bpFrame.addEventListener('load', () => {
+    // A missing build loads an error page instead of the game: back out rather
+    // than strand the player in a frame with no way to exit.
+    let ok = false;
+    try { ok = !!bpFrame.contentDocument.getElementById('game'); } catch (e) {}
+    if (!ok) {
+      closeBreakPoint();
+      onGameExit();
+      toast('BREAKPOINT FAILED TO LOAD — try refreshing.');
+      return;
+    }
+    bpFrame.dataset.ready = '1';
+  });
+  bpFrame.src = BREAKPOINT_URL;
+  document.body.appendChild(bpFrame);
+}
+
+function closeBreakPoint() {
+  if (!bpFrame) return;
+  bpFrame.remove();
+  bpFrame = null;
+}
+
+window.addEventListener('message', (e) => {
+  if (!bpFrame || e.source !== bpFrame.contentWindow || e.origin !== location.origin) return;
+  if (!e.data || e.data.type !== 'glitchcade:exit') return;
+  if (gameState !== 'playing' && gameState !== 'launching') return;
+  closeBreakPoint();
+  onGameExit();
+});
+
 function onGameExit() {
-  const cab = launch ? launch.cab : cabinets.find((c) => c.playable);
+  const cab = launch ? launch.cab : cabinets.find((c) => c.id === 'glitch-pong');
   const wallet = Wallet.get();
   const gained = launch ? wallet.coins - launch.coinsBefore : 0;
   launch = null;
-  document.body.classList.remove('gp-playing', 'gc-launching');
+  document.body.classList.remove('gp-playing', 'bp-playing', 'gc-launching');
   root.classList.remove('gc-hidden');
   if (arms) arms.left.visible = arms.right.visible = true;
   resetInput();
@@ -3120,7 +3830,9 @@ function onGameExit() {
     pulseCoinHud();
     toast(`+${gained} COINS! YOU HAVE ${wallet.coins}. REDEEM THEM AT THE PRIZE COUNTER.`);
     if (robot) {
-      robot.pending = `VICTORY DETECTED. +${gained} COINS. YOU NOW HAVE ${wallet.coins}. COME SEE WHAT THEY BUY.`;
+      robot.pending = cab.id === 'breakpoint'
+        ? `SECTORS PURGED. +${gained} COINS. YOU NOW HAVE ${wallet.coins}. COME SEE WHAT THEY BUY.`
+        : `VICTORY DETECTED. +${gained} COINS. YOU NOW HAVE ${wallet.coins}. COME SEE WHAT THEY BUY.`;
       robot.inZone = false;
     }
   }
@@ -3129,7 +3841,8 @@ function onGameExit() {
     gameState = 'explore';
     setExploring(true);
   } else {
-    showPauseCard('Welcome back', 'GLITCHCADE', 'Glitch Pong is waiting whenever you are. Click to keep exploring.', 'Keep exploring');
+    const name = cab.id === 'breakpoint' ? 'Breakpoint' : 'Glitch Pong';
+    showPauseCard('Welcome back', 'GLITCHCADE', `${name} is waiting whenever you are.`, 'Continue');
     gameState = 'paused';
     setExploring(false);
   }
@@ -3167,7 +3880,9 @@ muteBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleMute(); })
 // Browsers only allow sound after a gesture; any click, tap or key wakes the arcade up.
 let audioWorld = null;
 function unlockAudio() {
-  if (gameState !== 'playing' && audioWorld) audio.unlock(audioWorld);
+  if (gameState !== 'playing') {
+    audio.unlock(audioWorld, audioWorld ? { position: camera.position, inside: insideFactor() } : null);
+  }
 }
 window.addEventListener('pointerdown', unlockAudio, true);
 window.addEventListener('keydown', unlockAudio, true);
@@ -3270,6 +3985,35 @@ function showPauseCard(eyebrow, title, sub, button) {
   enterBtn.textContent = button;
 }
 
+// ── Title menu (intro only): ENTER does what the pause screen's button does ──
+const menuEnter = $('gcMenuEnter');
+function showMenuScreen(id) {
+  document.querySelectorAll('.gm-screen').forEach((el) => el.classList.toggle('on', el.id === id));
+  const first = $(id).querySelector('button:not(:disabled)');
+  if (first) first.focus({ preventScroll: true });
+}
+function refreshMenuStats(w = Wallet.get()) {
+  $('gmCoins').textContent = w.coins;
+  $('gmPrizes').textContent = `${w.prizes.length}/${PRIZES.length}`;
+}
+menuEnter.addEventListener('click', () => enterBtn.click());
+// Straight into a game from the menu: the footage camera flies into that cabinet
+function launchFromMenu(id) {
+  if (gameState !== 'intro') return;
+  const cab = cabinets.find((c) => c.id === id);
+  if (!cab) return;
+  audio.unlock(audioWorld);
+  if (id === 'breakpoint') launchBreakPoint(cab);
+  else launchGlitchPong(cab);
+}
+$('gcMenuGP').addEventListener('click', () => launchFromMenu('glitch-pong'));
+$('gcMenuBP').addEventListener('click', () => launchFromMenu('breakpoint'));
+$('gcMenuControls').addEventListener('click', () => showMenuScreen('gcMenuHelp'));
+$('gcMenuBack').addEventListener('click', () => showMenuScreen('gcMenu'));
+window.addEventListener('keydown', (e) => {
+  if (gameState === 'intro' && e.code === 'Escape' && $('gcMenuHelp').classList.contains('on')) showMenuScreen('gcMenu');
+});
+
 enterBtn.addEventListener('click', () => {
   if (gameState !== 'intro' && gameState !== 'paused') return;
   if (isTouch) {
@@ -3368,9 +4112,12 @@ let lastFrame = performance.now();
 let elapsed = 0;
 let screenTimer = 0;
 let soonTimer = 0;
+let tvTimer = 0;
+let menuMode = null;
 
 const listenerDir = new THREE.Vector3();
 const gpScreenPos = new THREE.Vector3();
+const bpScreenPos = new THREE.Vector3();
 let audioMode = null;
 
 // 0 outside → 1 inside, blended across the doorway
@@ -3423,11 +4170,11 @@ function frame(now) {
 
   if (gameState === 'explore') updatePlayer(dt);
   else if (gameState === 'launching') updateLaunch(dt);
-  else if (gameState === 'intro') {
-    // slow drift on the title screen
-    player.yaw = Math.sin(elapsed * 0.15) * 0.25;
-    camera.position.set(player.pos.x, EYE_HEIGHT + 0.3, player.pos.z + 1.5);
-    camera.rotation.set(0.04, player.yaw, 0);
+  else if (gameState === 'intro') updateTour(dt);   // footage behind the title menu
+  if (gameState !== menuMode) {
+    menuMode = gameState;
+    document.body.classList.toggle('gc-intro', gameState === 'intro');
+    if (arms) arms.left.visible = arms.right.visible = gameState !== 'intro';   // no hands in the footage
   }
   updateFocus();
 
@@ -3438,12 +4185,23 @@ function frame(now) {
   screenTimer += dt;
   if (screenTimer > 1 / 24) {
     if (inside && camera.position.distanceToSquared(gpScreenPos) < 18 * 18) pongScreen.draw(screenTimer);
+    if (inside && camera.position.distanceToSquared(bpScreenPos) < 14 * 14) bpScreen.draw(screenTimer);
     screenTimer = 0;
   }
   soonTimer += dt;
   if (soonTimer > 1 / 12) {
     if (inside) soonScreen.draw(soonTimer);
     soonTimer = 0;
+  }
+  // ceiling TVs: four shared feeds at ~15 fps, snow only while a set is changing channel
+  tvTimer += dt;
+  if (tvTimer > 1 / 15) {
+    const snowing = updateTvs(tvTimer);
+    if (inside) {
+      tvFeeds.forEach((f) => f.draw(tvTimer));
+      if (snowing) tvStatic.draw();
+    }
+    tvTimer = 0;
   }
 
   audio.update(dt, camera, listenerDir, insideFactor());
@@ -3473,10 +4231,10 @@ function frame(now) {
 }
 
 function showFatal(msg) {
-  const el = $('gcError');
-  el.textContent = msg;
-  el.style.display = 'block';
   enterBtn.style.display = 'none';
+  $('gcMenuEnter').style.display = 'none';   // can run before menuEnter is declared (WebGL check)
+  $('gcMenuError').textContent = msg;
+  $('gcMenuError').style.display = 'block';
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3486,26 +4244,48 @@ function showFatal(msg) {
   await loadAssets();
   buildEnvironment();
   buildCabinets();
+  buildTvs();
   buildJukebox();
   buildPrizeCounter();
   buildArms();
-  gpScreenPos.copy(cabinets.find((c) => c.playable).screenCenter);
+  buildTour();
+  gpScreenPos.copy(cabinets.find((c) => c.id === 'glitch-pong').screenCenter);
+  bpScreenPos.copy(cabinets.find((c) => c.id === 'breakpoint').screenCenter);
   const batched = bakeScene();
   window.addEventListener('glitchcade:wallet', () => refreshPrizes());
+  // Achievements unlocked out here (e.g. at the prize counter) get the arcade toast;
+  // inside Glitch Pong the game shows its own pop-up.
+  let achievementNames = [];
+  window.addEventListener('glitchpong:achievement', (e) => {
+    if (gameState === 'playing' || gameState === 'launching') return;
+    const name = e.detail && e.detail.name;
+    if (!name) return;
+    achievementNames.push(name);
+    if (achievementNames.length > 1) return; // already scheduled; it will include this one
+    setTimeout(() => {
+      toast('🏆 ACHIEVEMENT UNLOCKED: ' + achievementNames.join(' + '));
+      achievementNames = [];
+    }, 2500);
+  });
   window.addEventListener('storage', (e) => { if (e.key === 'glitchcade_wallet_v1') refreshPrizes(); });
   audioWorld = {
     signPos: new THREE.Vector3(0, ROOM_H + 1.85, 0.6),
     doorPos: new THREE.Vector3(0, 1.6, WALL_T / 2),
     soonCabinets: cabinets.filter((c) => !c.playable),
-    gpScreen: cabinets.find((c) => c.playable).screenCenter,
+    gpScreen: cabinets.find((c) => c.id === 'glitch-pong').screenCenter,
     jukeboxPos: jukebox.screenCenter,
     robotPos: ROBOT_POS.clone().setY(1.7)
   };
+  // An early menu click may already be playing music while the art loaded.
+  // Attach its positional emitters without requiring another click or reload.
+  if (audio.ready) audio.unlock(audioWorld);
   resize();
   requestAnimationFrame((t) => { lastFrame = t; frame(t); });
   enterBtn.disabled = false;
-  enterBtn.textContent = isTouch ? 'Tap to enter' : 'Enter the Glitchcade';
-  enterBtn.focus({ preventScroll: true });
+  menuEnter.disabled = false;
+  menuEnter.textContent = 'Enter';
+  $('gcMenuGP').disabled = $('gcMenuBP').disabled = false;
+  menuEnter.focus({ preventScroll: true });
 
   // Hooks for automated testing / debugging from the console.
   window.__glitchcade = {
@@ -3543,6 +4323,7 @@ function showFatal(msg) {
       perf.frames = 0; perf.cpu = 0;
       return out;
     },
-    robot: () => robot
+    robot: () => robot,
+    seekTour(i, t = 2) { tour.i = i % tourShots.length; tour.t = t; }
   };
 })();

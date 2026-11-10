@@ -12,7 +12,7 @@
 <link rel="icon" type="image/png" sizes="128x128" href="icons/icon128.png">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" sizes="128x128" href="icons/apple-touch-icon.png">
-<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;800;900&family=Share+Tech+Mono&family=VT323&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;800;900&family=Press+Start+2P&family=Share+Tech+Mono&family=VT323&display=swap" rel="stylesheet">
 <style>
 :root {
   --void:   #03040a;
@@ -305,100 +305,7 @@ body.gc-touch #gcHints { display: none; }
   background: radial-gradient(ellipse at center, rgba(20,6,40,.55), rgba(3,4,10,.92) 70%);
   transition: opacity .3s;
 }
-body.gc-exploring #gcStart { opacity: 0; pointer-events: none; }
-.gc-card {
-  width: min(620px, 100%);
-  max-height: 100%;
-  overflow: auto;
-  padding: 34px 34px 28px;
-  background: rgba(6,8,22,.86);
-  border: 1px solid var(--line);
-  box-shadow: 0 0 60px rgba(154,93,255,.25), inset 0 0 40px rgba(113,239,255,.05);
-  text-align: center;
-}
-.gc-eyebrow {
-  font: 12px 'Share Tech Mono', monospace;
-  letter-spacing: .3em;
-  color: var(--pink);
-  text-transform: uppercase;
-}
-.gc-title {
-  position: relative;
-  margin: 10px 0 6px;
-  font: 900 clamp(34px, 8vw, 64px)/1 'Orbitron', monospace;
-  letter-spacing: .08em;
-  color: var(--text);
-  text-shadow: -3px 0 var(--pink), 3px 0 var(--cyan), 0 0 26px rgba(154,93,255,.6);
-  animation: gcTitleGlitch 3.2s infinite steps(1, end);
-}
-@keyframes gcTitleGlitch {
-  0%, 86%, 100% { transform: none; text-shadow: -3px 0 var(--pink), 3px 0 var(--cyan), 0 0 26px rgba(154,93,255,.6); }
-  88% { transform: translateX(-4px) skewX(-8deg); text-shadow: -7px 0 var(--pink), 6px 0 var(--cyan); }
-  90% { transform: translateX(5px); clip-path: inset(30% 0 35% 0); }
-  92% { transform: none; clip-path: none; text-shadow: 5px 0 var(--pink), -5px 0 var(--cyan); }
-}
-.gc-sub {
-  font: 14px 'Share Tech Mono', monospace;
-  color: var(--muted);
-  letter-spacing: .08em;
-  margin-bottom: 22px;
-}
-.gc-status {
-  display: flex; justify-content: center; gap: 10px; flex-wrap: wrap;
-  margin-bottom: 22px;
-}
-.gc-chip {
-  padding: 6px 12px;
-  border: 1px solid var(--line);
-  font: 12px 'Share Tech Mono', monospace;
-  letter-spacing: .12em;
-  color: var(--cyan);
-}
-.gc-chip.warn { color: var(--amber); border-color: rgba(255,210,122,.35); }
-.gc-chip.coin { color: var(--pink); border-color: rgba(255,88,217,.4); }
-.gc-controls {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px 18px;
-  margin: 0 auto 26px;
-  max-width: 440px;
-  text-align: left;
-  font: 13px 'Share Tech Mono', monospace;
-  color: var(--muted);
-}
-.gc-controls b { color: var(--text); font-weight: normal; }
-body.gc-touch .gc-controls.desk, .gc-controls.touch { display: none; }
-body.gc-touch .gc-controls.touch { display: grid; }
-#gcEnter {
-  font: 900 15px 'Orbitron', monospace;
-  letter-spacing: .2em;
-  text-transform: uppercase;
-  color: var(--void);
-  background: var(--cyan);
-  border: none;
-  padding: 16px 34px;
-  min-height: 48px;
-  clip-path: polygon(12px 0%, 100% 0%, calc(100% - 12px) 100%, 0% 100%);
-  box-shadow: 0 0 32px rgba(113,239,255,.45);
-  cursor: pointer;
-}
-#gcEnter:hover, #gcEnter:focus-visible { background: var(--pink); outline: none; }
-#gcEnter:disabled { opacity: .5; cursor: wait; }
-.gc-back {
-  display: inline-block;
-  margin-top: 18px;
-  font: 12px 'Share Tech Mono', monospace;
-  letter-spacing: .14em;
-  color: var(--muted);
-  text-decoration: none;
-}
-.gc-back:hover { color: var(--cyan); }
-#gcError {
-  display: none;
-  margin-top: 16px;
-  font: 13px 'Share Tech Mono', monospace;
-  color: var(--pink);
-}
+body.gc-exploring #gcStart, body.gc-launching #gcStart { opacity: 0; pointer-events: none; }
 
 /* Glitch Pong itself needs landscape; mirror the site's rotate prompt while it runs. */
 #gpRotatePrompt {
@@ -415,19 +322,171 @@ body.gc-touch .gc-controls.touch { display: grid; }
   body.gp-playing #gpRotatePrompt { display: flex; }
 }
 
+/* Breakpoint (cabinet 02) runs in a full-screen frame over the arcade */
+#gcBreakPoint {
+  position: fixed; inset: 0;
+  width: 100%; height: 100%;
+  border: 0;
+  background: var(--void);
+  z-index: 2147483000;
+  opacity: 0;
+  transition: opacity .25s ease;
+}
+body.bp-playing #gcBreakPoint { opacity: 1; }
+
+/* ── Title menu: GLITCHCADE over live footage of the arcade (intro only; the
+   pause screen keeps the centred card) ── */
+#gcFootage { display: none; }
+body.gc-intro #gcFootage {
+  display: block;
+  position: absolute; inset: 0;
+  pointer-events: none;
+  font: 13px 'Share Tech Mono', monospace;
+  letter-spacing: .18em;
+  color: rgba(238,247,255,.85);
+  text-shadow: 0 0 6px rgba(0,0,0,.8);
+  background: repeating-linear-gradient(0deg, rgba(0,0,0,.18) 0 1px, transparent 1px 3px);
+}
+body.gc-intro #gcFootage::after {
+  content: ''; position: absolute; inset: 0;
+  background: radial-gradient(ellipse at 60% 50%, transparent 55%, rgba(0,0,0,.55) 100%);
+}
+.gc-rec { position: absolute; top: 26px; right: 92px; display: flex; align-items: center; gap: 8px; color: #ff4d6d; }
+.gc-rec i { width: 11px; height: 11px; border-radius: 50%; background: #ff4d6d; box-shadow: 0 0 10px #ff4d6d; animation: gcRec 1.2s steps(1, end) infinite; }
+@keyframes gcRec { 50% { opacity: 0; } }
+.gc-cam { position: absolute; bottom: 30px; right: 38px; text-align: right; display: grid; gap: 4px; }
+.gc-cam b { font-weight: normal; color: var(--cyan); }
+.gc-tc { position: absolute; top: 26px; right: 190px; color: rgba(238,247,255,.7); }
+.gc-corner { position: absolute; width: 34px; height: 34px; border: 2px solid rgba(238,247,255,.5); }
+.gc-corner.tl { top: 16px; left: 16px; border-right: 0; border-bottom: 0; }
+.gc-corner.bl { bottom: 16px; left: 16px; border-right: 0; border-top: 0; }
+.gc-corner.br { bottom: 16px; right: 16px; border-left: 0; border-top: 0; }
+/* the menu itself — Press Start 2P title, green pixel buttons, as in the games */
+body.gc-intro:not(.gc-fonts) .gm-screen { visibility: hidden; }
+.gm-screen { display: none; }
+/* pause / welcome-back screen: the same pixel pieces, shown whenever we're not on the title menu */
+.gm-pause { display: none; }
+body:not(.gc-intro) #gcStart { background: radial-gradient(ellipse at center, rgba(3,4,10,.86) 0%, rgba(3,4,10,.72) 55%, rgba(3,4,10,.9) 100%); }
+body:not(.gc-intro) .gm-pause { display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; }
+.gm-pause .gm-title { margin-bottom: 4px; }
+.gm-pause .gm-note { max-width: 460px; margin-bottom: 8px; font-size: 14px; color: var(--text); }
+body.gc-intro #gcStart {
+  background: radial-gradient(ellipse at center, rgba(3,4,10,.62) 0%, rgba(3,4,10,.38) 45%, rgba(3,4,10,.12) 80%);
+}
+body.gc-intro .gm-screen.on {
+  position: relative;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 14px;
+  text-align: center;
+}
+.gm-sub {
+  font: 10px 'Press Start 2P', monospace;
+  letter-spacing: 2px;
+  color: var(--amber);
+  opacity: .9;
+  text-transform: uppercase;
+  text-shadow: 0 2px 8px rgba(0,0,0,.9);
+}
+.gm-title {
+  font: clamp(30px, 7vw, 72px)/1 'Press Start 2P', monospace;
+  letter-spacing: 2px;
+  color: #7d5cc0;
+  margin: 4px 0 18px;
+  text-shadow: -4px 0 0 var(--cyan), 4px 0 0 var(--pink), 0 0 30px rgba(154,93,255,.45), 0 2px 14px rgba(0,0,0,.9);
+  animation: gmGlitch 4.5s steps(1) infinite;
+}
+.gm-title-sm { font-size: clamp(22px, 4vw, 34px); margin-bottom: 6px; }
+@keyframes gmGlitch {
+  0%, 88%, 100% { text-shadow: -4px 0 0 var(--cyan), 4px 0 0 var(--pink), 0 0 30px rgba(154,93,255,.45), 0 2px 14px rgba(0,0,0,.9); transform: translate(0); }
+  89% { text-shadow: -7px 0 0 var(--cyan), 7px 0 0 var(--pink), 0 0 40px rgba(154,93,255,.7); transform: translate(3px,-1px); }
+  90% { text-shadow: -2px 0 0 var(--pink), 2px 0 0 var(--cyan); transform: translate(-3px,1px); }
+  91% { text-shadow: -4px 0 0 var(--cyan), 4px 0 0 var(--pink); transform: translate(0); }
+  93% { text-shadow: -9px 0 0 var(--pink), 9px 0 0 var(--cyan), 0 0 46px rgba(154,93,255,.9); transform: translate(-4px,0); }
+  94% { text-shadow: -4px 0 0 var(--cyan), 4px 0 0 var(--pink), 0 0 30px rgba(154,93,255,.45); transform: translate(0); }
+}
+.gm-btn {
+  font: 20px 'Press Start 2P', monospace;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  text-decoration: none;
+  width: 340px; max-width: 78vw;
+  padding: 22px 18px;
+  border: 0; border-radius: 14px;
+  cursor: pointer;
+  color: #6fb0ea;
+  background: linear-gradient(#4d7c63 0%, #40694f 14%, #37604a 100%);
+  box-shadow: inset 0 3px 0 rgba(196,255,222,.28), inset 0 -7px 0 rgba(0,0,0,.32), inset 0 0 0 3px #2c5344, 0 6px 0 #21402f, 0 12px 18px rgba(0,0,0,.55);
+  text-shadow: 0 2px 0 rgba(0,0,0,.5);
+  transition: transform .08s ease, filter .12s ease;
+}
+.gm-btn:hover, .gm-btn:focus-visible { filter: brightness(1.13); transform: translateY(-2px); outline: none; }
+.gm-btn:active { transform: translateY(4px); box-shadow: inset 0 3px 0 rgba(196,255,222,.24), inset 0 -4px 0 rgba(0,0,0,.3), inset 0 0 0 3px #2c5344, 0 2px 0 #21402f, 0 4px 8px rgba(0,0,0,.5); }
+.gm-btn:disabled { filter: grayscale(.6) brightness(.8); cursor: wait; transform: none; }
+.gm-btn.blue { color: #6fb0ea; }
+.gm-btn.red { color: #ec8080; }
+.gm-btn.sm {
+  font-size: 9px; letter-spacing: 1px;
+  width: auto; flex: 1;
+  padding: 12px 6px; border-radius: 9px;
+  box-shadow: inset 0 2px 0 rgba(196,255,222,.24), inset 0 -4px 0 rgba(0,0,0,.3), inset 0 0 0 2px #2c5344, 0 4px 0 #21402f, 0 7px 11px rgba(0,0,0,.5);
+}
+.gm-row { display: flex; gap: 8px; width: 340px; max-width: 78vw; margin-top: 2px; }
+.gm-stats {
+  display: flex; gap: 18px; justify-content: center; flex-wrap: wrap;
+  margin-top: 4px;
+  font: 11px 'Orbitron', monospace;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-shadow: 0 2px 8px rgba(0,0,0,.9);
+}
+.gm-stats b { font: 19px 'VT323', monospace; color: var(--text); letter-spacing: 1px; }
+.gm-error { display: none; font: 13px 'Share Tech Mono', monospace; color: var(--pink); }
+.gm-keys {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 34px;
+  padding: 22px 28px;
+  background: rgba(6,8,22,.78);
+  border: 1px solid var(--line);
+  font: 13px 'Share Tech Mono', monospace;
+  text-align: left;
+}
+.gm-keys div { display: grid; grid-template-columns: 9.5em 1fr; gap: 10px; }
+.gm-keys b { font-weight: normal; color: var(--cyan); }
+.gm-keys span { color: var(--muted); }
+.gm-keys.touch, body.gc-touch .gm-keys.desk { display: none; }
+body.gc-touch .gm-keys.touch { display: grid; }
+.gm-note { font: 12px/1.7 'Share Tech Mono', monospace; color: var(--muted); letter-spacing: .06em; text-shadow: 0 2px 8px rgba(0,0,0,.9); }
+.gm-back { flex: none; width: 160px; }
+
 @media (max-width: 640px) {
-  .gc-card { padding: 24px 18px 20px; }
+  body.gc-intro #gcStart { padding: 24px; background: rgba(3,4,10,.55); }
+  .gm-btn { font-size: 16px; padding: 18px 14px; }
+  .gm-keys { grid-template-columns: 1fr; }
+  .gc-tc, .gc-cam span { display: none; }
   #gcRobotSay { font-size: 12px; bottom: calc(22% + 64px); }
-  .gc-controls { grid-template-columns: 1fr; }
   #gcPrompt { font-size: 12px; padding: 10px 14px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .gc-title { animation: none; }
+  .gm-title { animation: none; }
   #glitchcade.gc-glitch #gcCanvas { animation: none; }
 }
 </style>
 </head>
-<body>
+<!-- gc-intro from the first paint: the arcade starts on its title menu. Without it the
+     old centred card (the pause screen) showed until the 3D scene loaded. -->
+<body class="gc-intro">
+<script>
+// Hold the title menu back until its pixel font is in, so it doesn't flash in a
+// fallback font first. Never waits more than 1.5s.
+(function () {
+  var done = function () { document.body.classList.add('gc-fonts'); };
+  setTimeout(done, 1500);
+  if (document.fonts && document.fonts.load) {
+    Promise.all([document.fonts.load('20px "Press Start 2P"'), document.fonts.load('11px "Orbitron"')]).then(done, done);
+  } else done();
+})();
+</script>
 
 <div id="glitchcade">
   <canvas id="gcCanvas" tabindex="-1" aria-label="The Glitchcade, a 3D arcade you explore in first person"></canvas>
@@ -438,7 +497,7 @@ body.gc-touch .gc-controls.touch { display: grid; }
   </button>
 
   <div id="gcHud">
-    <div class="gc-badge">GLITCHCADE <b>//</b> <span id="gcOnline">1/10</span> ONLINE</div>
+    <div class="gc-badge">GLITCHCADE <b>//</b> <span id="gcOnline">2/10</span> ONLINE</div>
     <div id="gcCoins" aria-live="polite"></div>
     <div id="gcRobotSay" role="status" aria-live="polite"><b>PRIZETRON-80</b><span id="gcRobotText"></span></div>
     <div id="gcCrosshair"></div>
@@ -454,35 +513,58 @@ body.gc-touch .gc-controls.touch { display: grid; }
   </div>
 
   <div id="gcStart">
-    <div class="gc-card">
-      <p class="gc-eyebrow" id="gcEyebrow">Signal acquired</p>
-      <h1 class="gc-title" id="gcTitle">GLITCHCADE</h1>
-      <p class="gc-sub" id="gcSub">The arcade where the machines fight back. Beat Glitch Pong, earn coins, and cash them in at the prize counter.</p>
-      <div class="gc-status">
-        <span class="gc-chip">1 CABINET ONLINE</span>
-        <span class="gc-chip warn">9 COMING SOON</span>
-        <span class="gc-chip coin">WIN = 10 COINS // PRIZE COUNTER OPEN</span>
+    <!-- security-cam overlay for the arcade footage behind the title menu -->
+    <div id="gcFootage" aria-hidden="true">
+      <div class="gc-rec"><i></i>REC</div>
+      <div class="gc-cam"><b id="gcCamId">CAM 01</b><span id="gcCamLabel">STREET // FRONT ENTRANCE</span></div>
+      <div class="gc-tc" id="gcTimecode">00:00:00:00</div>
+      <span class="gc-corner tl"></span><span class="gc-corner bl"></span><span class="gc-corner br"></span>
+    </div>
+
+    <!-- TITLE MENU: same pixel look as Glitch Pong's and Breakpoint's menus -->
+    <div id="gcMenu" class="gm-screen on">
+      <p class="gm-sub">Signal acquired // the machines fight back</p>
+      <h1 class="gm-title">GLITCHCADE</h1>
+      <button id="gcMenuEnter" class="gm-btn blue" type="button" disabled>Loading</button>
+      <button id="gcMenuControls" class="gm-btn red" type="button">Controls</button>
+      <div class="gm-row">
+        <button id="gcMenuGP" class="gm-btn sm" type="button" disabled>Glitch Pong</button>
+        <button id="gcMenuBP" class="gm-btn sm" type="button" disabled>Breakpoint</button>
       </div>
-      <div class="gc-controls desk">
-        <div><b>W A S D</b> — walk</div>
-        <div><b>Mouse</b> — look around</div>
-        <div><b>Shift</b> — run</div>
-        <div><b>Space</b> — jump</div>
-        <div><b>E / Click</b> — use a cabinet</div>
-        <div><b>M</b> — mute sound</div>
-        <div><b>Esc</b> — pause</div>
-        <div><b>Jukebox</b> — skip the music</div>
+      <div class="gm-stats">
+        <span>Cabinets <b>2/10</b></span>
+        <span>◎ Coins <b id="gmCoins">0</b></span>
+        <span>Prizes <b id="gmPrizes">0/12</b></span>
       </div>
-      <div class="gc-controls touch">
-        <div><b>Left stick</b> — walk</div>
-        <div><b>Drag right side</b> — look</div>
-        <div><b>USE</b> — play a cabinet</div>
-        <div><b>JUMP</b> — jump</div>
+      <p id="gcMenuError" class="gm-error"></p>
+    </div>
+    <div id="gcMenuHelp" class="gm-screen">
+      <h2 class="gm-title gm-title-sm">CONTROLS</h2>
+      <div class="gm-keys desk">
+        <div><b>W A S D</b><span>walk</span></div>
+        <div><b>Mouse</b><span>look around</span></div>
+        <div><b>Shift</b><span>run</span></div>
+        <div><b>Space</b><span>jump</span></div>
+        <div><b>E / Click</b><span>use a cabinet</span></div>
+        <div><b>M</b><span>mute sound</span></div>
+        <div><b>Esc</b><span>pause</span></div>
       </div>
-      <button id="gcEnter" type="button" disabled>Loading…</button>
-      <p id="gcError"></p>
-      <br>
-      <a class="gc-back" href="glitch-pong.html">SKIP THE ARCADE — GLITCH PONG SITE →</a>
+      <div class="gm-keys touch">
+        <div><b>Left stick</b><span>walk</span></div>
+        <div><b>Drag right side</b><span>look</span></div>
+        <div><b>USE</b><span>play a cabinet</span></div>
+        <div><b>JUMP</b><span>jump</span></div>
+      </div>
+      <p class="gm-note">Win at Glitch Pong or purge sectors in Breakpoint for coins.<br>Spend them at PRIZETRON-80's prize counter.</p>
+      <button id="gcMenuBack" class="gm-btn sm gm-back" type="button">◀ Back</button>
+    </div>
+
+    <!-- PAUSE / WELCOME BACK: same pixel look as the title menu -->
+    <div id="gcPause" class="gm-pause">
+      <p class="gm-sub" id="gcEyebrow">Paused</p>
+      <h2 class="gm-title" id="gcTitle">GLITCHCADE</h2>
+      <p class="gm-note" id="gcSub">The machines are waiting.</p>
+      <button id="gcEnter" class="gm-btn blue" type="button" disabled>Resume</button>
     </div>
   </div>
 </div>
@@ -520,13 +602,13 @@ body.gc-touch .gc-controls.touch { display: grid; }
 <!-- Served by the local multiplayer server. This 404s harmlessly in static-only mode. -->
 <script src="/socket.io/socket.io.js"></script>
 <script src="glitchpong-cosmetics.js?v=cosmetics-1"></script>
-<script src="glitchpong-site.js?v=glitchcade-6"></script>
-<script type="module" src="glitchcade.js?v=glitchcade-4"></script>
+<script src="glitchpong-site.js?v=glitchcade-9"></script>
+<script type="module" src="glitchcade.js?v=glitchcade-15"></script>
 
 <script>
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
   window.addEventListener('load', function () {
-    navigator.serviceWorker.register('./service-worker.js?v=mobile-menu-16', { updateViaCache: 'none' })
+    navigator.serviceWorker.register('./service-worker.js?v=menu-startup-22', { updateViaCache: 'none' })
       .then(function (registration) { return registration.update(); })
       .catch(function () {});
   }, { once: true });

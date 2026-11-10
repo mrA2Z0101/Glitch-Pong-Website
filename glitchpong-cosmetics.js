@@ -96,6 +96,10 @@ const GlitchCosmetics = (function () {
     return !!item && progressFor(item, data).unlocked;
   }
 
+  // Save keys look like "paddle-scanline" (letters, digits and dashes only, so
+  // they survive the save export/import filter).
+  function key(slot, id) { return `${slot}-${id}`; }
+
   // Records every unlocked item in the progression save and returns the ones
   // that were not recorded before, so the caller can announce them.
   function syncUnlocks(data) {
@@ -104,9 +108,9 @@ const GlitchCosmetics = (function () {
     const fresh = [];
     SLOTS.forEach(slot => {
       CATALOG[slot].forEach(item => {
-        const key = `${slot}:${item.id}`;
-        if (progressFor(item, data).unlocked && !data.cosmeticsUnlocked.includes(key)) {
-          data.cosmeticsUnlocked.push(key);
+        const k = key(slot, item.id);
+        if (progressFor(item, data).unlocked && !data.cosmeticsUnlocked.includes(k)) {
+          data.cosmeticsUnlocked.push(k);
           if (item.unlock.type !== "free") fresh.push({ slot, item });
         }
       });
@@ -130,7 +134,7 @@ const GlitchCosmetics = (function () {
   function load() {
     try {
       const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
-      if (!parsed || typeof parsed !== "object") return;
+      if (!parsed || typeof parsed !== "object") { state = defaultState(); return; }
       const next = defaultState();
       OWNERS.forEach(owner => {
         SLOTS.forEach(slot => {
@@ -140,7 +144,7 @@ const GlitchCosmetics = (function () {
       });
       if (Array.isArray(parsed.seen)) next.seen = parsed.seen.filter(k => typeof k === "string");
       state = next;
-    } catch (e) {}
+    } catch (e) { state = defaultState(); }
   }
 
   function save() {
@@ -167,15 +171,15 @@ const GlitchCosmetics = (function () {
   function isNew(slot, id, data) {
     const item = find(slot, id);
     if (!item || item.unlock.type === "free") return false;
-    return progressFor(item, data).unlocked && !state.seen.includes(`${slot}:${id}`);
+    return progressFor(item, data).unlocked && !state.seen.includes(key(slot, id));
   }
 
   function markSeen(slot, data) {
     let changed = false;
     CATALOG[slot].forEach(item => {
-      const key = `${slot}:${item.id}`;
-      if (progressFor(item, data).unlocked && !state.seen.includes(key)) {
-        state.seen.push(key);
+      const k = key(slot, item.id);
+      if (progressFor(item, data).unlocked && !state.seen.includes(k)) {
+        state.seen.push(k);
         changed = true;
       }
     });

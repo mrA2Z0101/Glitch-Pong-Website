@@ -360,6 +360,342 @@ const GlitchcadeWallet = (function() {
 window.GlitchcadeWallet = GlitchcadeWallet;
 
 
+// ═══════════════════════════════════════════════════════════════════════════
+// GLITCH PONG — ACHIEVEMENTS
+//
+// HOW TO ADD YOUR OWN: add an entry to the ACHIEVEMENTS list below.
+//   id      unique, lowercase. Never rename it after release: saves store it.
+//   name    shown on the unlock pop-up and in the Achievements screen.
+//   desc    how to earn it.
+//   goal    the number the player has to reach.
+//   stat    which number to compare against goal. Any key of the snapshot
+//           built in snapshot() below works, e.g. "wins", "longestRally",
+//           "bossSurvivals", "level", "hardWins", "coinsEarned".
+//   secret  (optional) hides the name and description until it's unlocked.
+//
+// To track something new, add a counter: call GlitchAchievements.count("myCounter")
+// where it happens in the game, then use stat: "myCounter" in an achievement.
+// Achievements only progress in matches that also earn XP (not Custom Match
+// or AI vs AI).
+// ═══════════════════════════════════════════════════════════════════════════
+const GlitchAchievements = (function() {
+  const KEY = "glitchPong_achievements_v1";
+
+  const ACHIEVEMENTS = [
+    { id: "first_win",    name: "BOOT SEQUENCE",    desc: "Win your first match.",                          stat: "wins",            goal: 1 },
+    { id: "streak_3",     name: "HAT TRICK",        desc: "Win 3 matches in a row.",                        stat: "bestWinStreak",   goal: 3 },
+    { id: "streak_7",     name: "UNSTOPPABLE",      desc: "Win 7 matches in a row.",                        stat: "bestWinStreak",   goal: 7 },
+    { id: "matches_25",   name: "REGULAR",          desc: "Play 25 matches.",                               stat: "matchesPlayed",   goal: 25 },
+    { id: "wins_50",      name: "GLITCH LEGEND",    desc: "Win 50 matches.",                                stat: "wins",            goal: 50 },
+    { id: "rally_25",     name: "LONG CONNECTION",  desc: "Keep a rally going for 25 hits.",                stat: "longestRally",    goal: 25 },
+    { id: "rally_50",     name: "MARATHON SIGNAL",  desc: "Keep a rally going for 50 hits.",                stat: "longestRally",    goal: 50 },
+    { id: "shutout",      name: "FLAWLESS",         desc: "Win a match without giving up a point.",         stat: "shutoutWins",     goal: 1 },
+    { id: "comeback",     name: "SYSTEM REBOOT",    desc: "Win a match after trailing by 4 or more.",       stat: "comebackWins",    goal: 1 },
+    { id: "clutch",       name: "ICE IN THE VEINS", desc: "Win a match that went to Clutch Mode.",          stat: "clutchWins",      goal: 1 },
+    { id: "hard_win",     name: "HARD RESET",       desc: "Beat the Hard AI.",                              stat: "hardWins",        goal: 1 },
+    { id: "hard_wins_10", name: "OVERCLOCKED",      desc: "Beat the Hard AI 10 times.",                     stat: "hardWins",        goal: 10 },
+    { id: "world_tour",   name: "WORLD TOUR",       desc: "Win a match in all four arenas.",                stat: "arenasWon",       goal: 4 },
+    { id: "critical",     name: "MELTDOWN",         desc: "Push a rally to Critical Heat (80%+).",          stat: "criticalHeat",    goal: 1 },
+    { id: "boss",         name: "EYE CONTACT",      desc: "Survive the Eye.",                               stat: "bossSurvivals",   goal: 1 },
+    { id: "boss_5",       name: "EYE OF THE STORM", desc: "Survive the Eye 5 times.",                       stat: "bossSurvivals",   goal: 5 },
+    { id: "powerups_25",  name: "POWER USER",       desc: "Collect 25 power-ups.",                          stat: "powerups",        goal: 25 },
+    { id: "dash_100",     name: "AFTERBURNER",      desc: "Dash 100 times.",                                stat: "dashUses",        goal: 100 },
+    { id: "level_10",     name: "SIGNAL SURGE",     desc: "Reach level 10.",                                stat: "level",           goal: 10 },
+    { id: "level_25",     name: "GLITCH MASTER",    desc: "Reach level 25.",                                stat: "level",           goal: 25 },
+    { id: "coins_100",    name: "HIGH SCORE",       desc: "Earn 100 Glitchcade coins.",                     stat: "coinsEarned",     goal: 100 },
+    { id: "prizes_3",     name: "COLLECTOR",        desc: "Redeem 3 prizes at the Glitchcade prize counter.", stat: "prizes",        goal: 3 },
+    // 8 = every prize currently on the counter (see PRIZES in glitchcade.js).
+    { id: "prizes_all",   name: "SOLD OUT",         desc: "Redeem every prize at the Glitchcade prize counter.", stat: "prizes",     goal: 8, secret: true }
+  ];
+
+  const ID_RE = /^[a-z0-9_-]{1,40}$/i;
+  let store = read();
+  const listeners = [];
+
+  function read() {
+    try {
+      const d = JSON.parse(localStorage.getItem(KEY) || "null");
+      return sanitize(d);
+    } catch (e) {
+      return { unlocked: {}, counters: {} };
+    }
+  }
+
+  // Keeps only well-formed entries: ids → unlock timestamps, counters → whole numbers.
+  function sanitize(d) {
+    const out = { unlocked: {}, counters: {} };
+    if (!d || typeof d !== "object") return out;
+    if (d.unlocked && typeof d.unlocked === "object") {
+      Object.keys(d.unlocked).slice(0, 500).forEach((id) => {
+        const t = Number(d.unlocked[id]);
+        if (ID_RE.test(id) && Number.isFinite(t) && t >= 0) out.unlocked[id] = Math.floor(t);
+      });
+    }
+    if (d.counters && typeof d.counters === "object") {
+      Object.keys(d.counters).slice(0, 200).forEach((k) => {
+        const n = Number(d.counters[k]);
+        if (ID_RE.test(k) && Number.isFinite(n) && n >= 0) out.counters[k] = Math.min(1e9, Math.floor(n));
+      });
+    }
+    return out;
+  }
+
+  function write() {
+    try { localStorage.setItem(KEY, JSON.stringify(store)); } catch (e) {}
+  }
+
+  // Everything an achievement can measure.
+  function snapshot() {
+    const p = GlitchProgression.data || {};
+    const w = GlitchcadeWallet.get();
+    const arenas = p.arenaStats || {};
+    return Object.assign({}, store.counters, {
+      wins: p.wins || 0,
+      matchesPlayed: p.matchesPlayed || 0,
+      bestWinStreak: p.bestWinStreak || 0,
+      longestRally: p.longestRally || 0,
+      clutchWins: p.clutchWins || 0,
+      bossSurvivals: p.bossSurvivals || 0,
+      dashUses: p.dashUses || 0,
+      level: p.level || 1,
+      arenasWon: Object.keys(arenas).filter((id) => arenas[id] && arenas[id].wins > 0).length,
+      coinsEarned: w.earned || 0,
+      prizes: (w.prizes || []).length
+    });
+  }
+
+  // Unlocks anything that has reached its goal; returns the newly unlocked ones.
+  function check() {
+    const s = snapshot();
+    const fresh = [];
+    for (const a of ACHIEVEMENTS) {
+      if (store.unlocked[a.id]) continue;
+      if ((Number(s[a.stat]) || 0) >= a.goal) {
+        store.unlocked[a.id] = Date.now();
+        fresh.push(a);
+      }
+    }
+    if (fresh.length) {
+      write();
+      fresh.forEach((a) => {
+        listeners.forEach((fn) => { try { fn(a); } catch (e) {} });
+        try { window.dispatchEvent(new CustomEvent("glitchpong:achievement", { detail: { id: a.id, name: a.name, desc: a.desc } })); } catch (e) {}
+      });
+    }
+    return fresh;
+  }
+
+  function count(counter, by = 1) {
+    if (!ID_RE.test(counter)) return;
+    store.counters[counter] = (store.counters[counter] || 0) + by;
+    write();
+    check();
+  }
+
+  function list() {
+    const s = snapshot();
+    return ACHIEVEMENTS.map((a) => ({
+      id: a.id, name: a.name, desc: a.desc, goal: a.goal, secret: !!a.secret,
+      progress: Math.min(a.goal, Number(s[a.stat]) || 0),
+      unlockedAt: store.unlocked[a.id] || null
+    }));
+  }
+
+  // Coins and prizes come from the arcade; re-check whenever the wallet changes.
+  try { window.addEventListener("glitchcade:wallet", () => check()); } catch (e) {}
+
+  return {
+    ACHIEVEMENTS,
+    check, count, list, sanitize,
+    onUnlock(fn) { listeners.push(fn); return () => { const i = listeners.indexOf(fn); if (i >= 0) listeners.splice(i, 1); }; },
+    reload() { store = read(); },
+    get unlockedCount() { return ACHIEVEMENTS.filter((a) => store.unlocked[a.id]).length; }
+  };
+})();
+window.GlitchAchievements = GlitchAchievements;
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SAVE EXPORT / IMPORT
+// Bundles everything this browser stores for Glitch Pong and the Glitchcade
+// into one file or one copyable code, and restores it in another browser.
+// Every value is checked on import; anything malformed is dropped.
+// ═══════════════════════════════════════════════════════════════════════════
+const GlitchSave = (function() {
+  const CODE_PREFIX = "GLITCHPONG-SAVE-1:";
+  const MAX_BYTES = 200000;
+  const ID_RE = /^[a-z0-9_-]{1,40}$/i;
+  const KEYCODE_RE = /^[A-Za-z0-9]{1,32}$/;
+  const num = (v, lo = 0, hi = 1e9) => { const n = Number(v); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : null; };
+
+  // localStorage key → how to clean an imported value (null drops it).
+  const ENTRIES = {
+    glitchPong_progression_v1: (v) => {
+      if (!v || typeof v !== "object") return null;
+      const out = {};
+      Object.keys(v).slice(0, 80).forEach((k) => {
+        if (!ID_RE.test(k)) return;
+        const val = v[k];
+        if (typeof val === "number") { const n = num(val); if (n !== null) out[k] = Math.floor(n); }
+        else if (Array.isArray(val)) out[k] = val.filter((x) => typeof x === "string" && ID_RE.test(x)).slice(0, 100);
+        else if (k === "arenaStats" && val && typeof val === "object") {
+          out.arenaStats = {};
+          Object.keys(val).slice(0, 20).forEach((id) => {
+            if (!ID_RE.test(id) || !val[id] || typeof val[id] !== "object") return;
+            out.arenaStats[id] = {
+              matches: Math.floor(num(val[id].matches) || 0),
+              wins: Math.floor(num(val[id].wins) || 0),
+              losses: Math.floor(num(val[id].losses) || 0)
+            };
+          });
+        }
+      });
+      if (out.level !== undefined) out.level = Math.max(1, Math.min(50, out.level));
+      return out;
+    },
+    glitchcade_wallet_v1: (v) => {
+      if (!v || typeof v !== "object") return null;
+      return {
+        coins: Math.floor(num(v.coins) || 0),
+        earned: Math.floor(num(v.earned) || 0),
+        wins: Math.floor(num(v.wins) || 0),
+        prizes: Array.isArray(v.prizes) ? [...new Set(v.prizes.filter((x) => typeof x === "string" && ID_RE.test(x)))].slice(0, 100) : []
+      };
+    },
+    glitchPong_achievements_v1: (v) => GlitchAchievements.sanitize(v),
+    glitchPong_customRules_v1: (v) => {
+      if (!v || typeof v !== "object") return null;
+      const out = {};
+      Object.keys(v).slice(0, 40).forEach((k) => {
+        if (!ID_RE.test(k)) return;
+        const val = v[k];
+        if (typeof val === "boolean") out[k] = val;
+        else if (typeof val === "number" && Number.isFinite(val)) out[k] = val;
+        else if (typeof val === "string" && /^(off|normal|frequent)$/.test(val)) out[k] = val;
+      });
+      return out;
+    },
+    glitchPong_keyBindings_v1: (v) => {
+      if (!v || typeof v !== "object") return null;
+      const out = {};
+      ["p1Up", "p1Down", "p1Dash", "p2Up", "p2Down", "p2Dash"].forEach((k) => { if (typeof v[k] === "string" && KEYCODE_RE.test(v[k])) out[k] = v[k]; });
+      return out;
+    },
+    glitchPong_cosmetics_v1: (v) => {
+      if (!v || typeof v !== "object") return null;
+      const equipped = {};
+      ["blue", "red"].forEach((owner) => {
+        const side = v.equipped && v.equipped[owner];
+        equipped[owner] = {
+          paddle: side && ID_RE.test(side.paddle || "") ? side.paddle : "default",
+          trail: side && ID_RE.test(side.trail || "") ? side.trail : "default"
+        };
+      });
+      const seen = Array.isArray(v.seen) ? v.seen.filter((x) => typeof x === "string" && ID_RE.test(x)).slice(0, 100) : [];
+      return { equipped, seen };
+    },
+    glitchPongPaddleColors: (v) => (v && ID_RE.test(v.blue || "") && ID_RE.test(v.red || "") ? { blue: v.blue, red: v.red } : null),
+    glitchPongPerformance: (v) => (v && typeof v === "object" ? { batterySaver: !!v.batterySaver } : null),
+    glitchcade_muted: (v) => (v === "1" || v === "0" || v === 1 || v === 0 || v === true || v === false ? (v === "1" || v === 1 || v === true ? "1" : "0") : null)
+  };
+  const RAW_STRING_KEYS = new Set(["glitchcade_muted"]);
+
+  function collect() {
+    GlitchAchievements.check(); // make sure everything already earned is in the export
+    const data = {};
+    Object.keys(ENTRIES).forEach((key) => {
+      let raw = null;
+      try { raw = localStorage.getItem(key); } catch (e) {}
+      if (raw === null) return;
+      if (RAW_STRING_KEYS.has(key)) { data[key] = raw; return; }
+      try { data[key] = JSON.parse(raw); } catch (e) {}
+    });
+    return { game: "glitch-pong", type: "save", version: 1, exportedAt: new Date().toISOString(), data };
+  }
+
+  function toJSON() { return JSON.stringify(collect(), null, 2); }
+
+  function toCode() {
+    const bytes = new TextEncoder().encode(JSON.stringify(collect()));
+    let bin = "";
+    bytes.forEach((b) => { bin += String.fromCharCode(b); });
+    return CODE_PREFIX + btoa(bin);
+  }
+
+  // Accepts a save file's text or a save code. Returns { ok, save, summary } or { ok:false, error }.
+  function parse(text) {
+    if (typeof text !== "string" || !text.trim()) return { ok: false, error: "Nothing to import." };
+    if (text.length > MAX_BYTES * 2) return { ok: false, error: "That file is too big to be a Glitch Pong save." };
+    let obj = null;
+    const t = text.trim();
+    try {
+      if (t.startsWith(CODE_PREFIX)) {
+        const bin = atob(t.slice(CODE_PREFIX.length).replace(/\s+/g, ""));
+        const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+        obj = JSON.parse(new TextDecoder().decode(bytes));
+      } else {
+        obj = JSON.parse(t);
+      }
+    } catch (e) {
+      return { ok: false, error: "That isn't a valid Glitch Pong save file or code." };
+    }
+    if (!obj || obj.game !== "glitch-pong" || obj.type !== "save" || !obj.data || typeof obj.data !== "object") {
+      return { ok: false, error: "That isn't a valid Glitch Pong save file or code." };
+    }
+    if (Number(obj.version) > 1) return { ok: false, error: "This save is from a newer version of Glitch Pong. Update the game and try again." };
+    const clean = {};
+    Object.keys(ENTRIES).forEach((key) => {
+      if (!(key in obj.data)) return;
+      const v = ENTRIES[key](obj.data[key]);
+      if (v !== null && v !== undefined) clean[key] = v;
+    });
+    if (!Object.keys(clean).length) return { ok: false, error: "That save doesn't contain any progress." };
+    const prog = clean.glitchPong_progression_v1 || {};
+    const wallet = clean.glitchcade_wallet_v1 || {};
+    const ach = clean.glitchPong_achievements_v1 || { unlocked: {} };
+    const known = new Set(GlitchAchievements.ACHIEVEMENTS.map((a) => a.id));
+    const exported = typeof obj.exportedAt === "string" && !isNaN(Date.parse(obj.exportedAt)) ? new Date(obj.exportedAt) : null;
+    return {
+      ok: true,
+      save: clean,
+      summary: {
+        level: prog.level || 1,
+        wins: prog.wins || 0,
+        matches: prog.matchesPlayed || 0,
+        coins: wallet.coins || 0,
+        prizes: (wallet.prizes || []).length,
+        achievements: Object.keys(ach.unlocked || {}).filter((id) => known.has(id)).length,
+        exportedAt: exported
+      }
+    };
+  }
+
+  // Replaces this browser's save with a parsed one. Keys missing from the save
+  // are cleared, so the result matches the exported browser.
+  function apply(clean) {
+    Object.keys(ENTRIES).forEach((key) => {
+      try {
+        if (key in clean) localStorage.setItem(key, RAW_STRING_KEYS.has(key) ? clean[key] : JSON.stringify(clean[key]));
+        else localStorage.removeItem(key);
+      } catch (e) {}
+    });
+    GlitchProgression.load();
+    GlitchAchievements.reload();
+    if (typeof GlitchCosmetics !== "undefined") GlitchCosmetics.load();
+    try { window.dispatchEvent(new CustomEvent("glitchcade:wallet", { detail: GlitchcadeWallet.get() })); } catch (e) {}
+  }
+
+  function fileName() {
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    return `glitch-pong-save-${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}.json`;
+  }
+
+  return { toJSON, toCode, parse, apply, fileName, CODE_PREFIX };
+})();
+window.GlitchSave = GlitchSave;
+
+
 function injectGameById(gameId, options = {}) {
   const glitchFx = !!options.glitchFx;
   const safetyMode = !!options.safetyMode;
@@ -593,6 +929,8 @@ function injectGameById(gameId, options = {}) {
     }
 
     function stopKeys(event) {
+      // Let text fields (e.g. pasting a save code) handle their own keys.
+      if (event.target && /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName)) return;
       const blockedKeys = new Set([
         " ",
         "Spacebar",
@@ -1687,6 +2025,8 @@ function injectGameById(gameId, options = {}) {
         .gp-mobile-ui .gp-corner-action span { display:none !important; }
         .gp-mobile-ui #gp-stats-action { right:11% !important; }
         .gp-mobile-ui #gp-store-action { right:2.5% !important; }
+        .gp-mobile-ui #gp-achievements-action { right:6.75% !important; top:calc(4.2% + 52px) !important; }
+        .gp-mobile-ui #gp-achievements-list { grid-template-columns:1fr !important; }
         .gp-mobile-ui #gp-exit-action { left:2.5% !important; }
         .gp-mobile-ui #gp-pause-menu button { min-width:44px; min-height:44px; }
         .gp-mobile-ui #gp-tab-bar {
@@ -1871,19 +2211,33 @@ function injectGameById(gameId, options = {}) {
     const BASE_BALL_R = isMobileDevice ? 9 : 10;
     let BALL_R = BASE_BALL_R;   // ball radius (Custom matches can resize it)
 
-    // Heat system: scale so heat builds at roughly the same rate regardless of
-    // screen size. On mobile the court is ~3-4× narrower so the ball crosses it
-    // much more often, which would otherwise make heat spike instantly.
-    // Reference desktop width ≈ 1200 px. Clamp scale between 0.6 and 1.
-    const _heatWidthScale = Math.min(1, Math.max(0.6, canvas.width / 1200));
-    const HEAT_PER_HIT  = 12.5 * _heatWidthScale;   // mobile ~6-8, desktop 12.5
-    const HEAT_DECAY_BASE  = isMobileDevice ? 0.030 : 0.022;
-    const HEAT_DECAY_SCALE = isMobileDevice ? 0.022 : 0.017;
+    // Heat system. Paddle hits add Heat; Heat cools as the ball TRAVELS, not as
+    // time passes. Cooling is measured in court distance, so the same rally
+    // builds the same Heat on any screen size and at any ball speed: a slow
+    // ball can't bleed Heat away between hits. The rates match the old
+    // per-frame cooling at HEAT_COOL_SPEED, which keeps a standard rally's feel
+    // (30/50/80/100% Heat after about 3/6/10/12 hits).
+    const HEAT_PER_HIT     = 12.5;
+    const HEAT_DECAY_BASE  = 0.022;  // per court unit of travel at HEAT_COOL_SPEED
+    const HEAT_DECAY_SCALE = 0.017;  // extra cooling that grows with Heat
+    const HEAT_COOL_SPEED  = 8;
 
     let leftY  = canvas.height / 2 - paddleH / 2;
     let rightY = canvas.height / 2 - paddleH / 2;
     let ballX = canvas.width / 2;
     let ballY = canvas.height / 2;
+
+    // ── Court scale ─────────────────────────────────────────────────────────
+    // Ball speeds are tuned for a 1280px-wide screen, where the paddle faces
+    // are 1196px apart. Horizontal movement is scaled to the real distance
+    // between the paddles so a shot takes the same time to cross any screen.
+    // Vertical speed stays in pixels, so how far a paddle has to travel while
+    // the ball crosses is the same on every screen as well.
+    const REFERENCE_COURT_SPAN = 1196;
+    function courtSpeedScale() { return Math.max(0.2, (rightX - (leftX + paddleW)) / REFERENCE_COURT_SPAN); }
+    // Where the ball was before this frame's move, so glitch walls can catch a
+    // fast ball that would otherwise jump straight over a thin wall.
+    let wallSweepFromX = null, wallSweepFromY = null;
     let vx = 6 * (Math.random() > 0.5 ? 1 : -1);
     let vy = (Math.random() * 4) - 2;
     let leftScore = 0;
@@ -1897,7 +2251,7 @@ function injectGameById(gameId, options = {}) {
       winScore: 7,
       startSpeed: 6,        // serve speed (px/frame)
       speedGain: 1,         // multiplier on per-hit speed-up (0 = constant speed)
-      maxSpeed: 0,          // horizontal cap, 0 = uncapped
+      maxSpeed: 24,         // horizontal cap, 0 = uncapped
       ballSize: 1,
       teleport: true,       // ball blinks to a random spot
       jukes: true,          // sudden mid-court direction fakes
@@ -1907,7 +2261,7 @@ function injectGameById(gameId, options = {}) {
       heatRate: 1,          // Heat per hit multiplier (0 = Heat never builds)
       glitchWalls: true,
       boss: true,           // the Eye at max Heat
-      ownGoal: true,        // your own colour past you scores 2 (3 at Critical Heat)
+      ownGoal: true,        // your own colour past you scores 2 (3 at Critical Heat); glitch reversals make the ball neutral
       powerups: "normal",   // "off" | "normal" | "frequent"
       fx: 1                 // screen-glitch intensity (0 = calm camera)
     });
@@ -1915,7 +2269,7 @@ function injectGameById(gameId, options = {}) {
       clean:    { speedGain: 0.6, maxSpeed: 20, teleport: false, jukes: false, pulses: false, decoys: false, sentience: false, heatRate: 0, glitchWalls: false, boss: false, ownGoal: false, powerups: "normal", fx: 0 },
       mild:     { speedGain: 0.8, maxSpeed: 24, teleport: false, jukes: true, pulses: false, decoys: false, sentience: true, heatRate: 0.5, glitchWalls: true, boss: false, ownGoal: false, powerups: "normal", fx: 0.5 },
       standard: {},
-      chaos:    { startSpeed: 8, speedGain: 1.6, heatRate: 1.8, powerups: "frequent", fx: 1.6 }
+      chaos:    { startSpeed: 8, speedGain: 1.6, maxSpeed: 0, heatRate: 1.8, powerups: "frequent", fx: 1.6 }
     };
     const CUSTOM_RULES_KEY = "glitchPong_customRules_v1";
     let customRules = (() => {
@@ -2162,6 +2516,7 @@ function injectGameById(gameId, options = {}) {
     let xpFloats         = [];    // floating "+N XP" text particles
     let xpBarGlow        = 0;     // bright flash when XP arrives
     let matchRallyHits   = 0;     // hits this match for XP tracking
+    let matchMaxDeficit  = 0;     // biggest lead the opponent had this match (for comeback achievements)
     let matchBossHit     = false; // did boss hit a player this match?
     let matchStartScore  = {left:0, right:0};
     let matchStartLevel  = 1;     // level snapshot at match start for summary delta
@@ -2865,6 +3220,7 @@ function injectGameById(gameId, options = {}) {
         glitch() { playOneShot("glitchPulse", { volume: 0.2, playbackRate: 0.97 + Math.random() * 0.06, duck: 0.18, duckDuration: 220 }); },
         dash() { playOneShot("dashActivation", { volume: 0.28, playbackRate: 0.98 + Math.random() * 0.06, duck: 0.14, duckDuration: 160 }); },
         dashReady() { playOneShot("dashReady", { volume: 0.16 }); },
+        achievement() { playOneShot("dashReady", { volume: 0.55, playbackRate: 1.12, duck: 0.3, duckDuration: 500 }); },
         teleport() { playOneShot("teleport", { volume: 0.32, playbackRate: 0.98 + Math.random() * 0.08, duck: 0.4, duckDuration: 360 }); },
         juke() { playOneShot("juke", { volume: 0.2, playbackRate: 0.98 + Math.random() * 0.08, duck: 0.16, duckDuration: 180 }); },
         critical() { playOneShot("critical", { volume: 0.24, duck: 0.5, duckDuration: 1200 }); },
@@ -3057,6 +3413,7 @@ function injectGameById(gameId, options = {}) {
       pongAudio.stopMenuMusic();
       pongAudio.startMusic();
       GlitchProgression.beginMatch();
+      matchMaxDeficit = 0;
       matchStartLevel = GlitchProgression.level;
       syncUiForScreen();
     }
@@ -3067,6 +3424,7 @@ function injectGameById(gameId, options = {}) {
       const playerScore = side === "left" ? snapshot.scores.left : snapshot.scores.right;
       const opponentScore = side === "left" ? snapshot.scores.right : snapshot.scores.left;
       GlitchProgression.endMatch(snapshot.winner === side, false, { arenaId: currentArenaId, playerScore, opponentScore });
+      GlitchAchievements.check();
       syncCosmeticUnlocks(); // new items show a NEW badge in the Store
       if (snapshot.winner === side) showCoinReward(GlitchcadeWallet.awardWin());
       onlineState.statsRecorded = true;
@@ -3125,6 +3483,7 @@ function injectGameById(gameId, options = {}) {
       triggerCameraKick(owner === "blue" ? -8 : 8, 0, 0.012);
       pongAudio.glitch();
       awardXP(GlitchProgression.XP_REWARDS.powerupPickup, "powerupPickup", owner === "blue" ? leftX + 40 : rightX - 40, canvas.height * 0.5);
+      if (owner === "blue" && achievementsCount()) GlitchAchievements.count("powerups");
       // Quantum Cache perk: chance to immediately spawn another powerup
       if (GlitchProgression.hasPerk("quantum") && Math.random() < GlitchProgression.getPerkStat("quantumCache")) {
         powerupSpawnCooldown = Math.floor(Math.random() * 90) + 30;
@@ -3325,7 +3684,9 @@ function injectGameById(gameId, options = {}) {
       const movingTowardPaddle = side === "left" ? targetVx < 0 : targetVx > 0;
       const courtEdge = side === "left" ? leftX + paddleW : rightX;
       const distanceToPaddle = Math.abs(targetBallX - courtEdge);
-      const travelFrames = Math.max(1, distanceToPaddle / Math.max(1, Math.abs(targetVx || 1)));
+      // The ball's horizontal speed is in court units; boss shots are already in pixels.
+      const xScale = typeof options.xScale === "number" ? options.xScale : courtSpeedScale();
+      const travelFrames = Math.max(1, distanceToPaddle / Math.max(1, Math.abs(targetVx || 1) * xScale));
       const retreatTarget = canvas.height * 0.5;
 
       // ── Difficulty profile ───────────────────────────────────────────────
@@ -3503,7 +3864,7 @@ function injectGameById(gameId, options = {}) {
       if (menuDemoResetCooldown > 0) return;
 
       heat = Math.min(HEAT_MAX, Math.max(10, heat * 0.992 + 0.18));
-      ballX += vx;
+      ballX += vx * courtSpeedScale();
       ballY += vy;
 
       ballTrail.unshift({ x: ballX, y: ballY });
@@ -4150,6 +4511,7 @@ function injectGameById(gameId, options = {}) {
         // changing either score. The reward is survival/X P, not free points.
         awardXP(GlitchProgression.XP_REWARDS.bossSurvival, "bossSurvival", canvas.width / 2, canvas.height * 0.3);
         if (!aiVsAiMode) GlitchProgression.trackBossSurvival();
+        if (achievementsCount()) GlitchAchievements.check();
         // Emergency Restore perk: boss survival refreshes Dash
         if (GlitchProgression.hasPerk("emergency")) {
           leftDashCooldown  = 0;
@@ -4254,7 +4616,8 @@ function injectGameById(gameId, options = {}) {
           }
           const source = bossData.orbitBalls[orbitIndex];
           source.active = false;
-          const speed = 9.2 + heatRatio * 2.4;
+          // Scaled as a whole (not just horizontally) so the shot keeps its aimed line.
+          const speed = (9.2 + heatRatio * 2.4) * courtSpeedScale();
           const towardLeft = bossData.currentTarget === "left";
           const targetX = towardLeft ? leftX + paddleW : rightX;
           // Each throw has an intentional, but non-perfect, random line. It is
@@ -4817,7 +5180,9 @@ function injectGameById(gameId, options = {}) {
           if (Math.abs(Math.cos(angle)) < 0.28) angle += Math.sign(Math.cos(angle) || 1) * 0.35;
           ballX = hole.x + Math.cos(angle) * (hole.r + BALL_R + 8);
           ballY = clamp(hole.y + Math.sin(angle) * (hole.r + BALL_R + 8), BALL_R + 4, H - BALL_R - 4);
-          vx = Math.cos(angle) * speed;
+          const holeVx = Math.cos(angle) * speed;
+          if (Math.sign(holeVx) !== Math.sign(vx)) ballOwner = "neutral";
+          vx = holeVx;
           vy = Math.sin(angle) * speed;
           hole.triggered = true;
           hole.life = Math.min(hole.life, 20);
@@ -6096,20 +6461,53 @@ function injectGameById(gameId, options = {}) {
       }
     }
 
+    // Did the ball's path this frame enter the wall from outside? Returns where
+    // it first touched and which face it came through, or null.
+    function sweptWallEntry(wall) {
+      if (wallSweepFromX === null) return null;
+      const x0 = wallSweepFromX, y0 = wallSweepFromY;
+      const dx = ballX - x0, dy = ballY - y0;
+      if (Math.hypot(dx, dy) > 400) return null; // a teleport or reset, not a move
+      const minX = wall.x - BALL_R, maxX = wall.x + wall.w + BALL_R;
+      const minY = wall.y - BALL_R, maxY = wall.y + wall.h + BALL_R;
+      if (x0 > minX && x0 < maxX && y0 > minY && y0 < maxY) return null; // started inside
+      let tEnter = 0, tExit = 1, axis = null;
+      for (const [p, d, lo, hi, name] of [[x0, dx, minX, maxX, "x"], [y0, dy, minY, maxY, "y"]]) {
+        if (Math.abs(d) < 1e-9) { if (p <= lo || p >= hi) return null; continue; }
+        let t1 = (lo - p) / d, t2 = (hi - p) / d;
+        if (t1 > t2) [t1, t2] = [t2, t1];
+        if (t1 > tEnter) { tEnter = t1; axis = name; }
+        tExit = Math.min(tExit, t2);
+        if (tEnter >= tExit) return null;
+      }
+      if (!axis) return null;
+      const face = axis === "x" ? (dx > 0 ? "L" : "R") : (dy > 0 ? "T" : "B");
+      return { x: x0 + dx * tEnter, y: y0 + dy * tEnter, face };
+    }
+
     function checkGlitchWallCollisions() {
       for (const wall of glitchWalls) {
         if (wall.phase !== 'solid') continue;
-        const bL = ballX - BALL_R, bR = ballX + BALL_R;
-        const bT = ballY - BALL_R, bB = ballY + BALL_R;
         const wL = wall.x, wR = wall.x + wall.w;
         const wT = wall.y, wB = wall.y + wall.h;
-        if (bR <= wL || bL >= wR || bB <= wT || bT >= wB) continue;
-
-        const dL = bR - wL, dR = wR - bL, dT = bB - wT, dB = wB - bT;
-        const mn = Math.min(dL, dR, dT, dB);
-        if      (mn === dL) { vx = -Math.abs(vx); ballX = wL - BALL_R - 1; }
-        else if (mn === dR) { vx =  Math.abs(vx); ballX = wR + BALL_R + 1; }
-        else if (mn === dT) { vy = -Math.abs(vy); ballY = wT - BALL_R - 1; }
+        // Bounce off the face the ball actually came through. Judging by the
+        // shallowest overlap alone sends a fast ball out the back of a thin wall.
+        const entry = sweptWallEntry(wall);
+        let face;
+        if (entry) {
+          ballX = entry.x; ballY = entry.y;
+          face = entry.face;
+        } else {
+          const bL = ballX - BALL_R, bR = ballX + BALL_R;
+          const bT = ballY - BALL_R, bB = ballY + BALL_R;
+          if (bR <= wL || bL >= wR || bB <= wT || bT >= wB) continue;
+          const dL = bR - wL, dR = wR - bL, dT = bB - wT, dB = wB - bT;
+          const mn = Math.min(dL, dR, dT, dB);
+          face = mn === dL ? "L" : mn === dR ? "R" : mn === dT ? "T" : "B";
+        }
+        if      (face === "L") { if (vx > 0) ballOwner = "neutral"; vx = -Math.abs(vx); ballX = wL - BALL_R - 1; }
+        else if (face === "R") { if (vx < 0) ballOwner = "neutral"; vx =  Math.abs(vx); ballX = wR + BALL_R + 1; }
+        else if (face === "T") { vy = -Math.abs(vy); ballY = wT - BALL_R - 1; }
         else                { vy =  Math.abs(vy); ballY = wB + BALL_R + 1; }
 
         // Shatter on ball contact
@@ -6121,6 +6519,7 @@ function injectGameById(gameId, options = {}) {
         pongAudio.glitch();
         break;
       }
+      wallSweepFromX = null; // only this frame's move is swept
     }
 
     function drawGlitchWalls() {
@@ -7503,6 +7902,7 @@ function injectGameById(gameId, options = {}) {
         <button id="gp-tab-appearance" type="button" style="flex:1;padding:9px 0;border-radius:10px;border:1px solid rgba(103,239,255,0.18);background:rgba(103,239,255,0.03);color:rgba(113,239,255,0.5);font:bold 12px monospace;letter-spacing:.10em;cursor:pointer;">APPEARANCE</button>
         <button id="gp-tab-howto" type="button" style="flex:1;padding:9px 0;border-radius:10px;border:1px solid rgba(103,239,255,0.18);background:rgba(103,239,255,0.03);color:rgba(113,239,255,0.5);font:bold 12px monospace;letter-spacing:.10em;cursor:pointer;">HOW TO PLAY</button>
         <button id="gp-tab-levels" type="button" style="flex:1;padding:9px 0;border-radius:10px;border:1px solid rgba(103,239,255,0.18);background:rgba(103,239,255,0.03);color:rgba(113,239,255,0.5);font:bold 12px monospace;letter-spacing:.10em;cursor:pointer;">LEVEL SYSTEM</button>
+        <button id="gp-tab-save" type="button" style="flex:1;padding:9px 0;border-radius:10px;border:1px solid rgba(103,239,255,0.18);background:rgba(103,239,255,0.03);color:rgba(113,239,255,0.5);font:bold 12px monospace;letter-spacing:.10em;cursor:pointer;">SAVE DATA</button>
       </div>
 
       <!-- Controls tab -->
@@ -7542,6 +7942,11 @@ function injectGameById(gameId, options = {}) {
           <div style="padding:12px;border:1px solid rgba(255,92,112,.24);border-radius:12px;background:rgba(255,92,112,.035);"><div style="font:bold 11px monospace;letter-spacing:.1em;color:#ff9ba8;">THE BOSS</div><div style="margin-top:6px;font:11px/1.65 monospace;color:rgba(230,241,255,.68);">At maximum Heat, the Eye appears <span style="color:#ffd166;">once per match</span>. Return all six fireballs to survive; miss one and the other side gains two points.</div></div>
           <div style="padding:12px;border:1px solid rgba(80,250,123,.20);border-radius:12px;background:rgba(80,250,123,.035);"><div style="font:bold 11px monospace;letter-spacing:.1em;color:#8ff5b1;">MODES &amp; PROGRESS</div><div style="margin-top:6px;font:11px/1.65 monospace;color:rgba(230,241,255,.68);">Play 1P, local 2P, or watch AI vs AI. Player matches earn XP, levels, perks, and Stats; AI vs AI is spectator-only.</div></div>
         </div>
+      </div>
+
+      <!-- Save data tab -->
+      <div id="gp-pane-save" style="display:none;">
+        <div id="gp-save-body"></div>
       </div>
 
       <button type="button" aria-label="Back" style="margin:18px auto 0;display:block;padding:10px 28px;border-radius:12px;border:1px solid rgba(103,239,255,0.28);background:rgba(9,18,34,0.94);color:#eafcff;font:bold 14px monospace;letter-spacing:.12em;cursor:pointer;">BACK</button>
@@ -7786,6 +8191,127 @@ function injectGameById(gameId, options = {}) {
       <button type="button" aria-label="Stats Back" style="margin:18px auto 0;display:block;padding:10px 28px;border-radius:12px;border:1px solid rgba(103,239,255,0.28);background:rgba(9,18,34,0.94);color:#eafcff;font:bold 14px monospace;letter-spacing:.12em;cursor:pointer;">BACK</button>`;
     const statsBackBtn = statsPanel.querySelector("button[aria-label='Stats Back']");
 
+    // Achievements screen — reachable from the main menu beside Stats.
+    const achievementsPanel = document.createElement("div");
+    achievementsPanel.id = "gp-achievements-panel";
+    achievementsPanel.classList.add("gp-mobile-panel");
+    achievementsPanel.style.cssText = [
+      "position:absolute", "left:50%", "top:50%", "transform:translate(-50%,-50%)",
+      "z-index:2147483648", "width:min(760px,90vw)", "max-height:calc(100vh - 28px)",
+      "box-sizing:border-box", "overflow-y:auto", "padding:26px 28px",
+      "border:1px solid rgba(255,209,102,.34)", "border-radius:24px",
+      "background:linear-gradient(180deg,rgba(20,15,26,.97),rgba(8,7,20,.97))",
+      "box-shadow:0 0 38px rgba(255,209,102,.10),0 0 70px rgba(255,79,216,.08)",
+      "color:#eafcff", "font:16px/1.55 monospace", "pointer-events:auto", "display:none"
+    ].join(";");
+    achievementsPanel.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:3px;color:#ffd166;text-shadow:0 0 18px rgba(255,209,102,.2);">
+        <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4Z"/><path d="M7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3"/></svg>
+        <div style="font:bold 24px/1.1 monospace;letter-spacing:.14em;">ACHIEVEMENTS</div>
+      </div>
+      <div id="gp-achievements-count" style="text-align:center;margin:0 0 6px;font:10px monospace;letter-spacing:.12em;color:rgba(255,225,160,.6);"></div>
+      <div style="height:6px;margin:0 auto 16px;max-width:360px;border-radius:99px;background:rgba(255,255,255,.08);overflow:hidden;"><div id="gp-achievements-bar" style="height:100%;width:0;background:linear-gradient(90deg,#ffd166,#ff58d9);"></div></div>
+      <div id="gp-achievements-list" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;"></div>
+      <div style="margin-top:12px;text-align:center;font:10px/1.5 monospace;color:rgba(225,240,255,.45);">Achievements count in matches that earn XP: not Custom Match or AI vs AI.</div>
+      <button type="button" aria-label="Achievements Back" style="margin:16px auto 0;display:block;padding:10px 28px;border-radius:12px;border:1px solid rgba(255,209,102,.32);background:rgba(255,209,102,.08);color:#ffe1a0;font:bold 14px monospace;letter-spacing:.12em;cursor:pointer;">BACK</button>`;
+    const achievementsBackBtn = achievementsPanel.querySelector("button[aria-label='Achievements Back']");
+
+    function buildAchievementsPane() {
+      const items = GlitchAchievements.list();
+      const done = items.filter((a) => a.unlockedAt).length;
+      achievementsPanel.querySelector("#gp-achievements-count").textContent = `${done} / ${items.length} UNLOCKED`;
+      achievementsPanel.querySelector("#gp-achievements-bar").style.width = `${Math.round(done / Math.max(1, items.length) * 100)}%`;
+      const list = achievementsPanel.querySelector("#gp-achievements-list");
+      list.textContent = "";
+      // Unlocked first (newest first), then locked ones by how close they are.
+      items.sort((a, b) => (b.unlockedAt ? 1 : 0) - (a.unlockedAt ? 1 : 0) || (b.unlockedAt || 0) - (a.unlockedAt || 0) || (b.progress / b.goal) - (a.progress / a.goal));
+      for (const a of items) {
+        const hidden = a.secret && !a.unlockedAt;
+        const card = document.createElement("div");
+        card.className = "gp-achievement-card";
+        card.style.cssText = `padding:10px 12px;border-radius:11px;border:1px solid ${a.unlockedAt ? "rgba(255,209,102,.55)" : "rgba(255,255,255,.10)"};background:${a.unlockedAt ? "rgba(255,209,102,.07)" : "rgba(255,255,255,.02)"};`;
+        const title = document.createElement("div");
+        title.style.cssText = `display:flex;justify-content:space-between;gap:8px;font:bold 12px monospace;letter-spacing:.07em;color:${a.unlockedAt ? "#ffd166" : "rgba(225,240,255,.55)"};`;
+        const name = document.createElement("span");
+        name.textContent = hidden ? "??? SECRET" : a.name;
+        const mark = document.createElement("span");
+        mark.textContent = a.unlockedAt ? "✓" : hidden ? "?" : `${a.progress}/${a.goal}`;
+        mark.style.color = a.unlockedAt ? "#8ff5b1" : "rgba(225,240,255,.45)";
+        title.append(name, mark);
+        const desc = document.createElement("div");
+        desc.style.cssText = "margin-top:3px;font:10.5px/1.5 monospace;color:rgba(225,240,255,.62);";
+        desc.textContent = hidden ? "Keep playing to reveal this one." : a.desc;
+        card.append(title, desc);
+        if (a.unlockedAt) {
+          const when = document.createElement("div");
+          when.style.cssText = "margin-top:3px;font:9px monospace;letter-spacing:.06em;color:rgba(255,225,160,.5);";
+          when.textContent = "UNLOCKED " + new Date(a.unlockedAt).toLocaleDateString();
+          card.append(when);
+        } else if (!hidden && a.goal > 1) {
+          const bar = document.createElement("div");
+          bar.style.cssText = "margin-top:6px;height:3px;border-radius:9px;background:rgba(255,255,255,.08);overflow:hidden;";
+          const fill = document.createElement("div");
+          fill.style.cssText = `height:100%;width:${Math.round(a.progress / a.goal * 100)}%;background:#71efff;`;
+          bar.append(fill);
+          card.append(bar);
+        }
+        list.append(card);
+      }
+    }
+
+    // Unlock pop-up shown over the game and menus.
+    const achievementToast = document.createElement("div");
+    achievementToast.id = "gp-achievement-toast";
+    achievementToast.setAttribute("role", "status");
+    achievementToast.style.cssText = [
+      "position:absolute", "left:50%", "top:max(18px, env(safe-area-inset-top))", "z-index:2147483649",
+      "transform:translate(-50%,-140%)", "transition:transform .35s cubic-bezier(.2,.9,.3,1.2), opacity .35s",
+      "opacity:0", "pointer-events:none", "display:flex", "align-items:center", "gap:12px",
+      "padding:10px 18px 10px 12px", "max-width:min(460px,90vw)", "box-sizing:border-box",
+      "border:1px solid rgba(255,209,102,.7)", "border-radius:14px",
+      "background:linear-gradient(180deg,rgba(28,20,8,.96),rgba(12,9,20,.96))",
+      "box-shadow:0 0 26px rgba(255,209,102,.28)", "color:#fff"
+    ].join(";");
+    achievementToast.innerHTML = `<div style="flex:none;width:38px;height:38px;display:grid;place-items:center;border-radius:10px;background:rgba(255,209,102,.14);color:#ffd166;"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4Z"/><path d="M7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3"/></svg></div><div style="min-width:0;"><div style="font:bold 9px monospace;letter-spacing:.2em;color:#ffd166;">ACHIEVEMENT UNLOCKED</div><div class="gp-ach-name" style="font:bold 15px monospace;letter-spacing:.06em;"></div><div class="gp-ach-desc" style="font:10.5px/1.4 monospace;color:rgba(235,245,255,.7);"></div></div>`;
+    const achievementQueue = [];
+    let achievementToastBusy = false;
+    function showNextAchievement() {
+      if (achievementToastBusy || !achievementQueue.length) return;
+      // Several at once (e.g. the first launch with existing progress): one combined pop-up.
+      const batch = achievementQueue.length >= 3 ? achievementQueue.splice(0) : [achievementQueue.shift()];
+      achievementToastBusy = true;
+      if (batch.length === 1) {
+        achievementToast.querySelector(".gp-ach-name").textContent = batch[0].name;
+        achievementToast.querySelector(".gp-ach-desc").textContent = batch[0].desc;
+      } else {
+        achievementToast.querySelector(".gp-ach-name").textContent = `${batch.length} ACHIEVEMENTS UNLOCKED`;
+        const names = batch.map((x) => x.name);
+        achievementToast.querySelector(".gp-ach-desc").textContent = names.slice(0, 3).join(" · ") + (names.length > 3 ? ` + ${names.length - 3} more` : "");
+      }
+      // Sit below the "+10 COINS" banner when it's on screen.
+      const coin = overlay.querySelector(".gp-coin-reward");
+      const coinRect = coin && coin.getBoundingClientRect();
+      const overlayTop = overlay.getBoundingClientRect().top;
+      achievementToast.style.top = coinRect && coinRect.height ? `${Math.round(coinRect.bottom - overlayTop + 10)}px` : "max(18px, env(safe-area-inset-top))";
+      achievementToast.style.opacity = "1";
+      achievementToast.style.transform = "translate(-50%,0)";
+      try { pongAudio.achievement(); } catch (e) {}
+      addTimer(setTimeout(() => {
+        achievementToast.style.opacity = "0";
+        achievementToast.style.transform = "translate(-50%,-140%)";
+        addTimer(setTimeout(() => { achievementToastBusy = false; showNextAchievement(); }, 420));
+      }, 3600));
+    }
+    state.listeners.push(GlitchAchievements.onUnlock((a) => {
+      achievementQueue.push(a);
+      addTimer(setTimeout(showNextAchievement, 0)); // let one check()'s unlocks collect first
+      if (currentScreen === "achievements") buildAchievementsPane();
+    }));
+    // Award anything already earned (e.g. progress from before achievements existed).
+    addTimer(setTimeout(() => GlitchAchievements.check(), 1800));
+    // Whether this match counts toward achievements (same rule as XP).
+    function achievementsCount() { return !aiVsAiMode && !customMatch && !onlineState.active; }
+
     // ── Settings tab switching ────────────────────────────────────────────
     const tabControls = settingsPanel.querySelector("#gp-tab-controls");
     const tabAppearance = settingsPanel.querySelector("#gp-tab-appearance");
@@ -7799,54 +8325,128 @@ function injectGameById(gameId, options = {}) {
     const activeTabStyle   = "flex:1;padding:9px 0;border-radius:10px;border:1px solid rgba(103,239,255,0.5);background:rgba(103,239,255,0.12);color:#71efff;font:bold 12px monospace;letter-spacing:.10em;cursor:pointer;";
     const inactiveTabStyle = "flex:1;padding:9px 0;border-radius:10px;border:1px solid rgba(103,239,255,0.18);background:rgba(103,239,255,0.03);color:rgba(113,239,255,0.5);font:bold 12px monospace;letter-spacing:.10em;cursor:pointer;";
 
+    const tabSave  = settingsPanel.querySelector("#gp-tab-save");
+    const paneSave = settingsPanel.querySelector("#gp-pane-save");
+    const SETTINGS_TABS = {
+      controls:   { tab: tabControls,   pane: paneControls,   onShow: () => rebuildControlsPane() },
+      appearance: { tab: tabAppearance, pane: paneAppearance, onShow: () => buildAppearancePane() },
+      howto:      { tab: tabHowTo,      pane: paneHowTo },
+      levels:     { tab: tabLevels,     pane: paneLevels,     onShow: () => buildLevelList() },
+      save:       { tab: tabSave,       pane: paneSave,       onShow: () => buildSavePane() }
+    };
+
     function switchSettingsTab(tab) {
       rebindingTarget = null; // cancel any active rebind when switching tabs
-      if (tab === "controls") {
-        tabControls.style.cssText   = activeTabStyle;
-        tabAppearance.style.cssText = inactiveTabStyle;
-        tabHowTo.style.cssText      = inactiveTabStyle;
-        tabLevels.style.cssText     = inactiveTabStyle;
-        paneControls.style.display  = "block";
-        paneAppearance.style.display = "none";
-        paneHowTo.style.display     = "none";
-        paneLevels.style.display    = "none";
-        rebuildControlsPane();
-      } else if (tab === "levels") {
-        tabLevels.style.cssText     = activeTabStyle;
-        tabControls.style.cssText   = inactiveTabStyle;
-        tabAppearance.style.cssText = inactiveTabStyle;
-        tabHowTo.style.cssText      = inactiveTabStyle;
-        paneLevels.style.display    = "block";
-        paneControls.style.display  = "none";
-        paneAppearance.style.display = "none";
-        paneHowTo.style.display     = "none";
-        buildLevelList();
-      } else if (tab === "howto") {
-        tabHowTo.style.cssText      = activeTabStyle;
-        tabControls.style.cssText   = inactiveTabStyle;
-        tabAppearance.style.cssText = inactiveTabStyle;
-        tabLevels.style.cssText     = inactiveTabStyle;
-        paneHowTo.style.display     = "block";
-        paneControls.style.display  = "none";
-        paneAppearance.style.display = "none";
-        paneLevels.style.display    = "none";
-      } else {
-        tabAppearance.style.cssText = activeTabStyle;
-        tabControls.style.cssText   = inactiveTabStyle;
-        tabHowTo.style.cssText      = inactiveTabStyle;
-        tabLevels.style.cssText     = inactiveTabStyle;
-        paneAppearance.style.display = "block";
-        paneControls.style.display  = "none";
-        paneHowTo.style.display     = "none";
-        paneLevels.style.display    = "none";
-        buildAppearancePane();
-      }
+      if (!SETTINGS_TABS[tab]) tab = "appearance";
+      Object.keys(SETTINGS_TABS).forEach((name) => {
+        const t = SETTINGS_TABS[name];
+        t.tab.style.cssText = name === tab ? activeTabStyle : inactiveTabStyle;
+        t.pane.style.display = name === tab ? "block" : "none";
+      });
+      if (SETTINGS_TABS[tab].onShow) SETTINGS_TABS[tab].onShow();
     }
 
     tabControls.addEventListener("click", () => switchSettingsTab("controls"));
     tabAppearance.addEventListener("click", () => switchSettingsTab("appearance"));
     tabHowTo.addEventListener("click",      () => switchSettingsTab("howto"));
     tabLevels.addEventListener("click",   () => switchSettingsTab("levels"));
+    tabSave.addEventListener("click",     () => switchSettingsTab("save"));
+
+    // ── Save data pane: export / import ──────────────────────────────────
+    let savePaneBuilt = false;
+    let pendingImport = null;
+    function buildSavePane() {
+      const body = settingsPanel.querySelector("#gp-save-body");
+      if (!body) return;
+      if (savePaneBuilt) { setSaveStatus("", ""); return; }
+      savePaneBuilt = true;
+      const btn = (id, label, color) => `<button type="button" id="${id}" style="flex:1;min-width:150px;padding:11px 12px;border-radius:10px;border:1px solid ${color}88;background:${color}14;color:${color};font:bold 12px monospace;letter-spacing:.08em;cursor:pointer;">${label}</button>`;
+      const box = "width:100%;box-sizing:border-box;min-height:74px;margin-top:10px;padding:9px 10px;border-radius:10px;border:1px solid rgba(103,239,255,.25);background:rgba(2,6,14,.85);color:#cfefff;font:11px/1.45 monospace;resize:vertical;word-break:break-all;";
+      body.innerHTML = `
+        <div style="padding:11px 13px;margin-bottom:14px;border-left:2px solid #71efff;background:rgba(103,239,255,.05);font:11px/1.65 monospace;color:rgba(232,244,255,.75);">
+          Move your progress to another browser or device. A save holds your level, XP, perks, stats, achievements, Glitchcade coins and prizes, and your settings.
+        </div>
+        <div style="font:bold 11px monospace;letter-spacing:.11em;color:#71efff;margin-bottom:8px;">EXPORT</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;">${btn("gp-save-download", "DOWNLOAD SAVE FILE", "#71efff")}${btn("gp-save-copy", "COPY SAVE CODE", "#71efff")}</div>
+        <textarea id="gp-save-code-out" readonly aria-label="Your save code" style="${box}display:none;"></textarea>
+        <div style="font:bold 11px monospace;letter-spacing:.11em;color:#ffd166;margin:18px 0 8px;">IMPORT</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;">${btn("gp-save-load", "LOAD SAVE FILE", "#ffd166")}${btn("gp-save-import-code", "IMPORT PASTED CODE", "#ffd166")}</div>
+        <input type="file" id="gp-save-file" accept=".json,application/json,text/plain" style="display:none;">
+        <textarea id="gp-save-code-in" aria-label="Paste a save code" placeholder="Paste a save code here, then press IMPORT PASTED CODE." spellcheck="false" style="${box}"></textarea>
+        <div id="gp-save-confirm" style="display:none;margin-top:12px;padding:12px 13px;border:1px solid rgba(255,143,171,.45);border-radius:12px;background:rgba(255,79,216,.06);">
+          <div style="font:bold 11px monospace;letter-spacing:.1em;color:#ff8fab;">REPLACE THE SAVE IN THIS BROWSER?</div>
+          <div id="gp-save-summary" style="margin-top:6px;font:11px/1.6 monospace;color:rgba(235,245,255,.8);"></div>
+          <div style="margin-top:4px;font:10px/1.5 monospace;color:rgba(235,245,255,.55);">Your current progress here will be overwritten. Export it first if you want to keep it.</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;">${btn("gp-save-confirm-yes", "REPLACE MY SAVE", "#ff8fab")}${btn("gp-save-confirm-no", "CANCEL", "#9fb4c6")}</div>
+        </div>
+        <div id="gp-save-status" role="status" aria-live="polite" style="min-height:18px;margin-top:10px;font:11px/1.5 monospace;"></div>`;
+
+      const $ = (id) => body.querySelector("#" + id);
+      $("gp-save-download").addEventListener("click", () => {
+        try {
+          const blob = new Blob([GlitchSave.toJSON()], { type: "application/json" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url; a.download = GlitchSave.fileName();
+          // Inside the game overlay: clicks outside it are blocked while the game is open.
+          a.style.display = "none";
+          settingsPanel.appendChild(a); a.click(); a.remove();
+          setTimeout(() => URL.revokeObjectURL(url), 4000);
+          setSaveStatus("Save file downloaded. Open Glitch Pong in the other browser and use LOAD SAVE FILE.", "ok");
+        } catch (e) { setSaveStatus("Couldn't create the save file in this browser. Use COPY SAVE CODE instead.", "error"); }
+      });
+      $("gp-save-copy").addEventListener("click", async () => {
+        const code = GlitchSave.toCode();
+        const out = $("gp-save-code-out");
+        out.value = code; out.style.display = "block";
+        let copied = false;
+        try { await navigator.clipboard.writeText(code); copied = true; } catch (e) {}
+        if (!copied) { out.focus(); out.select(); }
+        setSaveStatus(copied ? "Save code copied. Paste it into IMPORT on the other browser." : "Select the code below and copy it, then paste it into IMPORT on the other browser.", "ok");
+      });
+      $("gp-save-load").addEventListener("click", () => $("gp-save-file").click());
+      $("gp-save-file").addEventListener("change", (e) => {
+        const file = e.target.files && e.target.files[0];
+        e.target.value = "";
+        if (!file) return;
+        if (file.size > 400000) { setSaveStatus("That file is too big to be a Glitch Pong save.", "error"); return; }
+        const reader = new FileReader();
+        reader.onload = () => reviewImport(String(reader.result || ""));
+        reader.onerror = () => setSaveStatus("Couldn't read that file.", "error");
+        reader.readAsText(file);
+      });
+      $("gp-save-import-code").addEventListener("click", () => reviewImport($("gp-save-code-in").value));
+      $("gp-save-confirm-no").addEventListener("click", () => { pendingImport = null; $("gp-save-confirm").style.display = "none"; setSaveStatus("Import cancelled. Nothing was changed.", ""); });
+      $("gp-save-confirm-yes").addEventListener("click", () => {
+        if (!pendingImport) return;
+        GlitchSave.apply(pendingImport);
+        pendingImport = null;
+        $("gp-save-confirm").style.display = "none";
+        setSaveStatus("Save imported. Restarting Glitch Pong with your progress…", "ok");
+        setTimeout(() => window.location.reload(), 900);
+      });
+    }
+
+    function reviewImport(text) {
+      const body = settingsPanel.querySelector("#gp-save-body");
+      const result = GlitchSave.parse(text);
+      const confirmBox = body.querySelector("#gp-save-confirm");
+      if (!result.ok) { pendingImport = null; confirmBox.style.display = "none"; setSaveStatus(result.error, "error"); return; }
+      pendingImport = result.save;
+      const sm = result.summary;
+      const parts = [`LEVEL ${sm.level}`, `${sm.wins} WINS / ${sm.matches} MATCHES`, `${sm.coins} COINS`, `${sm.prizes} PRIZES`, `${sm.achievements} ACHIEVEMENTS`];
+      if (sm.exportedAt) parts.push(`EXPORTED ${sm.exportedAt.toLocaleDateString()}`);
+      body.querySelector("#gp-save-summary").textContent = parts.join("  ·  ");
+      confirmBox.style.display = "block";
+      setSaveStatus("", "");
+    }
+
+    function setSaveStatus(text, kind) {
+      const el = settingsPanel.querySelector("#gp-save-status");
+      if (!el) return;
+      el.textContent = text;
+      el.style.color = kind === "error" ? "#ff8fab" : kind === "ok" ? "#8ff5b1" : "rgba(225,240,255,.6)";
+    }
 
     // ── Rebindable controls pane builder ─────────────────────────────────
     const ACTIONS = [
@@ -8366,6 +8966,21 @@ function injectGameById(gameId, options = {}) {
       "box-shadow:0 0 14px rgba(103,239,255,.12)", "pointer-events:auto"
     ].join(";");
 
+    const achievementsBtn = document.createElement("button");
+    achievementsBtn.id = "gp-achievements-action";
+    achievementsBtn.classList.add("gp-corner-action");
+    achievementsBtn.type = "button";
+    achievementsBtn.setAttribute("aria-label", "Achievements");
+    achievementsBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4Z"/><path d="M7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3"/></svg><span>ACHIEVEMENTS</span>';
+    achievementsBtn.style.cssText = [
+      "position:absolute", "right:3.2%", "top:calc(4.2% + 46px)", "z-index:4", "box-sizing:border-box", "width:calc(9% + 89px)", "justify-content:center",
+      "display:flex", "align-items:center", "gap:7px", "padding:9px 12px",
+      "border:1px solid rgba(255,209,102,.52)", "border-radius:10px",
+      "background:rgba(9,14,26,.84)", "color:#ffd166",
+      "font:bold 11px monospace", "letter-spacing:.10em", "cursor:pointer",
+      "box-shadow:0 0 14px rgba(255,209,102,.12)", "pointer-events:auto"
+    ].join(";");
+
     // Hosted inside the Glitchcade: give the main menu a way back out to the arcade floor.
     const onExit = typeof options.onExit === "function" ? options.onExit : null;
     let exitBtn = null;
@@ -8394,12 +9009,15 @@ function injectGameById(gameId, options = {}) {
     mainMenu.appendChild(playBtn);
     mainMenu.appendChild(settingsBtn);
     mainMenu.appendChild(statsBtn);
+    mainMenu.appendChild(achievementsBtn);
     mainMenu.appendChild(storeBtn);
     if (exitBtn) mainMenu.appendChild(exitBtn);
     overlay.appendChild(mainMenu);
     overlay.appendChild(settingsPanel);
     overlay.appendChild(storePanel);
     overlay.appendChild(statsPanel);
+    overlay.appendChild(achievementsPanel);
+    overlay.appendChild(achievementToast);
 
     const multiplayerPanel = document.createElement("div");
     const joinPanel = document.createElement("div");
@@ -8502,7 +9120,7 @@ function injectGameById(gameId, options = {}) {
       winScore:   [[3, "3"], [5, "5"], [7, "7"], [11, "11"]],
       startSpeed: [[4, "SLOW"], [6, "NORMAL"], [8, "FAST"], [10, "BLAZING"]],
       speedGain:  [[0, "NONE"], [0.5, "LOW"], [1, "NORMAL"], [1.8, "HIGH"]],
-      maxSpeed:   [[14, "CHILL"], [20, "QUICK"], [28, "INSANE"], [0, "NO LIMIT"]],
+      maxSpeed:   [[14, "CHILL"], [20, "QUICK"], [24, "NORMAL"], [28, "INSANE"], [0, "NO LIMIT"]],
       ballSize:   [[0.7, "SMALL"], [1, "NORMAL"], [1.5, "LARGE"]],
       heatRate:   [[0, "OFF"], [0.5, "SLOW"], [1, "NORMAL"], [1.8, "FAST"]],
       powerups:   [["off", "OFF"], ["normal", "NORMAL"], ["frequent", "FREQUENT"]],
@@ -8520,7 +9138,7 @@ function injectGameById(gameId, options = {}) {
       sentience: "Helps the losing side, gets tired in long rallies, remembers where you missed",
       glitchWalls: "Blocks that spawn mid-court as Heat rises and bounce the ball",
       boss: "At max Heat the Eye fires six shots; a miss gives your opponent 2 points",
-      ownGoal: "Your own colour getting past you scores 2 for the opponent (3 at Critical Heat)"
+      ownGoal: "Your own colour getting past you scores 2 for the opponent (3 at Critical Heat). A glitch that sends the ball back turns it neutral (1 point)"
     };
 
     function matchingPreset() {
@@ -8890,7 +9508,7 @@ function injectGameById(gameId, options = {}) {
       "pointer-events:auto"
     ].join(";");
 
-    [playBtn, settingsBtn, statsBtn, storeBtn, settingsBackBtn, statsBackBtn, storeBackBtn, player1Btn, player2Btn, pauseResumeBtn, pauseQuitBtn, pauseMusicBtn, pauseSfxBtn].forEach((btn) => {
+    [playBtn, settingsBtn, statsBtn, achievementsBtn, storeBtn, settingsBackBtn, statsBackBtn, achievementsBackBtn, storeBackBtn, player1Btn, player2Btn, pauseResumeBtn, pauseQuitBtn, pauseMusicBtn, pauseSfxBtn].forEach((btn) => {
       btn.addEventListener("mouseenter", () => {
         triggerMenuGlitch();
       });
@@ -8947,6 +9565,7 @@ function injectGameById(gameId, options = {}) {
       mainMenu.style.display        = currentScreen === "main"       ? "block" : "none";
       settingsPanel.style.display   = currentScreen === "settings"   ? "block" : "none";
       statsPanel.style.display      = currentScreen === "stats"      ? "block" : "none";
+      achievementsPanel.style.display = currentScreen === "achievements" ? "block" : "none";
       storePanel.style.display      = currentScreen === "store"      ? "block" : "none";
       multiplayerPanel.style.display = currentScreen === "multiplayer" ? "block" : "none";
       joinPanel.style.display       = currentScreen === "online-join" ? "block" : "none";
@@ -9042,6 +9661,7 @@ function injectGameById(gameId, options = {}) {
       startRoundCountdown();
       // Reset per-match progression tracking
       GlitchProgression.beginMatch();
+      matchMaxDeficit = 0;
       matchStartLevel  = GlitchProgression.level;
       matchRallyHits = 0;
       progScreen = null;
@@ -9156,6 +9776,19 @@ function injectGameById(gameId, options = {}) {
     });
 
     statsBackBtn.addEventListener("click", () => {
+      triggerMenuGlitch();
+      showMainMenu();
+    });
+
+    achievementsBtn.addEventListener("click", () => {
+      triggerMenuGlitch();
+      GlitchAchievements.check();
+      buildAchievementsPane();
+      currentScreen = "achievements";
+      syncUiForScreen();
+    });
+
+    achievementsBackBtn.addEventListener("click", () => {
       triggerMenuGlitch();
       showMainMenu();
     });
@@ -9441,6 +10074,12 @@ function injectGameById(gameId, options = {}) {
                 playerScore,
                 opponentScore
               });
+          if (achievementsCount()) {
+            if (playerWon && opponentScore === 0) GlitchAchievements.count("shutoutWins");
+            if (playerWon && matchMaxDeficit >= 4) GlitchAchievements.count("comebackWins");
+            if (playerWon && !twoPlayerMode && aiDifficulty === "hard") GlitchAchievements.count("hardWins");
+            GlitchAchievements.check();
+          }
           const newCosmetics = (aiVsAiMode || customMatch) ? [] : syncCosmeticUnlocks();
           progSummaryData = {
             totalXP:     summaryResult.totalXP    || 0,
@@ -9516,7 +10155,8 @@ function injectGameById(gameId, options = {}) {
             ballX: bossData.projectile.x,
             ballY: bossData.projectile.y,
             vx: bossData.projectile.vx,
-            vy: bossData.projectile.vy
+            vy: bossData.projectile.vy,
+            xScale: 1
           });
           if (bossAiTarget === "left") leftY = clamp(leftY, 0, canvas.height - paddleH);
           else rightY = clamp(rightY, 0, canvas.height - paddleH);
@@ -9557,7 +10197,10 @@ function injectGameById(gameId, options = {}) {
       if (!roundFrozen) {
         const clutchBoost = clutchMode ? 0.22 * rules.heatRate : 0;
         const heatRatio = getHeatRatio();
-        heat = Math.max(0, heat - (HEAT_DECAY_BASE + heatRatio * HEAT_DECAY_SCALE) + clutchBoost);
+        // Scaled by how far the ball moved this frame (in court units), so Heat
+        // per rally doesn't depend on ball speed or screen size.
+        const heatTravel = Math.min(4, Math.abs(vx) / HEAT_COOL_SPEED);
+        heat = Math.max(0, Math.min(HEAT_MAX, heat + (clutchBoost - (HEAT_DECAY_BASE + heatRatio * HEAT_DECAY_SCALE)) * heatTravel));
 
         decoyCooldown -= 1;
         if (decoyCooldown <= 0 && heat > 40 && rules.decoys) {
@@ -9576,7 +10219,7 @@ function injectGameById(gameId, options = {}) {
         for (let i = decoys.length - 1; i >= 0; i--) {
           const decoy = decoys[i];
           const decoyTimeScale = 1;
-          decoy.x += decoy.vx * decoyTimeScale;
+          decoy.x += decoy.vx * decoyTimeScale * courtSpeedScale();
           decoy.y += decoy.vy * decoyTimeScale;
           decoy.life -= 1;
           if (decoy.y <= 10 || decoy.y >= canvas.height - 10) decoy.vy *= -1;
@@ -9615,7 +10258,8 @@ function injectGameById(gameId, options = {}) {
         } else {
           ballX = canvas.width * (0.2 + Math.random() * 0.6);
           ballY = canvas.height * (0.15 + Math.random() * 0.7);
-          if (Math.random() < 0.5 + heatRatio * 0.15) vx = -vx;
+          // A glitch that sends the ball back the way it came makes it neutral (1 point), never an own goal.
+          if (Math.random() < 0.5 + heatRatio * 0.15) { vx = -vx; ballOwner = "neutral"; }
           if (Math.random() < 0.35 + heatRatio * 0.2) vy = -vy;
           glitchPulse = Math.max(glitchPulse, 8 + Math.floor(heatRatio * 10));
           triggerCameraKick((Math.random() - 0.5) * (14 + heatRatio * 10), (Math.random() - 0.5) * (10 + heatRatio * 8), 0.012 + heatRatio * 0.01);
@@ -9646,7 +10290,8 @@ function injectGameById(gameId, options = {}) {
         const clutchVelocityScale = clutchMode ? (1.08 + GlitchProgression.getPerkStat("clutchBoost")) : 1;
         const roundTimeScale = 1;
         updateBlackHoleNexusGameplay(heatRatio);
-        ballX += vx * clutchVelocityScale * roundTimeScale;
+        wallSweepFromX = ballX; wallSweepFromY = ballY;
+        ballX += vx * clutchVelocityScale * roundTimeScale * courtSpeedScale();
         ballY += vy * clutchVelocityScale * roundTimeScale;
 
         // ── Ball Sentience ─────────────────────────────────────────────────
@@ -9753,6 +10398,7 @@ function injectGameById(gameId, options = {}) {
             if (GlitchProgression.hasPerk("packet")) { vx *= 1.10; vy *= 1.10; }
           }
           if (!aiVsAiMode) GlitchProgression.trackRally(matchRallyHits);
+          if (matchRallyHits % 5 === 0 && achievementsCount()) GlitchAchievements.check();
           updateColorCharge("left"); pongAudio.paddleHitCharged(colorCharge);
           glitchPulse = Math.max(glitchPulse, 8 + Math.min(10, Math.floor(returnHeat * 10)));
           triggerCameraKick(10 + returnHeat * 10, (Math.random() - 0.5) * (6 + returnHeat * 6), 0.008 + returnHeat * 0.012);
@@ -9779,6 +10425,7 @@ function injectGameById(gameId, options = {}) {
           awardXP(GlitchProgression.XP_REWARDS.paddleHit, "paddleHit", rightX - 20, ballY);
           if (rallyHits > 0 && rallyHits % 10 === 0) awardXP(GlitchProgression.XP_REWARDS.longRally, "longRally", canvas.width / 2, 40);
           if (!aiVsAiMode) GlitchProgression.trackRally(matchRallyHits);
+          if (matchRallyHits % 5 === 0 && achievementsCount()) GlitchAchievements.check();
           updateColorCharge("right"); pongAudio.paddleHitCharged(colorCharge);
           glitchPulse = Math.max(glitchPulse, 8 + Math.min(10, Math.floor(returnHeat * 10)));
           triggerCameraKick(-(10 + returnHeat * 10), (Math.random() - 0.5) * (6 + returnHeat * 6), 0.008 + returnHeat * 0.012);
@@ -9853,7 +10500,12 @@ function injectGameById(gameId, options = {}) {
       // ── Critical Heat ──────────────────────────────────────────────────
       const wasCritical = criticalHeat;
       criticalHeat = (heat >= HEAT_CRITICAL && !bossModeActive && !roundFrozen);
-      if (criticalHeat && !wasCritical) { criticalHeatTimer = 160; glitchPulse = Math.max(glitchPulse, 20); }
+      if (criticalHeat && !wasCritical) {
+        criticalHeatTimer = 160; glitchPulse = Math.max(glitchPulse, 20);
+        if (achievementsCount()) GlitchAchievements.count("criticalHeat");
+      }
+      // Track the biggest deficit the player (left side) faced this match.
+      if (rightScore - leftScore > matchMaxDeficit) matchMaxDeficit = rightScore - leftScore;
 
       // ── Glitch Walls ───────────────────────────────────────────────────
       if (--glitchWallSpawnCooldown <= 0) {
@@ -9905,13 +10557,15 @@ function injectGameById(gameId, options = {}) {
       if (currentScreen === "online-lobby") { disconnectOnline(); showModeMenu(); return; }
       if (currentScreen === "multiplayer" || currentScreen === "online-join") { showModeMenu(); return; }
       if (currentScreen === "custom") { showModeMenu(); return; }
-      if (currentScreen === "settings" || currentScreen === "stats" || currentScreen === "store" || currentScreen === "mode") { showMainMenu(); return; }
+      if (currentScreen === "settings" || currentScreen === "stats" || currentScreen === "achievements" || currentScreen === "store" || currentScreen === "mode") { showMainMenu(); return; }
       if (currentScreen === "main") exitToHost();
     }
 
     addListener(document, "keydown", (e) => {
       pongAudio.primeFromGesture();
       const code = e.code || "";
+      // Typing in a text field (e.g. pasting a save code) shouldn't trigger game keys.
+      if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) && e.key !== "Escape") return;
 
       if ((e.key === "q" || e.key === "Q") && currentScreen === "game") {
         e.preventDefault();
