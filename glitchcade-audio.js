@@ -437,11 +437,16 @@ export function createArcadeAudio({ isTouch }) {
   }
 
   // ── Mixing per mode ────────────────────────────────────────────────────
-  function applyMode() {
+  function applyMode(immediate = false) {
     if (!ctx) return;
     clearTimeout(suspendTimer);
     const level = muted ? 0 : { intro: 0.7, explore: 1, paused: 0.3, launching: 0.6, playing: 0 }[mode];
-    ramp(master.gain, level, mode === 'playing' ? 0.25 : 0.4);
+    if (immediate) {
+      master.gain.cancelScheduledValues(now());
+      master.gain.value = level;
+    } else {
+      ramp(master.gain, level, mode === 'playing' ? 0.25 : 0.4);
+    }
     if (mode === 'launching') {
       // the room drains away as you lean into the screen
       ramp(indoorIn.gain, 0.15, 0.7);
@@ -508,7 +513,7 @@ export function createArcadeAudio({ isTouch }) {
         else changeMusicZone('street', true);
         // setMode('intro') often ran before the first gesture created ctx.
         // Apply it now so the new master isn't left at buildGraph's zero gain.
-        applyMode();
+        applyMode(true);
       }
       if (ctx.state === 'suspended') ctx.resume().catch(() => {});
       // Also retries after a browser blocks playback until a gesture.
