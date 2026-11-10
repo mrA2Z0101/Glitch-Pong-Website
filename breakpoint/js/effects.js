@@ -1,6 +1,48 @@
 // ============ GLITCH BREAKOUT — visual effects ============
 'use strict';
 
+// Glow cache. A canvas shadow is a blur pass per draw call, and every brick wore
+// two of them every frame (a hundred-plus bricks, so 200+ blurs a frame). The glow
+// around a brick never changes shape, so it is drawn once into a small sprite and
+// stamped from then on. Only the halo is cached: the crisp fill and outline are
+// still drawn directly, so edges stay exact at fractional positions.
+const Glow = (() => {
+  const cache = new Map();
+  let scale = 1;
+  const OFF = 4000;                       // shadows are drawn offset from their shape; draw the shape off-canvas so only the halo lands
+  function make(col, w, h, blur) {
+    const pad = Math.ceil(blur * 2.5) + 2;
+    const cv = document.createElement('canvas');
+    cv.width = Math.ceil(w) + pad * 2;
+    cv.height = Math.ceil(h) + pad * 2;
+    const c = cv.getContext('2d');
+    c.shadowColor = col; c.shadowBlur = blur; c.shadowOffsetX = OFF;
+    c.fillStyle = c.strokeStyle = '#000';
+    c.globalAlpha = 0.28; c.fillRect(pad - OFF, pad, w, h);                 // the translucent fill's halo
+    c.globalAlpha = 1; c.lineWidth = 1.6; c.strokeRect(pad + 1 - OFF, pad + 1, w - 2, h - 2);   // and the outline's
+    return { cv, pad };
+  }
+  return {
+    // 1 = full glow; phones and battery saver draw it smaller (0 = none)
+    setScale(s) { if (s !== scale) { scale = s; cache.clear(); } },
+    get scale() { return scale; },
+    // stamp the halo of a w×h brick at x,y (the caller sets globalAlpha)
+    draw(ctx, x, y, w, h, col, blur = 10) {
+      const b = blur * scale;
+      if (b < 0.5) return;
+      const key = col + '|' + w + '|' + h + '|' + b;
+      let sp = cache.get(key);
+      if (!sp) {
+        if (cache.size > 80) cache.clear();
+        sp = make(col, w, h, b);
+        cache.set(key, sp);
+      }
+      ctx.drawImage(sp.cv, x - sp.pad, y - sp.pad);
+    },
+    get size() { return cache.size; }
+  };
+})();
+
 const FX = (() => {
   let particles = [], texts = [];
   let shakeAmt = 0, flashA = 0, flashCol = '#fff';

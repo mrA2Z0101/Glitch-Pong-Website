@@ -712,10 +712,11 @@ export function installFloor(ctx) {
       const ev = EYE_EVENTS[eye.active];
       eye.t += dt;
       eye.feedT += dt;
-      if (eye.feedT > 1 / 12) {
+      if (eye.feedT > 1 / (isTouch ? 8 : 12)) {
         eye.feedT = 0;
-        drawEyeFeed(eyeFeeds[0], false, ev.name);
-        drawEyeFeed(eyeFeeds[1], true, ev.name);
+        const seen = (yaw) => ctx.tvs.some((tv) => tv.seen && tv.yaw === yaw);
+        if (seen(0)) drawEyeFeed(eyeFeeds[0], false, ev.name);
+        if (seen(Math.PI)) drawEyeFeed(eyeFeeds[1], true, ev.name);
       }
       if (eye.active === 'lag' && exploring) {
         if (reducedMotion) {
@@ -991,6 +992,7 @@ export function installFloor(ctx) {
     refresh();
     return {
       refresh,
+      moving: () => group.visible && (vel.lengthSq() > 1e-4 || pos.y > R + 0.001),
       update(dt, t) {
         if (!group.visible) return;
         bits.forEach((b, i) => b.position.set(Math.cos(t * 2.4 + i * 2.1) * 0.24, Math.sin(t * 3.1 + i) * 0.1, Math.sin(t * 2.4 + i * 2.1) * 0.24));
@@ -1279,7 +1281,8 @@ export function installFloor(ctx) {
   // ───────────────────────────────────────────────────────────────────────
   const ROOM = { x0: hx + ctx.WALL_T, x1: hx + ctx.WALL_T + 6, z0: STAFF_DOOR.z - 3, z1: STAFF_DOOR.z + 3, h: 3.3 };
   const staff = (() => {
-    const wallMat = ctx.matte({ color: 0x1c0a16, roughness: 0.9 });
+    // lit by its own emissive tint rather than a light (see the glow below)
+    const wallMat = ctx.matte({ color: 0x1c0a16, emissive: 0x2e0e1d, roughness: 0.9 });
     const T = 0.25;
     const boxAt = (x0, x1, z0, z1, y0, y1, mat = wallMat, solid = true) => {
       const m = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0), mat);
@@ -1312,10 +1315,9 @@ export function installFloor(ctx) {
       strip.position.set((ROOM.x0 + ROOM.x1) / 2, ROOM.h - 0.25, z);
       scene.add(strip);
     });
-    const lamp = new THREE.PointLight(red, 16, 9, 1.6);
-    lamp.position.set(ROOM.x0 + 3, ROOM.h - 0.4, STAFF_DOOR.z);
-    scene.add(lamp);
-    worldLights.push(lamp);
+    // Not a PointLight: every lit material in the building pays for every light, and
+    // this one only matters to a 6 m room. A floor glow and a hotter floor do the job.
+    ctx.addFloorGlow(scene, new THREE.Color(red), 6, 6, (ROOM.x0 + ROOM.x1) / 2, STAFF_DOOR.z, 0.45);
 
     // ── the door ──
     const dcv = makeCanvas(256, 384);
@@ -1394,7 +1396,8 @@ export function installFloor(ctx) {
         openK += Math.sign(want - openK) * Math.min(Math.abs(want - openK), dt * 0.9);
         door.position.y = STAFF_DOOR.h / 2 + openK * (STAFF_DOOR.h + 0.05);
       },
-      get open() { return open; }
+      get open() { return open; },
+      get moving() { return openK !== (open ? 1 : 0); }
     };
   })();
 
@@ -1897,13 +1900,13 @@ export function installFloor(ctx) {
     hockey.animate(dt, t);
     // repaired cabinets' shared attract screen
     fragT += dt;
-    if (fragT > 1 / 12) {
-      if (ctx.insideFactor() > 0 && F().repaired.length) fragScreen.draw(fragT);
+    if (fragT > 1 / (isTouch ? 8 : 12)) {
+      if (ctx.insideFactor() > 0 && deadCabs.some((c) => c.fragment && ctx.canSee(c.screenCenter, 0.6, c.screenNormal, 22))) fragScreen.draw(fragT);
       fragT = 0;
     }
     // the gauntlet cabinet twitches while you're in its room
     gauntletT += dt;
-    if (gauntletT > 0.16 && player.pos.x > hx) { gauntletT = 0; gauntletCab.draw(); }
+    if (gauntletT > (isTouch ? 0.25 : 0.16) && player.pos.x > hx) { gauntletT = 0; if (ctx.canSee(gauntletCab.entry.screenCenter, 0.7, gauntletCab.entry.screenNormal, 14)) gauntletCab.draw(); }
     if (gauntletCab.entry.eyeSprite) gauntletCab.entry.eyeSprite.material.opacity = 0.7 + Math.sin(t * 2.2) * 0.2;
     // sparks
     for (let i = sparkPool.length - 1; i >= 0; i--) {
@@ -1953,6 +1956,9 @@ export function installFloor(ctx) {
     click() { if (busy && busy.click) busy.click(); },
     updateBusy(dt) { if (busy && busy.update) busy.update(dt); },
     coversWorld() { return !!(busy && busy.covers); },
+    menuOpen() { return !!(busy && busy.kind === 'list'); },
+    // Something is moving that deserves full frame rate even though the player is standing still.
+    animating() { return !!eye.active || sparkPool.length > 0 || ball.moving() || staff.moving; },
     hidesArms() { return !!busy && (busy.kind === 'hockey' || busy.kind === 'photo'); },
     // The pointer lock was lost (Esc): drop whatever was going on. A ROM
     // fragment never holds the lock, so it carries on.

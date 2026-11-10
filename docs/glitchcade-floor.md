@@ -105,4 +105,4 @@ Press P (or the PHOTO button on a phone). Aim with the mouse, zoom with W/S, cli
 
 ## Performance note
 
-Cabinets 03–10 are batched one cabinet at a time instead of into the building-wide batches, because a Quantum Shift has to move them. From the front door that is roughly 100 more draw calls than before (about 215 to 325); frame CPU time measured the same.
+Cabinets 03–10 are batched one cabinet at a time instead of into the building-wide batches, because a Quantum Shift has to move them. From the front door that is roughly 100 more draw calls than before (about 215 to 325); frame CPU time measured the same. For frame rate, battery saver and phone heat see `power.md`.

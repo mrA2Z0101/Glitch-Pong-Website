@@ -2226,8 +2226,13 @@ function injectGameById(gameId, options = {}) {
       } catch (error) {}
     }
 
+    // The player's switch, or the arcade's low-battery check (glitchcade-power.js).
+    function savingPower() {
+      return batterySaverEnabled || !!(window.GlitchPower && window.GlitchPower.lowBattery);
+    }
+
     function getVisualQualityScale() {
-      if (batterySaverEnabled) return 0.42;
+      if (savingPower()) return 0.42;
       return adaptiveQualityLevel === 2 ? 1 : adaptiveQualityLevel === 1 ? 0.72 : 0.50;
     }
 
@@ -2239,7 +2244,7 @@ function injectGameById(gameId, options = {}) {
     // shadowBlur is the most expensive thing a 2D canvas draws, and the neon look
     // uses it everywhere. Shrink every glow radius when quality steps down.
     function shadowBlurScale() {
-      if (batterySaverEnabled) return 0.3;
+      if (savingPower()) return 0.3;
       return adaptiveQualityLevel === 2 ? 1 : adaptiveQualityLevel === 1 ? 0.6 : 0.3;
     }
     const nativeShadowBlur = Object.getOwnPropertyDescriptor(CanvasRenderingContext2D.prototype, "shadowBlur");
@@ -2252,7 +2257,7 @@ function injectGameById(gameId, options = {}) {
     }
 
     function sampleAdaptiveQuality(now) {
-      if (batterySaverEnabled || currentScreen !== "game" || isPaused || document.hidden) {
+      if (savingPower() || currentScreen !== "game" || isPaused || document.hidden) {
         qualitySampleStart = now || performance.now();
         qualitySampleFrames = 0;
         return;
@@ -2945,7 +2950,7 @@ function injectGameById(gameId, options = {}) {
       }
 
       function updateNexusHum(heatRatio) {
-        const active = currentArenaId === "blackhole" && !menuActive && modeSelected && !gameOver && musicEnabled && !batterySaverEnabled;
+        const active = currentArenaId === "blackhole" && !menuActive && modeSelected && !gameOver && musicEnabled && !savingPower();
         if (!active) {
           stopNexusHum();
           return;
@@ -10207,7 +10212,18 @@ function injectGameById(gameId, options = {}) {
       currentArenaId = savedArenaId;
     }
 
+    // Gameplay here is counted in frames (the ball moves `vx` a frame, cooldowns tick
+    // down by one a frame), so it is built for 60 a second. Holding it there keeps a
+    // 90, 120 or 144 Hz display from running the game faster than designed while doing
+    // twice the work; a 60 Hz display is untouched. A paused game is a still picture.
+    const loopPacer = window.GlitchPower ? window.GlitchPower.createPacer() : null;
+    function loopFps() {
+      if (isPaused && modeSelected) return 20;
+      if (!modeSelected && savingPower()) return 30;
+      return 60;
+    }
     function loop(now = performance.now()) {
+      if (loopPacer && !loopPacer.due(now, loopFps())) { state.raf = requestAnimationFrame(loop); return; }
       sampleAdaptiveQuality(now);
       // Always clear canvas first — prevents old content from bleeding through
       ctx.save();

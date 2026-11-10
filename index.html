@@ -542,6 +542,21 @@ body.gc-busy #gcRobotSay { bottom: auto; top: max(13%, 88px); }
   background: radial-gradient(ellipse at center, rgba(10,0,6,.35) 0%, rgba(4,0,3,.9) 62%, #020001 100%);
 }
 
+/* battery saver: next to the sound button, lit while it's on */
+#gcSaver {
+  position: absolute;
+  top: max(14px, env(safe-area-inset-top)); right: calc(max(16px, env(safe-area-inset-right)) + 52px);
+  width: 44px; height: 44px;
+  display: grid; place-items: center;
+  background: var(--panel); border: 1px solid var(--line); color: var(--muted);
+  cursor: pointer; pointer-events: auto;
+  clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+}
+#gcSaver.on { color: #50fa7b; border-color: rgba(80,250,123,.6); }
+#gcSaver:focus-visible { outline: none; border-color: var(--cyan); }
+.gm-saver { width: 340px; max-width: 78vw; flex: none; }
+.gm-saver.on { color: #8ff5b1; }
+
 #gcPhotoBtn {
   position: absolute;
   top: calc(max(14px, env(safe-area-inset-top)) + 54px); right: max(16px, env(safe-area-inset-right));
@@ -652,6 +667,9 @@ body.gc-touch .gf-pad { display: flex; }
 
   <div id="gcHud">
     <div class="gc-badge">GLITCHCADE <b>//</b> <span id="gcOnline">2/10</span> ONLINE</div>
+    <button id="gcSaver" type="button" aria-pressed="false" aria-label="Battery saver" title="Battery saver (B)">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>
+    </button>
     <div id="gcCoins" aria-live="polite"></div>
     <div id="gcRobotSay" role="status" aria-live="polite"><b>PRIZETRON-80</b><span id="gcRobotText"></span></div>
     <div id="gcCrosshair"></div>
@@ -685,6 +703,7 @@ body.gc-touch .gf-pad { display: flex; }
         <button id="gcMenuGP" class="gm-btn sm" type="button" disabled>Glitch Pong</button>
         <button id="gcMenuBP" class="gm-btn sm" type="button" disabled>Breakpoint</button>
       </div>
+      <button id="gcMenuSaver" class="gm-btn sm gm-saver" type="button" aria-pressed="false">Battery Saver: Off</button>
       <div class="gm-stats">
         <span>Cabinets <b id="gmCabs">2/10</b></span>
         <span>◎ Coins <b id="gmCoins">0</b></span>
@@ -758,13 +777,14 @@ body.gc-touch .gf-pad { display: flex; }
 <!-- Served by the local multiplayer server. This 404s harmlessly in static-only mode. -->
 <script src="/socket.io/socket.io.js"></script>
 <script src="glitchpong-cosmetics.js?v=cosmetics-2"></script>
-<script src="glitchpong-site.js?v=glitchcade-11"></script>
-<script type="module" src="glitchcade.js?v=glitchcade-17"></script>
+<script src="glitchcade-power.js?v=power-1"></script>
+<script src="glitchpong-site.js?v=glitchcade-12"></script>
+<script type="module" src="glitchcade.js?v=glitchcade-18"></script>
 
 <script>
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
   window.addEventListener('load', function () {
-    navigator.serviceWorker.register('./service-worker.js?v=floor-23', { updateViaCache: 'none' })
+    navigator.serviceWorker.register('./service-worker.js?v=power-24', { updateViaCache: 'none' })
       .then(function (registration) { return registration.update(); })
       .catch(function () {});
   }, { once: true });

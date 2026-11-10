@@ -34,6 +34,33 @@ const scene = document.createElement('canvas');
 scene.width = CFG.W; scene.height = CFG.H;
 const ctx = scene.getContext('2d');
 
+// ---------------- power: frame pacing, glow size, battery saver ----------------
+// glitchcade-power.js is shared with the arcade and Glitch Pong; the stub keeps this
+// page working when it is opened on its own without it.
+const Power = window.GlitchPower || {
+  saving: false, state: 'off', batterySaver: false, setBatterySaver() { return false; }, onChange() {},
+  createPacer: () => ({ due: () => true, reset() {} }), fpsFor: () => Infinity
+};
+// Every shadowBlur on the game canvas goes through this: phones draw their glows
+// smaller, battery saver smaller still. Canvas shadows are the costliest thing
+// a 2D canvas does.
+let glowK = 1;
+function updateGlowScale() {
+  glowK = Power.saving ? 0.3 : IS_TOUCH ? 0.7 : 1;
+  Glow.setScale(glowK);
+  document.body.classList.toggle('saver', Power.saving);
+}
+const nativeShadowBlur = Object.getOwnPropertyDescriptor(CanvasRenderingContext2D.prototype, 'shadowBlur');
+if (nativeShadowBlur && nativeShadowBlur.set) {
+  Object.defineProperty(ctx, 'shadowBlur', {
+    configurable: true,
+    get() { return nativeShadowBlur.get.call(this); },
+    set(v) { nativeShadowBlur.set.call(this, v * glowK); }
+  });
+}
+updateGlowScale();
+Power.onChange(() => { updateGlowScale(); refreshSaverBtn(); });
+
 const SCREENS = ['scrMenu', 'scrModes', 'scrShop', 'scrAchv', 'scrHelp', 'scrSettings', 'scrPause', 'scrClear', 'scrOver'];
 function showScreen(id) {
   for (const s of SCREENS) $(s).classList.toggle('on', s === id);
@@ -1948,6 +1975,18 @@ function applyFxSetting() {
   $('btnFx').textContent = 'Screen FX: ' + (reduced ? 'REDUCED' : 'FULL');
   $('btnFx').classList.toggle('ghostc', reduced);
 }
+// Battery saver: shared with Glitch Pong and the arcade (same stored switch)
+function refreshSaverBtn() {
+  const label = Power.state === 'on' ? 'ON' : Power.state === 'auto' ? 'AUTO · LOW BATTERY' : 'OFF';
+  $('btnSaver').textContent = 'Battery Saver: ' + label;
+  $('btnSaver').classList.toggle('ghostc', !Power.saving);
+}
+$('btnSaver').onclick = () => {
+  AudioSys.init(); AudioSys.sfx('click');
+  Power.setBatterySaver(!Power.batterySaver);
+  updateGlowScale();
+  refreshSaverBtn();
+};
 $('btnFx').onclick = () => {
   AudioSys.init(); AudioSys.sfx('click');
   Meta.data.reducedFx = !FX.reduced;
@@ -2023,6 +2062,7 @@ refreshMenuStats();
 refreshAiRewardsBtn();
 refreshPaddleColorBtn();
 refreshSentienceBtn();
+refreshSaverBtn();
 applyFxSetting();
 
 // ---------------- layout: the playfield takes the screen's shape ----------------
@@ -2116,7 +2156,17 @@ applyLayout();
 document.fonts?.ready.then(() => { if (game.attract) onScreenChange(); else fitToScreen(); });   // HUD height settles once the web fonts land
 
 let lastT = performance.now();
+// How many frames a second this moment deserves. The menu, its demo and the result
+// screens sit behind a veil; a paused game is a still picture. Play gets the full rate.
+const pacer = Power.createPacer();
+function wantFps() {
+  if (game.state === 'pause') return Power.saving ? 5 : 8;
+  const s = game.state;
+  const mode = game.attract || s === 'menu' || s === 'clear' || s === 'over' ? 'idle' : 'active';
+  return Power.fpsFor({ touch: IS_TOUCH, saving: Power.saving, mode });
+}
 function frame(now) {
+  if (!pacer.due(now, wantFps())) { requestAnimationFrame(frame); return; }
   const rawDt = Math.min(0.033, (now - lastT) / 1000);
   lastT = now;
   game.update(rawDt);
@@ -2133,6 +2183,18 @@ function frame(now) {
   }
   requestAnimationFrame(frame);
 }
+// Backgrounded (another app, a locked phone): pause a run, rest the audio, and don't
+// let the first frame back see a huge gap.
+document.addEventListener('visibilitychange', () => {
+  AudioSys.setHidden(document.hidden);
+  if (document.hidden) {
+    input.left = input.right = false;
+    if (!game.attract && !game.autoplay && (game.state === 'play' || game.state === 'serve')) game.togglePause(true);
+  } else {
+    lastT = performance.now();
+    pacer.reset();
+  }
+});
 game.arena = ARENAS[0];
 game.startAttract();
 requestAnimationFrame(frame);

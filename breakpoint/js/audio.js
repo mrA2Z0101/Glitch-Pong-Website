@@ -328,6 +328,18 @@ const AudioSys = (() => {
     for (const key of Object.keys(positions)) delete positions[key];
     if (ctx) { updateMusicFX(); rampParam(fadeGain.gain, 0, 0); }
   }
+  // The page went to the background (or came back): stop the music and the audio
+  // engine rather than keep them running for nobody.
+  function setHidden(h) {
+    if (!ctx) return;
+    if (h) {
+      if (musicEl) musicEl.pause();
+      ctx.suspend().catch(() => {});
+    } else {
+      ctx.resume().catch(() => {});
+      if (started && !muted && musicEl && musicEl.paused) musicEl.play().catch(() => {});
+    }
+  }
   function setGlitch(a) { glitchAmt = Number.isFinite(a) ? Math.max(0, Math.min(1, a)) : 0; }
   function setEvent(id) {
     musicEvent = EVENT_THEMES[id] ? id : null;
@@ -336,7 +348,7 @@ const AudioSys = (() => {
     changeTheme(desiredTheme());
   }
 
-  return { init, setVolume, setMuted, sfx, countdown, startMusic, stopMusic, setGlitch, setEvent,
+  return { init, setVolume, setMuted, sfx, countdown, startMusic, stopMusic, setGlitch, setEvent, setHidden,
     get musicState() {
       return { theme: musicKey, desiredTheme: wantedMusicKey, event: musicEvent,
         rate: musicEl?.playbackRate || 1, cutoff: musicFilter?.frequency.value,

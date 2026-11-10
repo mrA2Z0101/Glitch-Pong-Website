@@ -310,7 +310,8 @@ class Brick {
     let jx = 0, jy = 0;
     if (this.corrupt > 0 && chance(this.corrupt * 0.3)) { jx = rand(-2, 2); jy = rand(-1, 1); }
     ctx.translate(jx, jy);
-    ctx.shadowColor = col; ctx.shadowBlur = 10;
+    ctx.globalAlpha = alpha;
+    Glow.draw(ctx, x, y, w, h, col);          // the halo, from a cached sprite (see effects.js)
     ctx.fillStyle = this.flashT > 0 ? '#ffffff' : col;
     ctx.globalAlpha = alpha * 0.28;
     ctx.fillRect(x, y, w, h);
@@ -318,7 +319,6 @@ class Brick {
     ctx.strokeStyle = this.flashT > 0 ? '#fff' : col;
     ctx.lineWidth = 1.6;
     ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
-    ctx.shadowBlur = 0;
     // hp cracks
     if (this.maxHp > 1 && this.hp < this.maxHp && this.hp > 0) {
       ctx.strokeStyle = 'rgba(255,255,255,.7)';
