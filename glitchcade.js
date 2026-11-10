@@ -8,7 +8,7 @@ import { RenderPass } from './vendor/three-addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from './vendor/three-addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from './vendor/three-addons/postprocessing/OutputPass.js';
 import { mergeGeometries } from './vendor/three-addons/utils/BufferGeometryUtils.js';
-import { createArcadeAudio } from './glitchcade-audio.js?v=glitchcade-7';
+import { createArcadeAudio } from './glitchcade-audio.js?v=glitchcade-8';
 
 // ─── Palette (matches the site's design tokens) ─────────────────────────────
 const C = {
@@ -1268,7 +1268,10 @@ function bakeScene() {
     removed += bakeStatic(r.root, (o) => o === r.torso);
     removed += bakeStatic(r.torso, (o) => o === r.head || o === r.armL.arm || o === r.armR.arm);
     removed += bakeStatic(r.head);
-    [r.armL, r.armR].forEach((a) => { removed += bakeStatic(a.arm, (o) => o === a.claw); });
+    [r.armL, r.armR].forEach((a) => {
+      removed += bakeStatic(a.arm, (o) => o === a.elbow);
+      removed += bakeStatic(a.elbow, (o) => o === a.claw);
+    });
   }
   removed += bakeStatic(scene);
   return removed;
@@ -2517,19 +2520,23 @@ function buildRobot() {
       arm.add(rib);
     }
     cyl(0.03, 0.03, 0.4, holoDim, 0, -0.2, 0, arm, 10);
-    const elbow = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 10), holo);
+    const elbowBall = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 10), holo);
+    elbowBall.position.y = -0.43;
+    arm.add(elbowBall);
+    // The forearm and claw hang off an elbow joint so the dance can bend it.
+    const elbow = new THREE.Group();
     elbow.position.y = -0.43;
     arm.add(elbow);
-    const fore = cyl(0.05, 0.045, 0.28, holo, 0, -0.43, 0.14, arm, 14);
+    const fore = cyl(0.05, 0.045, 0.28, holo, 0, 0, 0.14, elbow, 14);
     fore.rotation.x = Math.PI / 2;
     const claw = new THREE.Group();
-    claw.position.set(0, -0.43, 0.3);
-    arm.add(claw);
+    claw.position.set(0, 0, 0.3);
+    elbow.add(claw);
     const fingers = [-1, 1].map((f) => {
       const finger = box(0.025, 0.03, 0.11, holoPink, f * 0.035, 0, 0.05, claw);
       return finger;
     });
-    return { arm, claw, fingers };
+    return { arm, elbow, claw, fingers };
   };
   const armL = makeArm(-1);
   const armR = makeArm(1);
@@ -2575,8 +2582,104 @@ function buildRobot() {
   return {
     root, torso, head, armL, armR, eyes, mouth, antennae, chestLights, needle,
     yaw: 0, pitch: 0, flickerT: 0, blinkT: 0, waveT: 0, talkT: 0,
-    inZone: false, lastGreet: -999, pending: null
+    inZone: false, lastGreet: -999, pending: null,
+    dancing: false, danceW: 0, lastBeat: null, lastBar: null, beatFlash: 0
   };
+}
+
+// ── PRIZETRON's robot dance ──
+// Poses are keyed to beats of the jukebox song (audio.beatClock()). Each beat
+// the robot SNAPS into the next pose in a few hundredths of a second and then
+// holds it — the stiff, ticking feel of "the robot". A new move starts every
+// two bars, so changes land on the music's phrase boundaries.
+//   arm x: 0 = hanging down, -π/2 = straight forward, -π = straight up
+//   arm z: raises the arm sideways (right arm +, left arm −)
+//   elbow: 0 = forearm forward (an L), −π/2 = forearm up, +π/2 = straight arm
+const DANCE_REST = { rootY: 0, tY: 0, tZ: 0, hY: 0, hX: 0, hZ: 0, lX: -0.55, lZ: -0.08, lE: 0, rX: -0.55, rZ: 0.08, rE: 0, claw: 0.035 };
+const robotPose = (o) => Object.assign({}, DANCE_REST, o);
+// Moves keep the claws above the prize counter (≈1.2 m), which hides his
+// lower half from the player.
+const DANCE_MOVES = [
+  { // THE ROBOT: elbows up at shoulder height, forearms tick up and down in turn
+    name: 'ROBOT ARMS',
+    pose: (n) => wrap(n, 2) === 0
+      ? robotPose({ lX: -1.35, lZ: -0.35, lE: 0, rX: -1.35, rZ: 0.35, rE: 2.5, hY: 0.38, tY: 0.12 })
+      : robotPose({ lX: -1.35, lZ: -0.35, lE: 2.5, rX: -1.35, rZ: 0.35, rE: 0, hY: -0.38, tY: -0.12 })
+  },
+  { // DISCO POINT: right arm points to the sky, then down across the body
+    name: 'DISCO POINT',
+    pose: (n) => wrap(n, 2) === 0
+      ? robotPose({ rX: -2.55, rZ: 0.55, rE: 1.45, lX: -1.2, lZ: -0.5, lE: 0.2, hY: 0.3, hX: -0.32, tZ: -0.08 })
+      : robotPose({ rX: -1.0, rZ: -0.5, rE: 1.45, lX: -1.2, lZ: -0.5, lE: 0.2, hY: -0.25, hX: 0.22, tZ: 0.06 })
+  },
+  { // POP & LOCK: torso ticks left, centre, right, centre; forearms flip up on 4
+    name: 'POP & LOCK',
+    pose: (n) => {
+      const k = wrap(n, 4);
+      const tY = [0.42, 0, -0.42, 0][k];
+      const e = k === 3 ? 0 : 1.35;
+      return robotPose({ tY, hY: -tY * 0.7, lX: -1.3, lZ: -0.2, lE: e, rX: -1.3, rZ: 0.2, rE: e, hX: k === 3 ? -0.18 : 0.05 });
+    }
+  },
+  { // ARM WAVE: arms out to the sides, a ripple travels hand to hand
+    name: 'ARM WAVE',
+    smooth: true,
+    pose: (n, f) => {
+      const s = (wrap(n, 4) + f) / 2;                    // one ripple every two beats
+      const a = Math.sin(s * Math.PI * 2);
+      const b = Math.sin(s * Math.PI * 2 - Math.PI * 0.9);
+      return robotPose({ lX: -0.1, lZ: -1.45 + a * 0.22, lE: a * 0.8, rX: -0.1, rZ: 1.45 + b * 0.22, rE: b * 0.8, hZ: (a - b) * 0.12, tZ: (b - a) * 0.05 });
+    }
+  },
+  { // CLAW CLAP: arms forward, claws snap together on every beat, head bobs
+    name: 'CLAW CLAP',
+    pose: (n) => wrap(n, 2) === 0
+      ? robotPose({ lX: -1.7, lZ: 0.2, lE: 1.4, rX: -1.7, rZ: -0.2, rE: 1.4, hX: 0.25, claw: 0.015 })
+      : robotPose({ lX: -1.7, lZ: -0.55, lE: 1.4, rX: -1.7, rZ: 0.55, rE: 1.4, hX: -0.12, claw: 0.05 })
+  },
+  { // TREAD TURN: quarter-turn shuffle on the treads, punching forward each beat
+    name: 'TREAD TURN',
+    pose: (n) => {
+      const k = wrap(n, 8);
+      const rootY = [0.45, 0.9, 0.45, 0, -0.45, -0.9, -0.45, 0][k];
+      return wrap(n, 2) === 0
+        ? robotPose({ rootY, lX: -1.55, lZ: -0.1, lE: 1.5, rX: -1.3, rZ: 0.3, rE: 0, hY: -rootY * 0.4 })
+        : robotPose({ rootY, lX: -1.3, lZ: -0.3, lE: 0, rX: -1.55, rZ: 0.1, rE: 1.5, hY: -rootY * 0.4 });
+    }
+  }
+];
+const DANCE_KEYS = Object.keys(DANCE_REST);
+// Beat numbers go negative before a song's first beat, so wrap like a clock.
+const wrap = (n, m) => ((n % m) + m) % m;
+
+// Snap into a pose quickly, then hold it for the rest of the beat.
+function danceSnap(f) {
+  const k = Math.min(1, f / 0.14);
+  return 1 - Math.pow(1 - k, 3);
+}
+
+// Falls back to an internal 112.5 BPM clock while the music is muted/paused,
+// so he still dances, just to his own count.
+function danceClock(t) {
+  const c = audio && audio.ready ? audio.beatClock() : null;
+  if (c && c.playing) return c;
+  return { playing: false, bpm: 112.5, beat: t * 112.5 / 60, down: 0, level: 0.65, kick: false };
+}
+
+function dancePose(clock) {
+  const barBeat = clock.beat - clock.down;          // beat 0 of the grid's first bar
+  const n = Math.floor(barBeat);
+  const f = barBeat - n;
+  const moveOf = (beatIdx) => DANCE_MOVES[wrap(Math.floor(beatIdx / 8), DANCE_MOVES.length)];
+  const move = moveOf(n);
+  if (move.smooth) return { pose: move.pose(n, f), move, n, f };
+  const prevMove = moveOf(n - 1);
+  const from = prevMove.smooth ? prevMove.pose(n - 1, 0.999) : prevMove.pose(n - 1, 0);
+  const to = move.pose(n, 0);
+  const k = danceSnap(f);
+  const out = {};
+  DANCE_KEYS.forEach((key) => { out[key] = from[key] + (to[key] - from[key]) * k; });
+  return { pose: out, move, n, f };
 }
 
 function updateRobot(dt, t) {
@@ -2590,7 +2693,6 @@ function updateRobot(dt, t) {
   holoUniforms.uFlicker.value = r.flickerT > 0 ? 0.3 + Math.random() * 0.5 : 0.92 + Math.sin(t * 31) * 0.05;
   r.root.position.x = ROBOT_POS.x + (r.flickerT > 0 ? (Math.random() - 0.5) * 0.06 : 0);
   r.root.scale.y = r.flickerT > 0 ? 0.97 + Math.random() * 0.06 : 1;
-  r.torso.position.y = 0.8 + Math.sin(t * 1.6) * 0.015;
 
   // the head follows the player wherever they walk
   const headWorld = r.head.getWorldPosition(tmpV1);
@@ -2602,32 +2704,97 @@ function updateRobot(dt, t) {
   const k = 1 - Math.exp(-dt * 6);
   r.yaw += (yaw - r.yaw) * k;
   r.pitch += (pitch - r.pitch) * k;
-  r.torso.rotation.y = r.yaw * 0.3;
-  r.head.rotation.y = r.yaw * 0.7;
-  r.head.rotation.x = r.pitch;
+  if (!Number.isFinite(r.yaw)) r.yaw = 0;
+  if (!Number.isFinite(r.pitch)) r.pitch = 0;
 
-  // blink, chest lights, dial, antenna tips
-  r.blinkT -= dt;
-  if (r.blinkT < -3 - Math.random() * 3) r.blinkT = 0.12;
-  r.eyes.forEach((e) => { e.scale.y = r.blinkT > 0 ? 0.12 : 1; });
-  r.chestLights.forEach((l, i) => { l.material.opacity = Math.sin(t * (2 + i) + i * 2) > 0 ? 0.95 : 0.25; });
-  r.needle.rotation.z = Math.sin(t * 1.3) * 0.9;
-  r.antennae.forEach((a, i) => { a.material.opacity = Math.sin(t * 4 + i * Math.PI) > 0 ? 1 : 0.3; });
+  // dance when the player walks up to the counter (wider exit than entry)
+  const dist = Math.hypot(player.pos.x - ROBOT_POS.x, player.pos.z - ROBOT_POS.z);
+  if (gameState !== 'explore') r.dancing = false;
+  else if (!r.dancing && dist < 8.5) r.dancing = true;
+  else if (r.dancing && dist > 10.5) r.dancing = false;
+  r.danceW += ((r.dancing ? 1 : 0) - r.danceW) * (1 - Math.exp(-dt * 4));
+  const w = r.danceW < 0.002 ? 0 : r.danceW;
 
-  // arms: idle forward rest, a wave when greeting, claws chatter while talking
+  // idle pose (what he did before the dance existed)
   r.waveT = Math.max(0, r.waveT - dt);
   r.talkT = Math.max(0, r.talkT - dt);
   const rest = -0.55 + Math.sin(t * 1.2) * 0.04;
-  r.armL.arm.rotation.set(rest, 0, -0.08);
-  if (r.waveT > 0) r.armR.arm.rotation.set(0, 0, 2.3 + Math.sin(t * 12) * 0.3);
-  else r.armR.arm.rotation.set(rest + (r.talkT > 0 ? Math.sin(t * 7) * 0.12 : 0), 0, 0.08);
-  const pinch = r.talkT > 0 ? 0.02 + Math.abs(Math.sin(t * 14)) * 0.03 : 0.035;
-  [r.armL, r.armR].forEach((a) => a.fingers.forEach((f, i) => { f.position.x = (i ? 1 : -1) * pinch; }));
+  const idle = robotPose({
+    tY: r.yaw * 0.3, hY: r.yaw * 0.7, hX: r.pitch,
+    lX: rest, rX: rest + (r.talkT > 0 ? Math.sin(t * 7) * 0.12 : 0),
+    claw: r.talkT > 0 ? 0.02 + Math.abs(Math.sin(t * 14)) * 0.03 : 0.035
+  });
+
+  let p = idle;
+  let bounce = 0;
+  let onBeat = false;
+  if (w > 0) {
+    const clock = danceClock(t);
+    const { pose: dp, n, f, move } = dancePose(clock);
+    r.danceMove = move.name;
+    r.danceClock = clock;
+    // Louder music (the drop) = bigger moves; quiet intros = smaller ones.
+    const energy = clock.playing ? 0.6 + 0.4 * Math.min(1, clock.level * 1.15) : 0.85;
+    const motion = reducedMotion ? 0.5 : 1;
+    p = {};
+    DANCE_KEYS.forEach((key) => {
+      const target = DANCE_REST[key] + (dp[key] - DANCE_REST[key]) * energy * (key === 'rootY' ? motion : 1);
+      p[key] = idle[key] + (target - idle[key]) * w;
+    });
+    // keep half an eye on the player while dancing
+    p.hY += r.yaw * 0.3 * w;
+    p.hX += r.pitch * 0.4 * w;
+    bounce = Math.exp(-f * 7) * 0.045 * energy * w * motion;   // a dip on every beat
+    if (r.lastBeat !== n) {
+      onBeat = r.lastBeat !== null;
+      r.lastBeat = n;
+      r.beatFlash = 1;
+      // the hologram glitches on each new 8-bar phrase
+      const bar = Math.floor(n / 4);
+      if (onBeat && bar !== r.lastBar && bar % 8 === 0 && !reducedMotion) r.flickerT = 0.1;
+      r.lastBar = bar;
+    }
+  }
+  r.beatFlash = Math.max(0, r.beatFlash - dt * 5);
+
+  // the greeting wave wins over the dance for the right arm
+  if (r.waveT > 0) {
+    const ww = Math.min(1, r.waveT * 3);
+    p.rX += (0 - p.rX) * ww; p.rE += (0 - p.rE) * ww;
+    p.rZ += (2.3 + Math.sin(t * 12) * 0.3 - p.rZ) * ww;
+  }
+
+  // A non-finite value would hide him for good (it feeds back through the
+  // head-follow), so drop a bad frame instead of applying it.
+  if (!DANCE_KEYS.every((key) => Number.isFinite(p[key]))) p = idle;
+  r.root.rotation.y = p.rootY;
+  r.torso.position.y = 0.8 + Math.sin(t * 1.6) * 0.015 * (1 - w) - bounce;
+  r.torso.rotation.set(0, p.tY, p.tZ);
+  r.head.rotation.set(p.hX, p.hY, p.hZ);
+  r.armL.arm.rotation.set(p.lX, 0, p.lZ);
+  r.armR.arm.rotation.set(p.rX, 0, p.rZ);
+  r.armL.elbow.rotation.x = p.lE;
+  r.armR.elbow.rotation.x = p.rE;
+  [r.armL, r.armR].forEach((a) => a.fingers.forEach((fg, i) => { fg.position.x = (i ? 1 : -1) * p.claw; }));
+
+  // blink, chest lights, dial, antenna tips — they pulse to the beat while dancing
+  r.blinkT -= dt;
+  if (r.blinkT < -3 - Math.random() * 3) r.blinkT = 0.12;
+  r.eyes.forEach((e) => { e.scale.y = r.blinkT > 0 ? 0.12 : 1; });
+  if (w > 0.5) {
+    const lit = wrap(r.lastBeat || 0, 3);
+    r.chestLights.forEach((l, i) => { l.material.opacity = i === lit ? 0.35 + 0.6 * Math.max(r.beatFlash, 0.4) : 0.18; });
+    r.antennae.forEach((a) => { a.material.opacity = 0.3 + 0.7 * r.beatFlash; });
+    r.needle.rotation.z = (wrap(r.lastBeat || 0, 2) ? -0.7 : 0.7) * danceSnap(1 - r.beatFlash);
+  } else {
+    r.chestLights.forEach((l, i) => { l.material.opacity = Math.sin(t * (2 + i) + i * 2) > 0 ? 0.95 : 0.25; });
+    r.needle.rotation.z = Math.sin(t * 1.3) * 0.9;
+    r.antennae.forEach((a, i) => { a.material.opacity = Math.sin(t * 4 + i * Math.PI) > 0 ? 1 : 0.3; });
+  }
   r.mouth.forEach((m, i) => { m.material.opacity = r.talkT > 0 ? (Math.sin(t * 22 + i) > 0 ? 1 : 0.2) : 0.45; });
 
   // greet the player when they walk up to the counter
   if (gameState !== 'explore') return;
-  const dist = Math.hypot(player.pos.x - ROBOT_POS.x, player.pos.z - ROBOT_POS.z);
   if (!r.inZone && dist < 7.5) {
     r.inZone = true;
     if (r.pending || elapsed - r.lastGreet > 25) {
