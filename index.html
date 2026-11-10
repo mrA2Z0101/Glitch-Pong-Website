@@ -459,7 +459,161 @@ body.gc-touch .gm-keys.touch { display: grid; }
 .gm-note { font: 12px/1.7 'Share Tech Mono', monospace; color: var(--muted); letter-spacing: .06em; text-shadow: 0 2px 8px rgba(0,0,0,.9); }
 .gm-back { flex: none; width: 160px; }
 
+/* ===== Arcade floor: menus, activity bar, the Eye's events, photo mode ===== */
+body.gc-busy #gcCrosshair, body.gc-busy #gcPrompt, body.gc-busy #gcHints,
+body.gc-busy #gcJoy, body.gc-busy #gcJump, body.gc-busy #gcUse, body.gc-busy #gcPhotoBtn { display: none; }
+
+/* PRIZETRON heckles from the top of the screen while you're at the table */
+body.gc-busy #gcRobotSay { bottom: auto; top: max(13%, 88px); }
+@media (max-height: 500px) {
+  /* short screens: tuck him beside the sound button so he doesn't cover the table */
+  body.gc-busy #gcRobotSay, body.gc-busy #gcRobotSay.show {
+    left: auto; right: 72px; top: 8px; transform: none;
+    width: min(300px, 40vw); padding: 8px 12px; font-size: 11px;
+  }
+}
+
+#gcList {
+  position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(560px, 92vw); max-height: 78vh;
+  display: none; flex-direction: column;
+  padding: 18px 20px 14px;
+  background: rgba(6,8,22,0.94);
+  border: 1px solid var(--pink);
+  box-shadow: 0 0 30px rgba(255,88,217,.3), inset 0 0 22px rgba(113,239,255,.07);
+  pointer-events: auto;
+}
+#gcList.on { display: flex; }
+#gcList h3 { font: 900 20px 'Orbitron', monospace; letter-spacing: .18em; color: var(--text); text-shadow: -2px 0 0 var(--cyan), 2px 0 0 var(--pink); }
+#gcList p { margin: 6px 0 12px; font: 12px 'Share Tech Mono', monospace; letter-spacing: .1em; color: var(--amber); }
+#gcList ul { list-style: none; overflow-y: auto; border-top: 1px solid var(--line); }
+#gcList li {
+  display: flex; justify-content: space-between; gap: 14px; align-items: baseline;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--line);
+  font: 14px 'Share Tech Mono', monospace; letter-spacing: .08em;
+  color: var(--text); cursor: pointer;
+}
+#gcList li em { font-style: normal; font-size: 12px; color: var(--amber); white-space: nowrap; }
+#gcList li.sel { background: rgba(113,239,255,.14); color: var(--cyan); box-shadow: inset 3px 0 0 var(--cyan); }
+#gcList li.off { color: var(--muted); cursor: default; }
+#gcList li.off em { color: var(--muted); }
+#gcList li.close { color: var(--pink); justify-content: center; }
+#gcList small { margin-top: 10px; font: 11px 'Share Tech Mono', monospace; letter-spacing: .1em; color: var(--muted); text-align: center; }
+
+#gcActivity {
+  position: absolute; left: 50%; bottom: max(18px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  display: none; align-items: center; gap: 12px;
+  padding: 9px 16px;
+  background: rgba(6,8,22,0.88);
+  border: 1px solid var(--line);
+  font: 12px 'Share Tech Mono', monospace; letter-spacing: .08em;
+  color: var(--muted); white-space: nowrap;
+  pointer-events: auto;
+}
+#gcActivity.on { display: flex; }
+#gcActivity span { color: var(--cyan); }
+#gcActivity button {
+  padding: 8px 14px; border: 1px solid var(--pink); background: rgba(40,6,34,.7);
+  color: var(--text); font: 700 12px 'Orbitron', monospace; letter-spacing: .12em;
+}
+
+#gcEyeBanner {
+  position: absolute; left: 50%; top: 27%;
+  transform: translateX(-50%);
+  padding: 10px 22px;
+  background: rgba(26,3,14,0.9);
+  border: 1px solid #ff4d6d;
+  box-shadow: 0 0 26px rgba(255,77,109,.4);
+  text-align: center;
+  opacity: 0; transition: opacity .25s;
+}
+#gcEyeBanner.on { opacity: 1; }
+#gcEyeBanner b { display: block; font: 900 15px 'Orbitron', monospace; letter-spacing: .24em; color: #ff4d6d; text-shadow: 0 0 10px #ff4d6d; }
+#gcEyeBanner span { font: 12px 'Share Tech Mono', monospace; letter-spacing: .14em; color: var(--text); }
+
+/* Kernel Panic: the building goes dark around you */
+#gcBlackout {
+  position: absolute; inset: 0;
+  pointer-events: none; z-index: 7;
+  opacity: 0;
+  background: radial-gradient(ellipse at center, rgba(10,0,6,.35) 0%, rgba(4,0,3,.9) 62%, #020001 100%);
+}
+
+#gcPhotoBtn {
+  position: absolute;
+  top: calc(max(14px, env(safe-area-inset-top)) + 54px); right: max(16px, env(safe-area-inset-right));
+  padding: 9px 10px;
+  background: var(--panel); border: 1px solid var(--line); color: var(--cyan);
+  font: 700 10px 'Orbitron', monospace; letter-spacing: .12em;
+  pointer-events: auto;
+}
+#gcViewfinder { display: none; position: absolute; inset: 5%; pointer-events: none; }
+body.gc-photo #gcViewfinder { display: block; }
+body.gc-photo .gc-badge, body.gc-photo #gcCoins, body.gc-photo #gcRobotSay, body.gc-photo #gcToast, body.gc-photo #gcEyeBanner { display: none; }
+#gcViewfinder i { position: absolute; width: 38px; height: 38px; border: 2px solid rgba(238,247,255,.8); }
+#gcViewfinder i:nth-child(1) { top: 0; left: 0; border-right: 0; border-bottom: 0; }
+#gcViewfinder i:nth-child(2) { top: 0; right: 0; border-left: 0; border-bottom: 0; }
+#gcViewfinder i:nth-child(3) { bottom: 0; left: 0; border-right: 0; border-top: 0; }
+#gcViewfinder i:nth-child(4) { bottom: 0; right: 0; border-left: 0; border-top: 0; }
+#gcViewfinder b { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); font: 700 11px 'Orbitron', monospace; letter-spacing: .3em; color: #ff4d6d; }
+
+#gcPostcard {
+  position: fixed; inset: 0; z-index: 2147482000;
+  display: none; align-items: center; justify-content: center;
+  padding: 20px;
+  background: rgba(3,4,10,.86);
+}
+#gcPostcard.on { display: flex; }
+#gcPostcard .gp-card { display: flex; flex-direction: column; align-items: center; gap: 16px; max-width: min(900px, 96vw); }
+#gcPostcard img { max-width: 100%; max-height: 70vh; border: 1px solid var(--line); box-shadow: 0 0 40px rgba(154,93,255,.35); }
+#gcPostcard .gp-row { display: flex; gap: 10px; width: min(420px, 90vw); }
+#gcPostcard a.gm-btn { display: block; text-align: center; }
+
+/* ROM fragments: the repaired cabinets' 30-second games */
+#gcFragment {
+  position: fixed; inset: 0; z-index: 2147481000;
+  display: none; align-items: center; justify-content: center;
+  background: radial-gradient(ellipse at center, #0c0718 0%, #03040a 75%);
+}
+#gcFragment.on { display: flex; }
+.gf-frame { display: flex; flex-direction: column; align-items: center; gap: 10px; width: min(96vw, 132vh); }
+.gf-head { display: flex; justify-content: space-between; width: 100%; font: 700 13px 'Orbitron', monospace; letter-spacing: .16em; color: var(--cyan); }
+.gf-head span { color: var(--amber); }
+#gfCanvas {
+  width: min(96vw, calc(74vh * 4 / 3)); aspect-ratio: 4 / 3;
+  image-rendering: pixelated;
+  border: 2px solid var(--purple);
+  box-shadow: 0 0 34px rgba(154,93,255,.4);
+  background: #05040c;
+}
+.gf-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; width: 100%; font: 12px 'Share Tech Mono', monospace; letter-spacing: .08em; color: var(--muted); }
+#gfQuit { padding: 7px 14px; border: 1px solid var(--pink); background: rgba(40,6,34,.7); color: var(--text); font: 700 11px 'Orbitron', monospace; letter-spacing: .14em; cursor: pointer; }
+/* touch: d-pad bottom-left, button bottom-right, clear of the screen in landscape */
+.gf-pad {
+  display: none; justify-content: space-between; align-items: flex-end;
+  position: fixed; left: 0; right: 0; bottom: max(14px, env(safe-area-inset-bottom));
+  padding: 0 max(18px, env(safe-area-inset-right)) 0 max(18px, env(safe-area-inset-left));
+  pointer-events: none;
+}
+.gf-pad > * { pointer-events: auto; }
+body.gc-touch .gf-pad { display: flex; }
+@media (orientation: portrait) {
+  body.gc-touch .gf-frame { margin-bottom: 170px; }
+}
+.gf-dpad { display: grid; grid-template-columns: repeat(3, 54px); grid-template-rows: repeat(3, 44px); gap: 4px; }
+.gf-dpad button, .gf-a { border: 2px solid rgba(113,239,255,.5); background: rgba(3,20,30,.6); color: var(--cyan); font: 700 16px 'Orbitron', monospace; border-radius: 10px; touch-action: none; }
+.gf-dpad [data-k="up"] { grid-column: 2; grid-row: 1; }
+.gf-dpad [data-k="left"] { grid-column: 1; grid-row: 2; }
+.gf-dpad [data-k="right"] { grid-column: 3; grid-row: 2; }
+.gf-dpad [data-k="down"] { grid-column: 2; grid-row: 3; }
+.gf-a { width: 88px; height: 88px; border-radius: 50%; border-color: var(--pink); color: var(--text); background: rgba(40,6,34,.6); }
+
 @media (max-width: 640px) {
+  #gcList li { font-size: 12px; }
+  #gcActivity { font-size: 11px; white-space: normal; text-align: center; }
   body.gc-intro #gcStart { padding: 24px; background: rgba(3,4,10,.55); }
   .gm-btn { font-size: 16px; padding: 18px 14px; }
   .gm-keys { grid-template-columns: 1fr; }
@@ -505,7 +659,7 @@ body.gc-touch .gm-keys.touch { display: grid; }
     <div id="gcToast" role="status" aria-live="polite"></div>
     <div id="gcHints">
       <span>WASD</span> move &nbsp;·&nbsp; <span>MOUSE</span> look &nbsp;·&nbsp; <span>SHIFT</span> run &nbsp;·&nbsp; <span>SPACE</span> jump<br>
-      <span>E</span> / <span>CLICK</span> interact &nbsp;·&nbsp; <span>M</span> mute &nbsp;·&nbsp; <span>ESC</span> pause
+      <span>E</span> / <span>CLICK</span> interact &nbsp;·&nbsp; <span>P</span> photo &nbsp;·&nbsp; <span>M</span> mute &nbsp;·&nbsp; <span>ESC</span> pause
     </div>
     <div id="gcJoy" class="gc-touch-only" aria-hidden="true"><div id="gcJoyKnob"></div></div>
     <button id="gcJump" class="gc-touch-only" type="button">JUMP</button>
@@ -532,7 +686,7 @@ body.gc-touch .gm-keys.touch { display: grid; }
         <button id="gcMenuBP" class="gm-btn sm" type="button" disabled>Breakpoint</button>
       </div>
       <div class="gm-stats">
-        <span>Cabinets <b>2/10</b></span>
+        <span>Cabinets <b id="gmCabs">2/10</b></span>
         <span>◎ Coins <b id="gmCoins">0</b></span>
         <span>Prizes <b id="gmPrizes">0/12</b></span>
       </div>
@@ -546,6 +700,7 @@ body.gc-touch .gm-keys.touch { display: grid; }
         <div><b>Shift</b><span>run</span></div>
         <div><b>Space</b><span>jump</span></div>
         <div><b>E / Click</b><span>use a cabinet</span></div>
+        <div><b>P</b><span>photo mode</span></div>
         <div><b>M</b><span>mute sound</span></div>
         <div><b>Esc</b><span>pause</span></div>
       </div>
@@ -554,8 +709,9 @@ body.gc-touch .gm-keys.touch { display: grid; }
         <div><b>Drag right side</b><span>look</span></div>
         <div><b>USE</b><span>play a cabinet</span></div>
         <div><b>JUMP</b><span>jump</span></div>
+        <div><b>PHOTO</b><span>photo mode</span></div>
       </div>
-      <p class="gm-note">Win at Glitch Pong or purge sectors in Breakpoint for coins.<br>Spend them at PRIZETRON-80's prize counter.</p>
+      <p class="gm-note">Win at Glitch Pong or purge sectors in Breakpoint for coins.<br>Spend them on prizes at PRIZETRON-80's counter, or on repairing a dead cabinet.</p>
       <button id="gcMenuBack" class="gm-btn sm gm-back" type="button">◀ Back</button>
     </div>
 
@@ -602,13 +758,13 @@ body.gc-touch .gm-keys.touch { display: grid; }
 <!-- Served by the local multiplayer server. This 404s harmlessly in static-only mode. -->
 <script src="/socket.io/socket.io.js"></script>
 <script src="glitchpong-cosmetics.js?v=cosmetics-2"></script>
-<script src="glitchpong-site.js?v=glitchcade-10"></script>
-<script type="module" src="glitchcade.js?v=glitchcade-16"></script>
+<script src="glitchpong-site.js?v=glitchcade-11"></script>
+<script type="module" src="glitchcade.js?v=glitchcade-17"></script>
 
 <script>
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
   window.addEventListener('load', function () {
-    navigator.serviceWorker.register('./service-worker.js?v=menu-startup-22', { updateViaCache: 'none' })
+    navigator.serviceWorker.register('./service-worker.js?v=floor-23', { updateViaCache: 'none' })
       .then(function (registration) { return registration.update(); })
       .catch(function () {});
   }, { once: true });

@@ -47,7 +47,12 @@ const PLAYLIST = [
     src: `sounds/music/construct_music${n}.mp3`,
     title: `THE CONSTRUCT ${String(n).padStart(2, '0')}`,
     beat: CONSTRUCT_BEATS[n - 1]
-  }))
+  })),
+  // Records sold at the prize counter (TRACK_PACKS in glitchcade-state.js).
+  // They have no beat map, so PRIZETRON dances to his own count over them.
+  ...[1, 2, 3, 4, 5, 6].map((n) => ({ src: `sounds/music/matrix_music${n}.mp3`, title: `MATRIX MIXTAPE ${String(n).padStart(2, '0')}`, pack: 'matrix' })),
+  ...[1, 2, 3, 4, 5].map((n) => ({ src: `sounds/music/blackhole_nebula${n}.mp3`, title: `BLACK HOLE NEBULA ${String(n).padStart(2, '0')}`, pack: 'nebula' })),
+  ...[1, 2, 3, 4].map((n) => ({ src: `sounds/music/in_game_music${n}.mp3`, title: `CLASSIC ARENA ${String(n).padStart(2, '0')}`, pack: 'arena' }))
 ];
 
 // Piecewise-linear lookup in a [times, ms] drift curve, returned in seconds.
@@ -90,6 +95,8 @@ export function createArcadeAudio({ isTouch }) {
   let gpEmitter = null;
   let jukebox = null;
   let trackIndex = 0;
+  const ownedPacks = new Set();   // record packs bought at the counter
+  const trackLocked = (i) => !!PLAYLIST[i].pack && !ownedPacks.has(PLAYLIST[i].pack);
   let musicEl = null;
   let floorMusic = null, streetMusic = null, prizePos = null;
   let musicZone = null;
@@ -630,9 +637,41 @@ export function createArcadeAudio({ isTouch }) {
       return muted;
     },
 
+    // The floor's own sound effects (air hockey, ROM fragments, the Eye).
+    tone, noise: noiseBurst, sfx: play,
+    get indoorBus() { return indoorIn; },
+
+    // ── Jukebox catalogue ──
+    get trackIndex() { return trackIndex; },
+    tracks() {
+      return PLAYLIST.map((t, index) => ({ index, title: t.title, pack: t.pack || null, locked: trackLocked(index) }));
+    },
+    setOwnedPacks(ids) {
+      ownedPacks.clear();
+      (ids || []).forEach((id) => ownedPacks.add(id));
+    },
+    // Put a specific record on. Returns its title, or null if it's locked.
+    selectTrack(index, announce = true) {
+      if (!PLAYLIST[index] || trackLocked(index)) return null;
+      if (!musicEl) { trackIndex = index; return PLAYLIST[index].title; }
+      trackIndex = index;
+      loadTrack();
+      if (api.onTrack) api.onTrack(PLAYLIST[trackIndex].title);
+      if (['intro', 'explore', 'paused'].includes(mode)) playMusic();
+      if (announce) {
+        play('juke', { volume: 0.4, at: jukebox && jukebox.pos, bus: 'indoor' });
+        noiseBurst({ dur: 0.18, type: 'bandpass', freq: 2400, volume: 0.15, dest: selfBus });
+      }
+      return PLAYLIST[trackIndex].title;
+    },
+
     nextTrack(announce = true) {
       if (!musicEl) return null;
-      trackIndex = (trackIndex + 1) % PLAYLIST.length;
+      // skip records the player hasn't bought
+      for (let n = 0; n < PLAYLIST.length; n++) {
+        trackIndex = (trackIndex + 1) % PLAYLIST.length;
+        if (!trackLocked(trackIndex)) break;
+      }
       loadTrack();
       if (api.onTrack) api.onTrack(PLAYLIST[trackIndex].title);
       if (['intro', 'explore', 'paused'].includes(mode)) playMusic();

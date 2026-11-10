@@ -347,6 +347,24 @@ const GlitchcadeWallet = (function() {
       d.wins += 1;
       return write(d);
     },
+    // Coins from the arcade floor (ROM fragments, the daily challenge, air hockey).
+    award(n) {
+      const d = read();
+      n = Math.floor(Number(n) || 0);
+      if (n <= 0) return d;
+      d.coins += n;
+      d.earned += n;
+      return write(d);
+    },
+    // Pay for something that isn't a prize (a repair, a capsule, a record).
+    // Returns the updated wallet, or null when there aren't enough coins.
+    spend(n) {
+      const d = read();
+      n = Math.floor(Number(n) || 0);
+      if (n <= 0 || d.coins < n) return null;
+      d.coins -= n;
+      return write(d);
+    },
     // Returns the updated wallet, or null when the prize is owned or unaffordable.
     redeem(id, cost) {
       const d = read();
@@ -358,6 +376,48 @@ const GlitchcadeWallet = (function() {
   };
 })();
 window.GlitchcadeWallet = GlitchcadeWallet;
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RALLY TAPE — where the ball met each paddle during your longest rally, so
+// the Glitchcade's ceiling TVs can replay it. Each hit is two numbers: the
+// side (0 = left, 1 = right) and the ball's height as a percentage.
+// ═══════════════════════════════════════════════════════════════════════════
+const GlitchRallyTape = (function() {
+  const KEY = "glitchPong_bestRally_v1";
+  const MAX_HITS = 200;
+  let current = [];
+  let best = read();
+
+  function sanitize(d) {
+    if (!d || typeof d !== "object" || !Array.isArray(d.hits)) return { n: 0, hits: [] };
+    const hits = d.hits.slice(0, MAX_HITS * 2).map((v) => Math.max(0, Math.min(100, Math.floor(Number(v) || 0))));
+    if (hits.length % 2) hits.pop();
+    return { n: Math.max(hits.length / 2, Math.min(1e6, Math.floor(Number(d.n) || 0))), hits };
+  }
+
+  function read() {
+    try { return sanitize(JSON.parse(localStorage.getItem(KEY) || "null")); } catch (e) { return { n: 0, hits: [] }; }
+  }
+
+  return {
+    KEY, sanitize,
+    get best() { return best; },
+    reload() { best = read(); },
+    // `count` is the rally's hit count after this hit; 1 starts a new tape.
+    hit(count, side, yFraction) {
+      if (count <= 1) current = [];
+      if (current.length < MAX_HITS * 2) {
+        current.push(side === "right" ? 1 : 0, Math.max(0, Math.min(100, Math.round(yFraction * 100))));
+      }
+      if (count > best.n && count >= 4) {
+        best = { n: count, hits: current.slice() };
+        try { localStorage.setItem(KEY, JSON.stringify(best)); } catch (e) {}
+      }
+    }
+  };
+})();
+window.GlitchRallyTape = GlitchRallyTape;
 
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -595,6 +655,28 @@ const GlitchSave = (function() {
     },
     glitchPongPaddleColors: (v) => (v && ID_RE.test(v.blue || "") && ID_RE.test(v.red || "") ? { blue: v.blue, red: v.red } : null),
     glitchPongPerformance: (v) => (v && typeof v === "object" ? { batterySaver: !!v.batterySaver } : null),
+    // The arcade floor's own record (repairs, high scores, daily challenge...).
+    // glitchcade-state.js cleans it properly on load; here just bound its size
+    // and shape so a hand-edited file can't smuggle anything odd into storage.
+    glitchcade_floor_v1: (v) => {
+      if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+      const plain = (x, depth) => {
+        if (typeof x === "number") return Number.isFinite(x) ? x : 0;
+        if (typeof x === "boolean") return x;
+        if (typeof x === "string") return x.slice(0, 60);
+        if (depth > 3 || !x || typeof x !== "object") return null;
+        if (Array.isArray(x)) return x.slice(0, 60).map((y) => plain(y, depth + 1)).filter((y) => y !== null);
+        const o = {};
+        Object.keys(x).slice(0, 40).forEach((k) => {
+          if (!ID_RE.test(k)) return;
+          const val = plain(x[k], depth + 1);
+          if (val !== null) o[k] = val;
+        });
+        return o;
+      };
+      return plain(v, 0);
+    },
+    glitchPong_bestRally_v1: (v) => { const t = GlitchRallyTape.sanitize(v); return t.hits.length ? t : null; },
     glitchcade_muted: (v) => (v === "1" || v === "0" || v === 1 || v === 0 || v === true || v === false ? (v === "1" || v === 1 || v === true ? "1" : "0") : null)
   };
   const RAW_STRING_KEYS = new Set(["glitchcade_muted"]);
@@ -680,6 +762,7 @@ const GlitchSave = (function() {
     });
     GlitchProgression.load();
     GlitchAchievements.reload();
+    GlitchRallyTape.reload();
     if (typeof GlitchCosmetics !== "undefined") GlitchCosmetics.load();
     try { window.dispatchEvent(new CustomEvent("glitchcade:wallet", { detail: GlitchcadeWallet.get() })); } catch (e) {}
   }
@@ -10518,6 +10601,7 @@ function injectGameById(gameId, options = {}) {
             if (GlitchProgression.hasPerk("packet")) { vx *= 1.10; vy *= 1.10; }
           }
           if (!aiVsAiMode) GlitchProgression.trackRally(matchRallyHits);
+          if (!aiVsAiMode) GlitchRallyTape.hit(matchRallyHits, "left", ballY / canvas.height);
           if (matchRallyHits % 5 === 0 && achievementsCount()) GlitchAchievements.check();
           updateColorCharge("left"); pongAudio.paddleHitCharged(colorCharge);
           glitchPulse = Math.max(glitchPulse, 8 + Math.min(10, Math.floor(returnHeat * 10)));
@@ -10545,6 +10629,7 @@ function injectGameById(gameId, options = {}) {
           awardXP(GlitchProgression.XP_REWARDS.paddleHit, "paddleHit", rightX - 20, ballY);
           if (rallyHits > 0 && rallyHits % 10 === 0) awardXP(GlitchProgression.XP_REWARDS.longRally, "longRally", canvas.width / 2, 40);
           if (!aiVsAiMode) GlitchProgression.trackRally(matchRallyHits);
+          if (!aiVsAiMode) GlitchRallyTape.hit(matchRallyHits, "right", ballY / canvas.height);
           if (matchRallyHits % 5 === 0 && achievementsCount()) GlitchAchievements.check();
           updateColorCharge("right"); pongAudio.paddleHitCharged(colorCharge);
           glitchPulse = Math.max(glitchPulse, 8 + Math.min(10, Math.floor(returnHeat * 10)));

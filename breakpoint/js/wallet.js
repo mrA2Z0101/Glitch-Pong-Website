@@ -61,6 +61,18 @@ const Cabinet = {
     if (!this.active) return;
     try { window.parent.postMessage({ type: 'glitchcade:exit', game: 'breakpoint' }, '/'); } catch (e) {}
   },
+  // A mode the arcade asked for with ?cabinet&mode=bossrush (the Eye gauntlet
+  // cabinet does): the run starts straight away instead of at the menu.
+  get startMode() {
+    const m = new URLSearchParams(location.search).get('mode');
+    return this.active && m && /^[a-z]{1,12}$/.test(m) ? m : null;
+  },
+  // Tell the arcade how a run went so its high-score board and the Eye
+  // gauntlet can keep up. Scores from AI-assisted runs are never reported.
+  report(event, detail) {
+    if (!this.active) return;
+    try { window.parent.postMessage(Object.assign({ type: 'glitchcade:breakpoint', event }, detail), '/'); } catch (e) {}
+  },
 };
 
 // ============ PADDLE COLOUR — shared with Glitch Pong ============
