@@ -87,6 +87,7 @@ export function createArcadeAudio({ isTouch }) {
   let noiseBuffer = null;
   const buffers = {};
   let muted = readMuted();
+  let hidden = false;           // the page is in the background: be silent and let the engine rest
   let mode = 'intro';           // intro | explore | paused | launching | playing
   let suspendTimer = null;
   const emitters = [];          // positional loops that need panners
@@ -257,15 +258,19 @@ export function createArcadeAudio({ isTouch }) {
   function cabinetEmitter(cab, index) {
     const panner = makePanner(cab.screenCenter, { ref: 1.2, rolloff: 1.4 });
     panner.connect(indoorIn);
-    const hiss = noiseSource();
-    const bp = ctx.createBiquadFilter();
-    bp.type = 'bandpass';
-    bp.frequency.value = 5200;
-    bp.Q.value = 0.7;
-    const hissGain = ctx.createGain();
-    hissGain.gain.value = 0.012;
-    hiss.connect(bp).connect(hissGain).connect(panner);
-    hiss.start(0, Math.random() * 1.8);
+    // The static hiss is a quiet, always-running noise chain per machine. Phones skip it;
+    // the occasional bleep still plays.
+    if (!isTouch) {
+      const hiss = noiseSource();
+      const bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.value = 5200;
+      bp.Q.value = 0.7;
+      const hissGain = ctx.createGain();
+      hissGain.gain.value = 0.012;
+      hiss.connect(bp).connect(hissGain).connect(panner);
+      hiss.start(0, Math.random() * 1.8);
+    }
     const em = {
       panner,
       scale: SCALES[index % SCALES.length],
@@ -416,7 +421,7 @@ export function createArcadeAudio({ isTouch }) {
 
   function playMusic() {
     // Start during the title-menu gesture too: Safari needs play() inside it.
-    if (!musicEl || muted || mode === 'playing') return;
+    if (!musicEl || muted || hidden || mode === 'playing') return;
     for (const el of [musicEl, ...sceneMusic.map(s => s.el)]) {
       if (el.paused) {
         // A failed speculative preload must not poison the first real click.
@@ -548,18 +553,21 @@ export function createArcadeAudio({ isTouch }) {
   function applyMode() {
     if (!ctx) return;
     clearTimeout(suspendTimer);
-    const level = muted ? 0 : { intro: 0.7, explore: 1, paused: 0.3, launching: 0.6, playing: 0 }[mode];
+    const asleep = mode === 'playing' || hidden || muted;   // nothing to hear: stop the engine, not just the volume
+    const level = muted || hidden ? 0 : { intro: 0.7, explore: 1, paused: 0.3, launching: 0.6, playing: 0 }[mode];
     ramp(master.gain, level, mode === 'playing' ? 0.25 : 0.4);
     if (mode === 'launching') {
       // the room drains away as you lean into the screen
       ramp(indoorIn.gain, 0.15, 0.7);
       ramp(outdoorIn.gain, 0.1, 0.7);
     }
-    if (mode === 'playing' || muted) {
+    if (asleep) {
       if (musicEl) musicEl.pause();
       sceneMusic.forEach(s => s.el.pause());
-      // Glitch Pong has its own audio; put the arcade to sleep entirely.
-      if (mode === 'playing') suspendTimer = setTimeout(() => ctx.suspend().catch(() => {}), 400);
+      // Glitch Pong has its own audio, and a muted or backgrounded page has no audience:
+      // every oscillator and noise source keeps running (and costing power) until the
+      // context is suspended. The short delay lets the fade finish first.
+      suspendTimer = setTimeout(() => ctx.suspend().catch(() => {}), 400);
     } else if (['intro', 'explore', 'paused'].includes(mode)) {
       if (ctx.state === 'suspended') ctx.resume().catch(() => {});
       playMusic();
@@ -599,7 +607,10 @@ export function createArcadeAudio({ isTouch }) {
       let created = false;
       if (!ctx) {
         try {
-          ctx = new (window.AudioContext || window.webkitAudioContext)();
+          // 'balanced' lets a phone's audio hardware wake less often. Footsteps and
+          // bleeps land a few milliseconds later; nobody is playing rhythm on them.
+          const Ctx = window.AudioContext || window.webkitAudioContext;
+          ctx = isTouch ? new Ctx({ latencyHint: 'balanced' }) : new Ctx();
         } catch (e) {
           return;
         }
@@ -620,10 +631,17 @@ export function createArcadeAudio({ isTouch }) {
         // Apply it now so the new master isn't left at buildGraph's zero gain.
         applyMode();
       }
-      if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+      if (ctx.state === 'suspended' && !muted && !hidden) ctx.resume().catch(() => {});
       // Also retries after a browser blocks playback until a gesture.
       playMusic();
     },
+
+    // The page went to the background or came back (document.hidden).
+    setHidden(h) {
+      hidden = !!h;
+      applyMode();
+    },
+    get hidden() { return hidden; },
 
     setMode(next) {
       mode = next;

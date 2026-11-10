@@ -8,8 +8,15 @@ import { RenderPass } from './vendor/three-addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from './vendor/three-addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from './vendor/three-addons/postprocessing/OutputPass.js';
 import { mergeGeometries } from './vendor/three-addons/utils/BufferGeometryUtils.js';
-import { createArcadeAudio } from './glitchcade-audio.js?v=glitchcade-9';
+import { createArcadeAudio } from './glitchcade-audio.js?v=glitchcade-10';
 import { installFloor } from './glitchcade-floor.js?v=floor-1';
+
+// Power policy (glitchcade-power.js, a plain script loaded ahead of this module).
+// A stub keeps the arcade running if that script is missing.
+const Power = window.GlitchPower || {
+  saving: false, state: 'off', batterySaver: false, setBatterySaver() { return false; }, onChange() {},
+  createPacer: () => ({ due: () => true, reset() {} }), fpsFor: () => Infinity
+};
 
 // ─── Palette (matches the site's design tokens) ─────────────────────────────
 const C = {
@@ -179,7 +186,7 @@ renderer.setPixelRatio(MAX_PIXEL_RATIO);
 renderer.setSize(window.innerWidth, window.innerHeight, false);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.NoToneMapping;
-const maxAniso = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+const maxAniso = Math.min(isTouch ? 2 : 8, renderer.capabilities.getMaxAnisotropy());
 // Several passes render per frame; count them all, reset once per frame.
 renderer.info.autoReset = false;
 
@@ -1335,6 +1342,9 @@ function buildEnvironment() {
   );
   ground.rotation.x = -Math.PI / 2;
   ground.position.set(0, -0.001, 0);
+  // It's the costly PBR material and it lies under the whole building: drawn last, the
+  // depth test throws away every pixel the carpet and walls already cover.
+  ground.renderOrder = 100;
   scene.add(ground);
 
   const sidewalkTex = canvasTexture(makeSidewalkTexture(), { repeat: [14, 3] });
@@ -2136,7 +2146,12 @@ function buildTvs() {
       const feed = pickTvFeed();
       set.screen.material.map = feed.tex;
       // yaw 0 faces the door, π faces the prize counter
-      tvs.push({ mat: set.screen.material, feed, next: 4 + Math.random() * 10, flip: 0, yaw, pos: new THREE.Vector3(0, TV_Y, z + Math.cos(yaw) * 1.12) });
+      tvs.push({
+        mat: set.screen.material, mesh: set.screen, feed, next: 4 + Math.random() * 10, flip: 0, yaw,
+        pos: new THREE.Vector3(0, TV_Y, z + Math.cos(yaw) * 1.12),
+        normal: new THREE.Vector3(0, 0, Math.cos(yaw)),
+        seen: true
+      });
     });
   });
 }
@@ -3629,6 +3644,7 @@ function updatePlayer(dt) {
   player.camY = player.grounded ? player.camY + (player.pos.y - player.camY) * Math.min(1, dt * 14) : player.pos.y;
 
   const moving = Math.hypot(player.vel.x, player.vel.z);
+  if (moving > 0.15 || !player.grounded || joy.id !== null || lookTouch) noteActivity();
   if (player.grounded && moving > 0.3) {
     const step = Math.floor(player.bob / Math.PI);
     player.bob += dt * moving * 2.4;
@@ -3751,6 +3767,7 @@ function toast(text, ms = 2400) {
 
 function interact() {
   if (gameState !== 'explore' || !focused) return;
+  noteActivity(1200);
   if (arms) arms.reach = 1;
   if (focused.use) {
     const target = focused;
@@ -4127,6 +4144,43 @@ function toggleMute() {
   muteBtn.setAttribute('aria-pressed', String(m));
   muteBtn.setAttribute('aria-label', m ? 'Unmute arcade sound' : 'Mute arcade sound');
 }
+// ── Battery saver: the player's switch (shared with Glitch Pong and Breakpoint) plus a
+// low-battery check. It slows the frame rate, lowers the resolution ceiling and
+// hides the additive glow decals, the biggest fill-rate cost in the scene. ──
+const glowDecals = [];                       // filled once the world is baked
+const saverButtons = ['gcSaver', 'gcMenuSaver'].map((id) => $(id)).filter(Boolean);
+function applyPower() {
+  const saving = Power.saving;
+  pixelCeiling = saving ? Math.min(MAX_PIXEL_RATIO, 0.8) : MAX_PIXEL_RATIO;
+  if (quality.scale > pixelCeiling + 0.01) setPixelScale(pixelCeiling);
+  else if (!saving && quality.scale < MAX_PIXEL_RATIO - 0.01) setPixelScale(MAX_PIXEL_RATIO);   // it will step down again if it must
+  glowDecals.forEach((o) => { o.visible = !saving; });
+  const label = Power.state === 'on' ? 'On' : Power.state === 'auto' ? 'Auto · low battery' : 'Off';
+  saverButtons.forEach((b) => {
+    b.classList.toggle('on', saving);
+    b.setAttribute('aria-pressed', String(saving));
+    if (b.id === 'gcMenuSaver') b.textContent = `Battery Saver: ${label}`;
+  });
+}
+function toggleSaver() {
+  const on = Power.setBatterySaver(!Power.batterySaver);     // onChange below applies it
+  applyPower();                                              // (also when a low battery keeps it on)
+  toast(on ? 'BATTERY SAVER ON — 30 FPS, SOFTER GLOW, QUIETER ROOM'
+    : Power.saving ? 'SWITCH OFF — A LOW BATTERY KEEPS BATTERY SAVER ON' : 'BATTERY SAVER OFF');
+}
+Power.onChange(() => {
+  applyPower();
+  if (Power.state === 'auto') toast('LOW BATTERY — BATTERY SAVER ON');
+});
+saverButtons.forEach((b) => b.addEventListener('click', (e) => { e.stopPropagation(); toggleSaver(); }));
+
+// Backgrounded (another app, a locked phone): stop the music and the audio engine
+// and start again where we were when the page is back.
+document.addEventListener('visibilitychange', () => {
+  audio.setHidden(document.hidden);
+  if (!document.hidden) { lastFrame = performance.now(); pacer.reset(); }
+});
+
 muteBtn.classList.toggle('muted', audio.muted);
 muteBtn.setAttribute('aria-pressed', String(audio.muted));
 muteBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleMute(); });
@@ -4145,6 +4199,7 @@ window.addEventListener('keydown', (e) => {
   if (gameState === 'playing') return;
   if (gameState === 'busy') { if (floor) floor.key(e, true); return; }
   if (e.code === 'KeyM') { toggleMute(); return; }
+  if (e.code === 'KeyB' && (gameState === 'explore' || gameState === 'paused' || gameState === 'intro')) { toggleSaver(); return; }
   if (gameState !== 'explore') return;
   if (dragLook && e.code === 'Escape') {
     gameState = 'paused';
@@ -4169,6 +4224,7 @@ window.addEventListener('blur', resetInput);
 // Mouse look (pointer lock)
 const SENS = 0.0022;
 function applyLook(dx, dy, sens = SENS) {
+  noteActivity();
   player.yaw -= dx * sens;
   player.pitch = Math.max(-1.35, Math.min(1.35, player.pitch - dy * sens));
 }
@@ -4391,6 +4447,8 @@ let menuMode = null;
 const listenerDir = new THREE.Vector3();
 const gpScreenPos = new THREE.Vector3();
 const bpScreenPos = new THREE.Vector3();
+const gpScreenNormal = new THREE.Vector3();
+const bpScreenNormal = new THREE.Vector3();
 let audioMode = null;
 
 // 0 outside → 1 inside, blended across the doorway
@@ -4402,6 +4460,7 @@ function insideFactor() {
 // ── Adaptive quality: when frames run slow, render fewer pixels, then drop bloom ──
 const QUALITY_MIN = isTouch ? 0.6 : 0.75;
 const quality = { scale: MAX_PIXEL_RATIO, sum: 0, n: 0, fast: 0 };
+let pixelCeiling = MAX_PIXEL_RATIO;            // battery saver lowers this
 
 function setPixelScale(v) {
   quality.scale = v;
@@ -4422,12 +4481,54 @@ function trackQuality(rawMs) {
     quality.fast = 0;
     if (quality.scale > QUALITY_MIN + 0.01) setPixelScale(Math.max(QUALITY_MIN, quality.scale - 0.25));
     else if (composer) disableBloom();
-  } else if (avg < 14 && quality.scale < MAX_PIXEL_RATIO) {               // lots of headroom: claw back detail
-    if (++quality.fast >= 4) { quality.fast = 0; setPixelScale(Math.min(MAX_PIXEL_RATIO, quality.scale + 0.25)); }
+  } else if (avg < 14 && quality.scale < pixelCeiling) {                  // lots of headroom: claw back detail
+    if (++quality.fast >= 4) { quality.fast = 0; setPixelScale(Math.min(pixelCeiling, quality.scale + 0.25)); }
   } else {
     quality.fast = 0;
   }
 }
+
+// ── Pacing: draw only as many frames as the moment deserves (see glitchcade-power.js) ──
+// Full rate while you walk, look, play or something on screen is animating; half of it
+// once you've stood still for a moment or while the title menu is up. On a phone that
+// is the difference between the scene being drawn 30 times a second and 60 (or 120).
+const pacer = Power.createPacer();
+let activeUntil = 0;
+let prevFull = false;
+function noteActivity(hold = 700) { activeUntil = Math.max(activeUntil, performance.now() + hold); }
+
+function wantFps(now) {
+  if (gameState === 'busy' && floor) {
+    if (floor.coversWorld()) return 10;                         // a ROM fragment's overlay hides the world
+    if (floor.menuOpen()) return Power.fpsFor({ touch: isTouch, saving: Power.saving, mode: 'calm' });
+  }
+  let mode = 'active';
+  if (gameState === 'intro' || gameState === 'paused') mode = 'idle';
+  else if (gameState === 'explore' && now > activeUntil && !(floor && floor.animating())) mode = 'calm';
+  return Power.fpsFor({ touch: isTouch, saving: Power.saving, mode });
+}
+
+// ── What can the camera see? Canvas screens are only worth redrawing (and re-uploading
+// to the GPU) when they're in front of it, close enough to read, and facing it. ──
+const camFrustum = new THREE.Frustum();
+const camProj = new THREE.Matrix4();
+const visSphere = new THREE.Sphere();
+const visTmp = new THREE.Vector3();
+function updateFrustum() {
+  camera.updateMatrixWorld();
+  camProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+  camFrustum.setFromProjectionMatrix(camProj);
+}
+function canSee(center, radius, normal = null, maxDist = Infinity) {
+  visTmp.subVectors(camera.position, center);
+  if (visTmp.lengthSq() > maxDist * maxDist) return false;
+  if (normal && visTmp.dot(normal) < -radius * 0.5) return false;   // looking at its back
+  visSphere.center.copy(center);
+  visSphere.radius = radius;
+  return camFrustum.intersectsSphere(visSphere);
+}
+// Redraw rates are given for a desktop; phones and battery saver run them slower.
+const screenHz = (base) => base * (Power.saving ? 0.45 : isTouch ? 0.65 : 1);
 
 const perf = { frames: 0, cpu: 0 };
 function frame(now) {
@@ -4438,10 +4539,22 @@ function frame(now) {
   const wantAudio = gameState === 'busy' ? 'explore' : gameState;
   if (wantAudio !== audioMode) { audioMode = wantAudio; audio.setMode(wantAudio); }
   if (gameState === 'playing') return;      // Glitch Pong has the screen; the arcade sleeps
-  trackQuality(now - lastFrame);
+  const fps = wantFps(now);
+  if (!pacer.due(now, fps)) return;
+  // Resolution tuning reads the gap between frames, so it only listens while we're
+  // trying for full rate; a deliberately slow frame would look like a struggling one.
+  const full = fps >= 55;
+  if (full && prevFull) trackQuality(now - lastFrame);
+  prevFull = full;
   const dt = Math.min(0.05, (now - lastFrame) / 1000);
   lastFrame = now;
   elapsed += dt;
+
+  // A full-screen overlay (a ROM fragment) hides the world: no scene, no screens, no textures.
+  if (gameState === 'busy' && floor && floor.coversWorld()) {
+    audio.update(dt, camera, listenerDir, insideFactor());
+    return;
+  }
 
   if (gameState === 'explore') updatePlayer(dt);
   else if (gameState === 'busy') { if (floor) floor.updateBusy(dt); }
@@ -4459,25 +4572,30 @@ function frame(now) {
 
   // Canvas screens re-upload a texture every redraw: only animate them when you can see them up close.
   const inside = insideFactor() > 0;
+  updateFrustum();
+  for (const tv of tvs) {                      // sets behind you or turned away cost nothing
+    tv.seen = inside && canSee(tv.pos, 0.75, tv.normal, 26);
+    tv.mesh.visible = tv.seen;
+  }
   screenTimer += dt;
-  if (screenTimer > 1 / 24) {
-    if (inside && camera.position.distanceToSquared(gpScreenPos) < 18 * 18) pongScreen.draw(screenTimer);
-    if (inside && camera.position.distanceToSquared(bpScreenPos) < 14 * 14) bpScreen.draw(screenTimer);
+  if (screenTimer > 1 / screenHz(24)) {
+    if (inside && canSee(gpScreenPos, 0.7, gpScreenNormal, 18)) pongScreen.draw(screenTimer);
+    if (inside && canSee(bpScreenPos, 0.6, bpScreenNormal, 14)) bpScreen.draw(screenTimer);
     screenTimer = 0;
   }
   soonTimer += dt;
-  if (soonTimer > 1 / 12) {
-    if (inside) soonScreen.draw(soonTimer);
+  if (soonTimer > 1 / screenHz(12)) {
+    if (inside && cabinets.some((c) => c.movable && !c.fragment && canSee(c.screenCenter, 0.6, c.screenNormal, 22))) soonScreen.draw(soonTimer);
     soonTimer = 0;
   }
-  // ceiling TVs: four shared feeds at ~15 fps, snow only while a set is changing channel
+  // ceiling TVs: shared feeds at ~15 fps, snow only while a set is changing channel
   tvTimer += dt;
-  if (tvTimer > 1 / 15) {
+  if (tvTimer > 1 / screenHz(15)) {
     const snowing = updateTvs(tvTimer);
     if (inside) {
-      // only the channels some set is tuned to need redrawing
-      tvFeeds.forEach((f) => { if (tvs.some((tv) => tv.feed === f)) f.draw(tvTimer); });
-      if (snowing) tvStatic.draw();
+      // only the channels a set you can see is tuned to need redrawing
+      tvFeeds.forEach((f) => { if (tvs.some((tv) => tv.seen && tv.feed === f)) f.draw(tvTimer); });
+      if (snowing && tvs.some((tv) => tv.seen)) tvStatic.draw();
     }
     tvTimer = 0;
   }
@@ -4550,6 +4668,7 @@ function floorContext() {
       document.body.classList.toggle('gc-busy', gameState === 'busy');
     },
     elapsed: () => elapsed,
+    canSee,
     atPrizeCounter, insideFactor,
     refocus() { focused = null; },          // redraw the prompt for whatever you're aiming at
     setInfoLines(fn) { infoLinesProvider = fn; if (infoBoard) infoBoard.draw(false); },
@@ -4578,9 +4697,18 @@ function floorContext() {
   buildArms();
   floor = installFloor(floorContext());
   buildTour();
-  gpScreenPos.copy(cabinets.find((c) => c.id === 'glitch-pong').screenCenter);
-  bpScreenPos.copy(cabinets.find((c) => c.id === 'breakpoint').screenCenter);
+  const gpCabinet = cabinets.find((c) => c.id === 'glitch-pong');
+  const bpCabinet = cabinets.find((c) => c.id === 'breakpoint');
+  gpScreenPos.copy(gpCabinet.screenCenter);
+  bpScreenPos.copy(bpCabinet.screenCenter);
+  gpScreenNormal.copy(gpCabinet.screenNormal);
+  bpScreenNormal.copy(bpCabinet.screenNormal);
   const batched = bakeScene();
+  scene.traverse((o) => {
+    const m = o.material;
+    if ((o.isMesh || o.isSprite) && m && !Array.isArray(m) && m.map === glowTex && m.blending === THREE.AdditiveBlending) glowDecals.push(o);
+  });
+  applyPower();
   window.addEventListener('glitchcade:wallet', () => { refreshPrizes(); floor.onWallet(); });
   // Achievements unlocked out here (e.g. at the prize counter) get the arcade toast;
   // inside Glitch Pong the game shows its own pop-up.
@@ -4654,6 +4782,10 @@ function floorContext() {
     },
     robot: () => robot,
     floor,
+    scene,
+    power: Power,
+    glowDecals,
+    lights: worldLights,
     focused: () => focused,
     seekTour(i, t = 2) { tour.i = i % tourShots.length; tour.t = t; }
   };

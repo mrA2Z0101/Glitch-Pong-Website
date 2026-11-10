@@ -82,6 +82,9 @@ canvas#game{
     radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.55) 100%);}
 @keyframes flick{0%,100%{opacity:.02}50%{opacity:.05}}
 #flick{position:absolute;inset:0;pointer-events:none;z-index:7;background:#fff;opacity:.02;animation:flick .12s infinite;mix-blend-mode:overlay}
+/* A full-screen blend layer that flickers 8 times a second for a 2-5% brightness change:
+   on a phone that is the compositor re-blending the whole screen, forever. */
+body.touch #flick, body.saver #flick, body.reduced-fx #flick{display:none}
 /* boss bar */
 #bossBar{position:absolute;top:8px;left:50%;transform:translateX(-50%);width:60%;z-index:8;display:none;text-align:center}
 #bossName{font-family:'VT323',monospace;font-size:20px;letter-spacing:6px;color:var(--pink);text-shadow:0 0 14px rgba(255,88,217,.8), -2px 0 0 var(--cyan)}
@@ -114,6 +117,11 @@ canvas#game{
   animation:gridDrift 12s linear infinite;
 }
 @keyframes gridDrift{0%{background-position:0 0}100%{background-position:52px 52px}}
+/* Animating background-position repaints the layer every frame, and backdrop blur
+   re-filters what's behind it every frame. Phones get a still grid and a plain veil. */
+body.touch .screen::before, body.saver .screen::before{animation:none}
+body.touch .screen, body.saver .screen{backdrop-filter:none;background:rgba(3,4,10,.94)}
+body.saver h1.logo, body.saver .px-title{animation:none}
 .eyebrow{font-family:'Orbitron',monospace;font-size:10px;font-weight:700;letter-spacing:.38em;color:var(--cyan);text-transform:uppercase;opacity:.8}
 h1.logo{
   font-family:'Orbitron',monospace;font-weight:900;font-size:54px;line-height:.95;letter-spacing:.05em;
@@ -348,6 +356,10 @@ input[type=range]{accent-color:var(--cyan);width:160px}
   background:radial-gradient(ellipse at 50% 46%, rgba(3,4,10,.74) 0%, rgba(3,4,10,.58) 42%, rgba(3,4,10,.40) 100%);
   backdrop-filter:blur(1px) brightness(.82) saturate(1.05);
 }
+body.touch #scrMenu, body.saver #scrMenu{
+  backdrop-filter:none;
+  background:radial-gradient(ellipse at 50% 46%, rgba(3,4,10,.8) 0%, rgba(3,4,10,.66) 42%, rgba(3,4,10,.5) 100%);
+}
 #scrMenu::before{content:none}   /* gameplay already draws its own grid */
 #scrMenu .px-title{text-shadow:-4px 0 0 var(--cyan),4px 0 0 var(--pink),0 0 30px rgba(154,93,255,.35), 0 2px 14px rgba(0,0,0,.9)}
 #scrMenu .stat{text-shadow:0 1px 6px rgba(0,0,0,.9)}
@@ -406,6 +418,10 @@ input[type=range]{accent-color:var(--cyan);width:160px}
       <div class="row">
         <button id="btnFx" class="small">Screen FX: FULL</button>
         <span class="stat" style="max-width:280px;text-transform:none;letter-spacing:1px">REDUCED softens shake and caps full-screen flashes.</span>
+      </div>
+      <div class="row">
+        <button id="btnSaver" class="small">Battery Saver: OFF</button>
+        <span class="stat" style="max-width:280px;text-transform:none;letter-spacing:1px">Slower frames, smaller glows, still menus. Switches on by itself when the battery is low. Shared with Glitch Pong and the arcade.</span>
       </div>
       <div class="row">
         <button id="btnPaddleColor" class="small">Paddle: ION CYAN</button>
@@ -513,11 +529,12 @@ input[type=range]{accent-color:var(--cyan);width:160px}
     <div id="puList"></div>
   </div>
 </div>
-<script src="js/config.js?v=6"></script>
-<script src="js/audio.js?v=8"></script>
-<script src="js/effects.js?v=6"></script>
+<script src="../glitchcade-power.js?v=power-1"></script>
+<script src="js/config.js?v=7"></script>
+<script src="js/audio.js?v=9"></script>
+<script src="js/effects.js?v=7"></script>
 <script src="js/wallet.js?v=6"></script>
-<script src="js/entities.js?v=7"></script>
-<script src="js/game.js?v=9"></script>
+<script src="js/entities.js?v=8"></script>
+<script src="js/game.js?v=10"></script>
 </body>
 </html>
