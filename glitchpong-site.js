@@ -2170,6 +2170,17 @@ function injectGameById(gameId, options = {}) {
     // Perk hotkey labels
     const PERK_KEYS = ["[1]", "[2]", "[3]"];
 
+    // Records newly earned cosmetics in the save and returns them for the
+    // match summary.
+    function syncCosmeticUnlocks() {
+      if (typeof GlitchCosmetics === "undefined") return [];
+      const fresh = GlitchCosmetics.syncUnlocks(GlitchProgression.data);
+      if (fresh.length) GlitchProgression.save();
+      return fresh;
+    }
+    // Backfill silently on load so only items earned in a match get announced.
+    syncCosmeticUnlocks();
+
     // ─── XP Award Helper ────────────────────────────────────────────────────
     function awardXP(amount, reason, x, y) {
       // AI vs AI is a spectator simulation, never a source of player progress.
@@ -3056,6 +3067,7 @@ function injectGameById(gameId, options = {}) {
       const playerScore = side === "left" ? snapshot.scores.left : snapshot.scores.right;
       const opponentScore = side === "left" ? snapshot.scores.right : snapshot.scores.left;
       GlitchProgression.endMatch(snapshot.winner === side, false, { arenaId: currentArenaId, playerScore, opponentScore });
+      syncCosmeticUnlocks(); // new items show a NEW badge in the Store
       if (snapshot.winner === side) showCoinReward(GlitchcadeWallet.awardWin());
       onlineState.statsRecorded = true;
     }
@@ -4564,7 +4576,28 @@ function injectGameById(gameId, options = {}) {
       ctx.restore();
     }
 
-    function drawPaddle(x, y, img, isReady, glowColor, fillColor) {
+    // Equipped cosmetics for a paddle side. Locked or unknown items fall back
+    // to the default look, so a progression reset never leaves a stale skin.
+    function equippedCosmetic(owner, slot) {
+      if (typeof GlitchCosmetics === "undefined") return "default";
+      return GlitchCosmetics.getEquipped(owner, slot, GlitchProgression.data);
+    }
+
+    function drawPaddle(x, y, img, isReady, glowColor, fillColor, owner) {
+      const skinId = owner ? equippedCosmetic(owner, "paddle") : "default";
+      if (typeof GlitchCosmetics !== "undefined") {
+        GlitchCosmetics.drawPaddleSkin(ctx, skinId, x, y, paddleW, paddleH, {
+          rgb: ownerRgb(owner || "blue"),
+          hex: fillColor,
+          t: performance.now() / 1000,
+          heat: getHeatRatio(),
+          pulse: glitchPulse,
+          quality: getVisualQualityScale(),
+          img,
+          imgReady: isReady
+        });
+        return;
+      }
       ctx.save();
       ctx.shadowColor = glowColor;
       ctx.shadowBlur = 30 + Math.max(0, glitchPulse * 0.35);
@@ -4592,6 +4625,33 @@ function injectGameById(gameId, options = {}) {
       ctx.lineWidth = 1.75;
       ctx.strokeRect(x + 0.5, y + 0.5, paddleW - 1, paddleH - 1);
       ctx.restore();
+    }
+
+    // Ball trail in the style equipped by the side that owns the ball. A
+    // neutral (unhit) ball always uses the default Ghost Echo trail.
+    function drawBallTrailFX(heatRatio) {
+      const trailId = ballOwner === "neutral" ? "default" : equippedCosmetic(ballOwner, "trail");
+      const rgb = ballOwner === "neutral" ? null : ownerRgb(ballOwner);
+      if (typeof GlitchCosmetics !== "undefined") {
+        GlitchCosmetics.drawBallTrail(ctx, trailId, ballTrail, {
+          r: BALL_R,
+          heat: heatRatio,
+          rgb,
+          charge: colorCharge,
+          t: performance.now() / 1000,
+          quality: getVisualQualityScale()
+        });
+        return;
+      }
+      const trailScale = Math.min(3, 1 + (colorCharge - 1) * 0.45);
+      for (let i = ballTrail.length - 1; i >= 0; i--) {
+        const t = ballTrail[i];
+        const progress = (ballTrail.length - i) / (ballTrail.length + 1);
+        ctx.beginPath();
+        ctx.arc(t.x, t.y, (BALL_R + heatRatio * 0.8) * (1 - progress * 0.25), 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255,255,255,${(0.05 + progress * 0.15) * (1 + heatRatio * 0.35) * trailScale})`;
+        ctx.fill();
+      }
     }
 
     // The regular arenas use a moving/zooming camera. Keep their paddles in
@@ -4630,8 +4690,8 @@ function injectGameById(gameId, options = {}) {
         ctx.fillRect(rightX - 4, 0, 4, canvas.height);
       }
 
-      drawPaddle(leftX, leftY, bluePaddleImage, leftImageReady, ownerColor("blue"), ownerHex("blue"));
-      drawPaddle(rightX, rightY, redPaddleImage, rightImageReady, ownerColor("red"), ownerHex("red"));
+      drawPaddle(leftX, leftY, bluePaddleImage, leftImageReady, ownerColor("blue"), ownerHex("blue"), "blue");
+      drawPaddle(rightX, rightY, redPaddleImage, rightImageReady, ownerColor("red"), ownerHex("red"), "red");
 
       if (heatRatio > 0.15) {
         ctx.strokeStyle = `rgba(255,79,216,${0.18 + heatRatio * 0.22})`;
@@ -5051,27 +5111,9 @@ function injectGameById(gameId, options = {}) {
         }
 
         if (!bossModeActive) {
-        // Trail — longer and more saturated at higher charge
-        const trailScale = Math.min(3, 1 + (colorCharge - 1) * 0.45);
-        for (let i = ballTrail.length - 1; i >= 0; i--) {
-          const t = ballTrail[i];
-          const progress = (ballTrail.length - i) / (ballTrail.length + 1);
-          const size = (BALL_R + heatRatio * 0.8) * (1 - progress * 0.25);
-          const baseOpacity = (0.05 + progress * 0.15) * (1 + heatRatio * 0.35) * trailScale;
-          ctx.beginPath();
-          ctx.arc(t.x, t.y, size, 0, Math.PI * 2);
-          if (colorCharge >= 2 && ballOwner !== "neutral") {
-            const col = ownerRgb(ballOwner);
-            ctx.fillStyle   = `rgba(${col},${Math.min(0.9, baseOpacity * 1.4)})`;
-            ctx.shadowColor = `rgba(${col},0.4)`;
-          } else {
-            ctx.fillStyle   = `rgba(255,255,255,${baseOpacity})`;
-            ctx.shadowColor = `rgba(255,255,255,${0.3 * (1 - progress)})`;
-          }
-          ctx.shadowBlur = (14 + heatRatio * 6) * (1 - progress);
-          ctx.fill();
-          ctx.shadowBlur = 0;
-        }
+        // Trail — longer and more saturated at higher charge. The style
+        // follows whoever last hit the ball (their equipped trail).
+        drawBallTrailFX(heatRatio);
 
         for (let i = 0; i < decoys.length; i++) {
           const decoy = decoys[i];
@@ -5765,7 +5807,8 @@ function injectGameById(gameId, options = {}) {
       ctx.font = `${compact ? 10 : 11}px monospace`;
       const reasons = Object.entries(d.breakdown || {});
       const promptReserve = compact ? 76 : 60;
-      const levelReserve = d.levelBefore !== d.levelAfter ? (compact ? 48 : 50) : 12;
+      const cosmeticReserve = (d.newCosmetics || []).length ? 36 : 0;
+      const levelReserve = (d.levelBefore !== d.levelAfter ? (compact ? 48 : 50) : 12) + cosmeticReserve;
       const availableRowsH = Math.max(72, canvas.height - (xpY + 24) - promptReserve - levelReserve);
       const rowH = compact
         ? Math.max(14, Math.min(19, availableRowsH / Math.max(1, reasons.length)))
@@ -5805,6 +5848,24 @@ function injectGameById(gameId, options = {}) {
         ctx.font = `${compact ? 10 : 11}px monospace`;
         ctx.fillStyle = `rgba(200,255,200,${la * 0.7})`;
         ctx.fillText(GlitchProgression.getTitle(d.levelAfter), cx, afterTable + 40);
+      }
+
+      // ── 4b. NEW COSMETICS (if any) ────────────────────────────────────────
+      const newCosmetics = d.newCosmetics || [];
+      if (newCosmetics.length) {
+        const ca = Math.min(1, Math.max(0, (progSummaryTimer - 58 - reasons.length * 5) / 20));
+        const cosY = afterTable + (d.levelBefore !== d.levelAfter ? 64 : 22);
+        const names = newCosmetics.map(c => `${c.item.name} ${c.slot === "paddle" ? "SKIN" : "TRAIL"}`).join("  ·  ");
+        ctx.textAlign = "center";
+        ctx.shadowColor = "rgba(255,79,216,0.9)";
+        ctx.shadowBlur = 10 * ca;
+        ctx.font = `bold ${compact ? 11 : 13}px monospace`;
+        ctx.fillStyle = `rgba(255,143,216,${ca})`;
+        ctx.fillText(`UNLOCKED: ${names}`, cx, cosY, canvas.width - safeX * 2);
+        ctx.shadowBlur = 0;
+        ctx.font = `${compact ? 9 : 10}px monospace`;
+        ctx.fillStyle = `rgba(255,225,160,${ca * 0.7})`;
+        ctx.fillText("EQUIP IT FROM THE STORE", cx, cosY + 16);
       }
 
       // ── 5. PRESS R ────────────────────────────────────────────────────────
@@ -7082,26 +7143,7 @@ function injectGameById(gameId, options = {}) {
           );
         }
         // Trail
-        const trailScale = Math.min(3, 1 + (colorCharge - 1) * 0.45);
-        for (let i = ballTrail.length - 1; i >= 0; i--) {
-          const t = ballTrail[i];
-          const progress = (ballTrail.length - i) / (ballTrail.length + 1);
-          const size = (BALL_R + hr * 0.8) * (1 - progress * 0.25);
-          const baseOpacity = (0.05 + progress * 0.15) * (1 + hr * 0.35) * trailScale;
-          ctx.beginPath();
-          ctx.arc(t.x, t.y, size, 0, Math.PI * 2);
-          if (colorCharge >= 2 && ballOwner !== "neutral") {
-            const col = ownerRgb(ballOwner);
-            ctx.fillStyle   = `rgba(${col},${Math.min(0.9, baseOpacity * 1.4)})`;
-            ctx.shadowColor = `rgba(${col},0.4)`;
-          } else {
-            ctx.fillStyle   = `rgba(255,255,255,${baseOpacity})`;
-            ctx.shadowColor = `rgba(255,255,255,${0.3 * (1 - progress)})`;
-          }
-          ctx.shadowBlur = (14 + hr * 6) * (1 - progress);
-          ctx.fill();
-          ctx.shadowBlur = 0;
-        }
+        drawBallTrailFX(hr);
         // Decoy balls (split power-up)
         for (let i = 0; i < decoys.length; i++) {
           const decoy = decoys[i];
@@ -7162,8 +7204,8 @@ function injectGameById(gameId, options = {}) {
         ctx.shadowColor = "rgba(255,79,216,0.8)"; ctx.shadowBlur = 18;
         ctx.fillRect(rightX - 4, 0, 4, canvas.height); ctx.shadowBlur = 0;
       }
-      drawPaddle(leftX,  leftY,  bluePaddleImage, leftImageReady,  ownerColor("blue"), ownerHex("blue"));
-      drawPaddle(rightX, rightY, redPaddleImage,  rightImageReady, ownerColor("red"), ownerHex("red"));
+      drawPaddle(leftX,  leftY,  bluePaddleImage, leftImageReady,  ownerColor("blue"), ownerHex("blue"), "blue");
+      drawPaddle(rightX, rightY, redPaddleImage,  rightImageReady, ownerColor("red"), ownerHex("red"), "red");
       ctx.restore();
 
       // ── SCREEN SPACE: Digital Rain ───────────────────────────────────────
@@ -7506,29 +7548,219 @@ function injectGameById(gameId, options = {}) {
     `;
     const settingsBackBtn = settingsPanel.querySelector("button[aria-label='Back']");
 
-    // Store shell: intentionally lightweight until cosmetic inventory is added.
+    // Store: cosmetic locker for paddle skins and ball trails. Items unlock
+    // through levels, arena wins, and boss survivals (see glitchpong-cosmetics.js).
     const storePanel = document.createElement("div");
     storePanel.id = "gp-store-panel";
     storePanel.classList.add("gp-mobile-panel");
     storePanel.style.cssText = [
       "position:absolute", "left:50%", "top:50%", "transform:translate(-50%,-50%)",
-      "z-index:2147483648", "width:min(470px,88vw)", "padding:30px",
+      "z-index:2147483648", "width:min(780px,92vw)", "max-height:calc(100vh - 28px)",
+      "box-sizing:border-box", "overflow-y:auto", "padding:26px 28px",
       "border:1px solid rgba(255,209,102,.32)", "border-radius:24px",
       "background:linear-gradient(180deg,rgba(18,15,25,.97),rgba(7,9,18,.97))",
       "box-shadow:0 0 38px rgba(255,209,102,.10),0 0 70px rgba(255,79,216,.08)",
-      "color:#eafcff", "font:15px/1.55 monospace", "text-align:center",
+      "color:#eafcff", "font:15px/1.55 monospace", "text-align:left",
       "pointer-events:auto", "display:none"
     ].join(";");
     storePanel.innerHTML = `
-      <div style="width:58px;height:58px;margin:0 auto 14px;display:grid;place-items:center;border:1px solid rgba(255,209,102,.65);border-radius:16px;background:rgba(255,209,102,.08);box-shadow:0 0 20px rgba(255,209,102,.18);">
-        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#ffd166" stroke-width="1.8" aria-hidden="true"><path d="M4 8h16l-1.1 11H5.1L4 8Z"/><path d="M8 8a4 4 0 0 1 8 0"/><path d="M9 13h.01M15 13h.01"/></svg>
+      <div style="display:flex;align-items:center;justify-content:center;gap:10px;color:#ffd166;text-shadow:0 0 16px rgba(255,209,102,.22);">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 8h16l-1.1 11H5.1L4 8Z"/><path d="M8 8a4 4 0 0 1 8 0"/><path d="M9 13h.01M15 13h.01"/></svg>
+        <div style="font:bold 24px/1.1 monospace;letter-spacing:.14em;">STORE</div>
       </div>
-      <div style="font:bold 24px monospace;letter-spacing:.14em;color:#ffd166;text-shadow:0 0 16px rgba(255,209,102,.22);">STORE</div>
-      <div style="margin:14px 0;padding:14px;border:1px dashed rgba(255,255,255,.16);border-radius:12px;background:rgba(255,255,255,.025);color:rgba(232,242,255,.68);font-size:12px;line-height:1.75;">
-        COSMETIC INVENTORY MODULE<br><span style="color:#ff8fab;">COMING SOON</span><br>
-        Paddle skins, ball trails, and arena cosmetics will appear here.
-      </div>
-      <button type="button" aria-label="Store Back" style="padding:10px 28px;border-radius:12px;border:1px solid rgba(255,209,102,.32);background:rgba(255,209,102,.08);color:#ffe1a0;font:bold 13px monospace;letter-spacing:.1em;cursor:pointer;">BACK</button>`;
+      <div id="gp-store-sub" style="text-align:center;margin:4px 0 16px;font:10px monospace;letter-spacing:.12em;color:rgba(255,225,160,.55);">COSMETIC LOCKER</div>
+      <div id="gp-store-body"></div>
+      <button type="button" aria-label="Store Back" style="margin:18px auto 0;display:block;padding:10px 28px;border-radius:12px;border:1px solid rgba(255,209,102,.32);background:rgba(255,209,102,.08);color:#ffe1a0;font:bold 13px monospace;letter-spacing:.1em;cursor:pointer;">BACK</button>`;
+
+    let storeSide = "blue";      // which paddle the locker is editing
+    let storeSlot = "paddle";    // "paddle" | "trail"
+    let storePreviewRaf = 0;
+    const storePreviewTrails = new WeakMap();
+
+    function escapeStoreText(text) {
+      return String(text).replace(/[&<>"]/g, ch => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", "\"":"&quot;" }[ch]));
+    }
+
+    function buildStorePane() {
+      const body = storePanel.querySelector("#gp-store-body");
+      if (!body) return;
+      if (typeof GlitchCosmetics === "undefined") {
+        body.innerHTML = `<div style="padding:14px;border:1px dashed rgba(255,255,255,.16);border-radius:12px;text-align:center;color:rgba(232,242,255,.68);font-size:12px;">COSMETIC MODULE FAILED TO LOAD. REFRESH THE PAGE.</div>`;
+        return;
+      }
+      const data = GlitchProgression.data;
+      const items = GlitchCosmetics.CATALOG[storeSlot];
+      const equipped = GlitchCosmetics.getEquipped(storeSide, storeSlot, data);
+      const sideColor = getPaddleColor(storeSide);
+      const allItems = GlitchCosmetics.PADDLE_SKINS.length + GlitchCosmetics.BALL_TRAILS.length;
+      const unlockedCount = ["paddle", "trail"].reduce((n, slot) =>
+        n + GlitchCosmetics.CATALOG[slot].filter(item => GlitchCosmetics.progressFor(item, data).unlocked).length, 0);
+      const newIn = slot => GlitchCosmetics.CATALOG[slot].filter(item => GlitchCosmetics.isNew(slot, item.id, data)).length;
+
+      storePanel.querySelector("#gp-store-sub").textContent =
+        `COSMETIC LOCKER // LEVEL ${GlitchProgression.level} // ${unlockedCount}/${allItems} UNLOCKED`;
+
+      const sideBtn = (owner, label) => {
+        const c = getPaddleColor(owner);
+        const on = owner === storeSide;
+        return `<button type="button" data-store-side="${owner}" aria-pressed="${on}" style="flex:1;padding:9px 0;border-radius:10px;cursor:pointer;font:bold 12px monospace;letter-spacing:.08em;color:${on ? c.hex : "rgba(235,245,255,.5)"};border:1px solid ${on ? c.hex : "rgba(255,255,255,.14)"};background:${on ? `${c.hex}1f` : "rgba(255,255,255,.03)"};box-shadow:${on ? `0 0 12px ${c.hex}55` : "none"};">${label}</button>`;
+      };
+      const slotBtn = (slot, label) => {
+        const on = slot === storeSlot;
+        const n = newIn(slot);
+        return `<button type="button" data-store-slot="${slot}" aria-pressed="${on}" style="flex:1;padding:9px 0;border-radius:10px;cursor:pointer;font:bold 12px monospace;letter-spacing:.10em;color:${on ? "#ffd166" : "rgba(255,209,102,.5)"};border:1px solid ${on ? "rgba(255,209,102,.6)" : "rgba(255,209,102,.18)"};background:${on ? "rgba(255,209,102,.12)" : "rgba(255,209,102,.03)"};">${label}${n ? ` <span style="color:#ff8fab;">● ${n} NEW</span>` : ""}</button>`;
+      };
+
+      const cards = items.map(item => {
+        const prog = GlitchCosmetics.progressFor(item, data);
+        const rarity = GlitchCosmetics.RARITY[item.rarity] || GlitchCosmetics.RARITY.common;
+        const isOn = item.id === equipped;
+        const fresh = GlitchCosmetics.isNew(storeSlot, item.id, data);
+        let action;
+        if (!prog.unlocked) {
+          const pct = Math.round((prog.current / Math.max(1, prog.target)) * 100);
+          action = `
+            <div style="font:bold 10px/1.45 monospace;letter-spacing:.04em;color:rgba(255,190,200,.8);">🔒 ${escapeStoreText(prog.label)}</div>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+              <div style="flex:1;height:4px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden;"><div style="height:100%;width:${Math.max(3, pct)}%;background:rgba(255,143,171,.75);"></div></div>
+              <span style="font:10px monospace;color:rgba(235,245,255,.5);">${prog.current}/${prog.target}</span>
+            </div>`;
+        } else if (isOn) {
+          action = `<div style="padding:8px 0;border-radius:9px;text-align:center;font:bold 11px monospace;letter-spacing:.1em;color:${sideColor.hex};border:1px solid ${sideColor.hex};background:${sideColor.hex}1a;">✓ EQUIPPED</div>`;
+        } else {
+          action = `<button type="button" data-store-equip="${item.id}" style="width:100%;padding:8px 0;border-radius:9px;cursor:pointer;font:bold 11px monospace;letter-spacing:.1em;color:#eafcff;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.05);">EQUIP</button>`;
+        }
+        return `
+          <div style="position:relative;display:flex;flex-direction:column;gap:8px;padding:10px;border-radius:14px;border:1px solid ${isOn ? sideColor.hex : prog.unlocked ? "rgba(255,255,255,.14)" : "rgba(255,255,255,.07)"};background:${isOn ? `${sideColor.hex}10` : "rgba(255,255,255,.025)"};${isOn ? `box-shadow:0 0 16px ${sideColor.hex}33;` : ""}">
+            ${fresh ? `<span style="position:absolute;top:8px;right:8px;z-index:1;padding:2px 6px;border-radius:6px;background:#ff4fd8;color:#fff;font:bold 9px monospace;letter-spacing:.08em;">NEW</span>` : ""}
+            <canvas data-store-preview="${item.id}" data-locked="${prog.unlocked ? 0 : 1}" style="display:block;width:100%;height:112px;border-radius:10px;background:#050811;"></canvas>
+            <div style="display:flex;align-items:baseline;justify-content:space-between;gap:6px;">
+              <span style="font:bold 13px monospace;letter-spacing:.06em;color:${prog.unlocked ? "#eafcff" : "rgba(235,245,255,.55)"};">${escapeStoreText(item.name)}</span>
+              <span style="font:bold 9px monospace;letter-spacing:.08em;color:${rarity.color};">${rarity.label}</span>
+            </div>
+            <div style="flex:1;font:10px/1.5 monospace;color:rgba(225,238,255,.58);">${escapeStoreText(item.desc)}</div>
+            ${action}
+          </div>`;
+      }).join("");
+
+      body.innerHTML = `
+        <div style="display:flex;gap:8px;margin-bottom:8px;">${sideBtn("blue", "PLAYER 1 // LEFT")}${sideBtn("red", "PLAYER 2 // RIGHT")}</div>
+        <div style="display:flex;gap:8px;margin-bottom:12px;">${slotBtn("paddle", "PADDLE SKINS")}${slotBtn("trail", "BALL TRAILS")}</div>
+        <div style="padding:9px 12px;margin-bottom:12px;border-left:2px solid ${sideColor.hex};background:rgba(255,255,255,.03);font:10px/1.6 monospace;color:rgba(235,245,255,.62);">
+          ${storeSlot === "paddle"
+            ? "Skins are cosmetic only: the hitbox never changes. Each side keeps its own skin and colour."
+            : "The ball shows the trail of whoever hit it last. An unhit ball always uses Ghost Echo."}
+          Colours are set in Settings → Appearance.
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;">${cards}</div>`;
+
+      body.querySelectorAll("[data-store-side]").forEach(btn => btn.addEventListener("click", () => {
+        storeSide = btn.getAttribute("data-store-side");
+        buildStorePane();
+      }));
+      body.querySelectorAll("[data-store-slot]").forEach(btn => btn.addEventListener("click", () => {
+        storeSlot = btn.getAttribute("data-store-slot");
+        buildStorePane();
+      }));
+      body.querySelectorAll("[data-store-equip]").forEach(btn => btn.addEventListener("click", () => {
+        if (GlitchCosmetics.equip(storeSide, storeSlot, btn.getAttribute("data-store-equip"), GlitchProgression.data)) {
+          triggerMenuGlitch();
+          buildStorePane();
+        }
+      }));
+
+      // Badges show once: anything unlocked in the tab being viewed is now seen.
+      GlitchCosmetics.markSeen(storeSlot, data);
+      startStorePreviews();
+    }
+
+    function drawStorePreview(canvasEl, t) {
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      const cw = canvasEl.clientWidth;
+      const ch = canvasEl.clientHeight;
+      if (!cw || !ch) return;
+      const pw = Math.round(cw * dpr);
+      const ph = Math.round(ch * dpr);
+      if (canvasEl.width !== pw || canvasEl.height !== ph) { canvasEl.width = pw; canvasEl.height = ph; }
+      const pctx = canvasEl.getContext("2d");
+      pctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      pctx.clearRect(0, 0, cw, ch);
+
+      // Small arena backdrop
+      pctx.fillStyle = "#050811";
+      pctx.fillRect(0, 0, cw, ch);
+      pctx.strokeStyle = "rgba(103,239,255,0.06)";
+      pctx.lineWidth = 1;
+      pctx.beginPath();
+      for (let gx = 0; gx <= cw; gx += 16) { pctx.moveTo(gx + 0.5, 0); pctx.lineTo(gx + 0.5, ch); }
+      for (let gy = 0; gy <= ch; gy += 16) { pctx.moveTo(0, gy + 0.5); pctx.lineTo(cw, gy + 0.5); }
+      pctx.stroke();
+
+      const id = canvasEl.getAttribute("data-store-preview");
+      const locked = canvasEl.getAttribute("data-locked") === "1";
+      const color = getPaddleColor(storeSide);
+      const heat = 0.5 + Math.sin(t * 0.7) * 0.5;   // sweeps so heat-reactive items show it
+      pctx.save();
+      if (locked) pctx.globalAlpha = 0.45;
+
+      if (storeSlot === "paddle") {
+        const w = 18;
+        const h = Math.min(86, ch - 22);
+        const x = cw / 2 - w / 2;
+        const y = ch / 2 - h / 2 + Math.sin(t * 1.4) * 5;
+        GlitchCosmetics.drawPaddleSkin(pctx, id, x, y, w, h, {
+          rgb: color.rgb, hex: color.hex, t, heat, pulse: 0, quality: 1,
+          img: storeSide === "blue" ? bluePaddleImage : redPaddleImage,
+          imgReady: storeSide === "blue" ? leftImageReady : rightImageReady
+        });
+      } else {
+        // A tiny Pong rally: the ball bounces around the card.
+        let sim = storePreviewTrails.get(canvasEl);
+        if (!sim) {
+          sim = { x: cw * 0.3, y: ch * 0.4, vx: 4.4, vy: 2.6, trail: [] };
+          storePreviewTrails.set(canvasEl, sim);
+        }
+        const r = 7;
+        sim.x += sim.vx; sim.y += sim.vy;
+        if (sim.x < r || sim.x > cw - r) { sim.vx *= -1; sim.x = Math.max(r, Math.min(cw - r, sim.x)); }
+        if (sim.y < r || sim.y > ch - r) { sim.vy *= -1; sim.y = Math.max(r, Math.min(ch - r, sim.y)); }
+        sim.trail.unshift({ x: sim.x, y: sim.y });
+        if (sim.trail.length > 12) sim.trail.pop();
+        GlitchCosmetics.drawBallTrail(pctx, id, sim.trail, { r, heat, rgb: color.rgb, charge: 2.2, t, quality: 1 });
+        pctx.beginPath();
+        pctx.arc(sim.x, sim.y, r, 0, Math.PI * 2);
+        pctx.fillStyle = color.hex;
+        pctx.shadowColor = `rgba(${color.rgb},0.85)`;
+        pctx.shadowBlur = 16;
+        pctx.fill();
+        pctx.shadowBlur = 0;
+      }
+      pctx.restore();
+
+      if (locked) {
+        pctx.fillStyle = "rgba(5,8,17,0.35)";
+        pctx.fillRect(0, 0, cw, ch);
+        pctx.font = "bold 10px monospace";
+        pctx.textAlign = "left";
+        pctx.fillStyle = "rgba(255,190,200,0.8)";
+        pctx.fillText("LOCKED", 8, 16);
+      }
+    }
+
+    function startStorePreviews() {
+      if (storePreviewRaf) return;
+      const tick = () => {
+        if (currentScreen !== "store" || !storePanel.isConnected || storePanel.style.display === "none") {
+          storePreviewRaf = 0;
+          return;
+        }
+        const t = performance.now() / 1000;
+        storePanel.querySelectorAll("canvas[data-store-preview]").forEach(el => drawStorePreview(el, t));
+        storePreviewRaf = requestAnimationFrame(tick);
+      };
+      storePreviewRaf = requestAnimationFrame(tick);
+    }
+
     const storeBackBtn = storePanel.querySelector("button[aria-label='Store Back']");
 
     // Dedicated profile screen — reachable from the main menu beside Store.
@@ -7839,6 +8071,13 @@ function injectGameById(gameId, options = {}) {
         rewards.push(`<span style="color:rgba(255,209,102,${isPast||isCurrent?0.85:0.35});">${title}</span>`);
         if (hasPerk) {
           rewards.push(`<span style="color:rgba(255,79,216,${isPast||isCurrent?0.9:0.35});">▶ PERK CHOICE</span>`);
+        }
+        if (typeof GlitchCosmetics !== "undefined") {
+          ["paddle", "trail"].forEach(slot => {
+            GlitchCosmetics.CATALOG[slot]
+              .filter(item => item.unlock.type === "level" && item.unlock.level === lvl)
+              .forEach(item => rewards.push(`<span style="color:rgba(143,245,177,${isPast||isCurrent?0.9:0.35});">◆ ${item.name} ${slot === "paddle" ? "SKIN" : "TRAIL"}</span>`));
+          });
         }
         const checkmark = isPast ? `<span style="color:rgba(103,239,255,0.5);margin-right:6px;">✓</span>` : "";
 
@@ -8896,6 +9135,7 @@ function injectGameById(gameId, options = {}) {
       triggerMenuGlitch();
       currentScreen = "store";
       syncUiForScreen();
+      buildStorePane();
     });
 
     statsBtn.addEventListener("click", () => {
@@ -9201,11 +9441,13 @@ function injectGameById(gameId, options = {}) {
                 playerScore,
                 opponentScore
               });
+          const newCosmetics = (aiVsAiMode || customMatch) ? [] : syncCosmeticUnlocks();
           progSummaryData = {
             totalXP:     summaryResult.totalXP    || 0,
             breakdown:   summaryResult.breakdown  || {},
             levelBefore: matchStartLevel,
-            levelAfter:  GlitchProgression.level
+            levelAfter:  GlitchProgression.level,
+            newCosmetics
           };
           progSummaryTimer = 0;
           progScreen = "matchSummary";
