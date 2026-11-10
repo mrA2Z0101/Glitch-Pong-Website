@@ -1009,6 +1009,7 @@ const game = {
     this.stats.bosses++;
     this.unlock('boss1');
     if (boss instanceof TheEye) this.unlock('eyeboss');
+    if (boss instanceof TheEye && this.aiEarnsProgress()) Cabinet.report('eye-defeated', { mode: this.mode });
     Meta.data.bossKills[boss.name] = true;
     if (Object.keys(Meta.data.bossKills).length >= 4) this.unlock('boss4');
     Meta.save();
@@ -1035,6 +1036,7 @@ const game = {
     const prevBest = Meta.data.best[bestKey] || 0;
     const newBest = earns && this.score > 0 && this.score > prevBest;
     this.screenAt = performance.now();
+    if (earns) Cabinet.report('run', { mode: this.mode, score: Math.floor(this.score), level: this.level, won: !!won });
     if (earns) {
       Meta.data.xp += xpGain;
       Meta.data.credits += crGain;
@@ -2134,3 +2136,5 @@ function frame(now) {
 game.arena = ARENAS[0];
 game.startAttract();
 requestAnimationFrame(frame);
+// The Eye gauntlet cabinet opens Breakpoint straight into a mode.
+if (Cabinet.startMode && MODES[Cabinet.startMode]) game.startRun(Cabinet.startMode);
