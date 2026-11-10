@@ -8,7 +8,7 @@ import { RenderPass } from './vendor/three-addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from './vendor/three-addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from './vendor/three-addons/postprocessing/OutputPass.js';
 import { mergeGeometries } from './vendor/three-addons/utils/BufferGeometryUtils.js';
-import { createArcadeAudio } from './glitchcade-audio.js?v=glitchcade-6';
+import { createArcadeAudio } from './glitchcade-audio.js?v=glitchcade-7';
 
 // ─── Palette (matches the site's design tokens) ─────────────────────────────
 const C = {
@@ -3880,7 +3880,9 @@ muteBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleMute(); })
 // Browsers only allow sound after a gesture; any click, tap or key wakes the arcade up.
 let audioWorld = null;
 function unlockAudio() {
-  if (gameState !== 'playing' && audioWorld) audio.unlock(audioWorld);
+  if (gameState !== 'playing') {
+    audio.unlock(audioWorld, audioWorld ? { position: camera.position, inside: insideFactor() } : null);
+  }
 }
 window.addEventListener('pointerdown', unlockAudio, true);
 window.addEventListener('keydown', unlockAudio, true);
@@ -4274,6 +4276,9 @@ function showFatal(msg) {
     jukeboxPos: jukebox.screenCenter,
     robotPos: ROBOT_POS.clone().setY(1.7)
   };
+  // An early menu click may already be playing music while the art loaded.
+  // Attach its positional emitters without requiring another click or reload.
+  if (audio.ready) audio.unlock(audioWorld);
   resize();
   requestAnimationFrame((t) => { lastFrame = t; frame(t); });
   enterBtn.disabled = false;
