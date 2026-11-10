@@ -80,20 +80,20 @@ class Ball {
     this.trail = [];
     this.dead = false;
     this.invisible = 0;
-    // sentience (see Game.sentientSteer): paddle returns since this ball last
-    // broke a brick, and its current mood — null, 'bored' or 'grudge'
+    // Sentience: paddle returns since this ball last broke a brick, and mood.
     this.dull = 0;
     this.mood = null;
     this.rampage = 0;          // bricks broken since it got behind the wall (0 = not rampaging)
     this.rampaging = false;
     this.breaks = 0;           // bricks broken this multi-ball (sibling rivalry)
-    this.protecting = null;    // the enemy it's going after for stunning your paddle
+    this.protecting = null;    // the shooter it's pursuing in protective mode
     this.showoff = false;      // SHOW-OFF: on a hot combo it gets flashy and a bit reckless
     this.met = new WeakSet();  // CURIOUS: bricks it has already touched
     this.mourn = 0;            // MOURNING: seconds left of the slow, dim launch after a lost life
     this.mournPending = false;
   }
   get color() {
+    if (this.protecting) return '#ff8a3d';
     if (this.fire > 0) return COL.orange;
     if (this.pierce > 0) return COL.magenta;
     if (this.boom > 0) return COL.red;
@@ -110,6 +110,22 @@ class Ball {
     this.vx = this.vx / m * this.speed;
     this.vy = this.vy / m * this.speed;
   }
+  // Continuous missile guidance. Tighten the turn near the target so a moving
+  // shooter doesn't leave the ball endlessly orbiting just outside its hitbox.
+  homeOn(target, dt) {
+    const dx = target.x - this.x, dy = target.y - this.y;
+    const distance = Math.hypot(dx, dy);
+    if (distance < 0.001) return;
+    const heading = Math.atan2(this.vy, this.vx);
+    const desired = Math.atan2(dy, dx);
+    const difference = Math.atan2(Math.sin(desired - heading), Math.cos(desired - heading));
+    const turn = (10 + 14 * (1 - Math.min(1, distance / 140))) * dt;
+    const angle = heading + clamp(difference, -turn, turn);
+    // Keep the base speed intact so ending retaliation doesn't leave a boost.
+    const speed = Math.min(CFG.BALL_MAX, this.speed * 1.18);
+    this.vx = Math.cos(angle) * speed;
+    this.vy = Math.sin(angle) * speed;
+  }
   // `recordTrail` is false on all but the last physics sub-step of a frame,
   // so sub-stepping fast balls doesn't shorten the visual trail
   update(dt, g, recordTrail = true) {
@@ -123,6 +139,7 @@ class Ball {
       const p = g.paddle;
       this.x = clamp(p.x + this.stuckDx, this.r, CFG.W - this.r);
       this.y = p.y - p.h / 2 - this.r - 1;
+      this.trail.length = 0;
       return;
     }
     // gravity influences
@@ -136,10 +153,11 @@ class Ball {
       this.vx = this.vx / m * this.speed;
       this.vy = this.vy / m * this.speed;
     }
+    const homing = g.steerProtectiveBall?.(this, dt);
     this.x += this.vx * dt;
     this.y += this.vy * dt;
     // avoid flat horizontal loops
-    if (Math.abs(this.vy) < this.speed * 0.14) this.vy += (this.vy >= 0 ? 1 : -1) * this.speed * 0.02;
+    if (!homing && Math.abs(this.vy) < this.speed * 0.14) this.vy += (this.vy >= 0 ? 1 : -1) * this.speed * 0.02;
 
     // walls
     const wallL = g.wallInsetL || 0, wallR = CFG.W - (g.wallInsetR || 0);
@@ -150,7 +168,8 @@ class Ball {
 
     if (!recordTrail) return;
     this.trail.unshift({ x: this.x, y: this.y });
-    if (this.trail.length > (this.showoff ? 28 : 14)) this.trail.pop();
+    const trailLength = this.protecting ? 34 : this.showoff ? 28 : 14;
+    if (this.trail.length > trailLength) this.trail.length = trailLength;
   }
   render(ctx) {
     if (this.invisible > 0 && Math.floor(this.invisible * 10) % 2 === 0) return;
@@ -159,18 +178,31 @@ class Ball {
     // trail
     for (let i = this.trail.length - 1; i > 0; i--) {
       const t = this.trail[i], a = 1 - i / this.trail.length;
-      ctx.globalAlpha = a * (this.showoff ? 0.55 : 0.28) * dim;
+      ctx.globalAlpha = a * (this.protecting ? 0.7 : this.showoff ? 0.55 : 0.28) * dim;
       ctx.fillStyle = this.color;
       const s = this.r * 2 * a;
       ctx.fillRect(t.x - s / 2, t.y - s / 2, s, s);
     }
     ctx.globalAlpha = dim;
-    ctx.shadowColor = this.color; ctx.shadowBlur = this.showoff ? 30 : 18;
+    if (this.protecting && !this.stuck) {
+      ctx.save();
+      ctx.translate(this.x, this.y); ctx.rotate(Math.atan2(this.vy, this.vx));
+      ctx.fillStyle = '#ff8a3d'; ctx.shadowColor = '#ff8a3d'; ctx.shadowBlur = FX.reduced ? 0 : 18;
+      ctx.beginPath(); ctx.moveTo(-this.r + 1, -4); ctx.lineTo(-this.r - 24, 0); ctx.lineTo(-this.r + 1, 4); ctx.fill();
+      ctx.fillStyle = '#ffe4a0';
+      ctx.beginPath(); ctx.moveTo(-this.r + 1, -2); ctx.lineTo(-this.r - 14, 0); ctx.lineTo(-this.r + 1, 2); ctx.fill();
+      ctx.restore();
+    }
+    ctx.shadowColor = this.color; ctx.shadowBlur = this.showoff || this.protecting ? 30 : 18;
     ctx.fillStyle = this.color;
     ctx.beginPath(); ctx.arc(this.x, this.y, this.r, 0, 7); ctx.fill();
     ctx.shadowBlur = 0;
     ctx.fillStyle = '#fff';
     ctx.beginPath(); ctx.arc(this.x - 2, this.y - 2, this.r * 0.4, 0, 7); ctx.fill();
+    if (this.protecting) {
+      ctx.strokeStyle = '#ffe4a0'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(this.x, this.y, this.r + 3, 0, Math.PI * 2); ctx.stroke();
+    }
     ctx.restore();
   }
 }

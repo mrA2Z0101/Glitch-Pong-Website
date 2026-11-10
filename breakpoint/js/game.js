@@ -70,8 +70,8 @@ for (const { key } of COUNTDOWN) {
 //  LOYAL  — on your last life it refuses to fall past a near miss, once a sector
 //  RAMPAGE    — once it breaks through behind the wall it turns gold and runs
 //               wild: a little faster, double score until it drops back out
-//  PROTECTIVE — if an enemy stuns your paddle, it bends toward that enemy on the
-//               next return and hits it for double damage
+//  PROTECTIVE — a shooter that hits your paddle gets an immediate missile lock;
+//               continuous pursuit, a targeting reticle, and double enemy damage
 //  RIVALRY    — in multi-ball the balls compete: the one with the most bricks
 //               wears a crown (+50% brick score); the last one left gets a bonus
 //  SHOW-OFF   — a hot combo goes to its head: longer, brighter trail and a little
@@ -756,6 +756,7 @@ const game = {
     }
   },
   paddleHitByProjectile(shot) {
+    if (shot?.src) this.lockProtectiveTarget(shot.src);
     if (this.timers.shield > 0) {
       AudioSys.sfx('wall');
       FX.spawn(this.paddle.x, this.paddle.y, COL.green, 10);
@@ -763,8 +764,6 @@ const game = {
     }
     this.paddle.stun = 2.2;
     this.combo = 0;
-    // PROTECTIVE: the ball remembers which enemy did that (bosses have their own story)
-    if (shot && shot.src instanceof Enemy && !shot.src.dead) { this.paddleAttacker = shot.src; this.paddleAttackerT = this.time; }
     AudioSys.sfx('lose');
     FX.shake(6); FX.flash(COL.red, 0.2);
     FX.text(this.paddle.x, this.paddle.y - 24, 'STUNNED', COL.red, 12);
@@ -948,6 +947,7 @@ const game = {
   levelCleared() {
     if (this.attract) { this.level++; this.startLevel(); showScreen('scrMenu'); return; }
     this.state = 'clear';
+    this.clearProtectiveTarget();
     AudioSys.setEvent(null);
     AudioSys.sfx('life');
     const clearBonus = 500 + this.level * 100;
@@ -1025,6 +1025,7 @@ const game = {
 
   endRun(won) {
     this.state = 'over';
+    this.clearProtectiveTarget();
     AudioSys.stopMusic();
     const secs = (performance.now() - this.stats.timeStart) / 1000;
     const earns = this.aiEarnsProgress();
@@ -1262,7 +1263,10 @@ const game = {
         if (this.boss && !this.boss.dead) {
           const hpBefore = this.boss.hp;
           this.boss.collideBall(ball, this);
-          if (this.boss.hp < hpBefore) ball.dull = 0;   // landing hits on a boss isn't boring
+          if (this.boss.hp < hpBefore) {
+            ball.dull = 0;   // landing hits on a boss isn't boring
+            if (ball.protecting === this.boss) this.avenged(ball, this.boss);
+          }
         }
         // ball vs enemies — bounce away from the enemy instead of flipping vy every
         // frame, which left the ball jittering inside tougher enemies like turrets
@@ -1354,20 +1358,69 @@ const game = {
   },
 
   // ======== the sentient ball ========
+  clearProtectiveTarget() {
+    this.paddleAttacker = null;
+    for (const ball of this.balls) {
+      ball.protecting = null;
+      if (ball.mood === 'protective') ball.mood = null;
+    }
+  },
+
+  protectiveTarget() {
+    const foe = this.paddleAttacker;
+    if (!this.sentient || this.attract || !foe || foe.dead ||
+        (foe !== this.boss && !this.enemies.includes(foe))) {
+      if (foe) this.clearProtectiveTarget();
+      return null;
+    }
+    return foe;
+  },
+
+  lockProtectiveTarget(foe) {
+    if (!foe || !this.sentient || this.attract || foe.dead ||
+        !(foe instanceof Enemy || foe === this.boss) ||
+        (foe !== this.boss && !this.enemies.includes(foe))) return;
+    const changed = this.paddleAttacker !== foe;
+    this.paddleAttacker = foe;
+    for (const ball of this.balls) {
+      if (ball.dead) continue;
+      ball.protecting = foe;
+      ball.mood = 'protective';
+    }
+    if (changed) {
+      FX.text(CFG.W / 2, this.paddle.y - 58, 'RETALIATION — TARGET LOCKED', '#ff8a3d', 13);
+      AudioSys.sfx('click');
+    }
+  },
+
+  steerProtectiveBall(ball, dt) {
+    const foe = this.protectiveTarget();
+    if (!foe) {
+      ball.protecting = null;
+      if (ball.mood === 'protective') ball.mood = null;
+      return false;
+    }
+    ball.protecting = foe;
+    ball.mood = 'protective';
+    ball.homeOn(foe, dt);
+    return true;
+  },
+
   // Called as the ball leaves the paddle with the angle the paddle gave it;
   // returns the angle the ball actually takes.
   sentientSteer(ball, angle) {
     ball.dull++;
-    if (!this.sentient) { ball.mood = null; return angle; }
+    if (!this.sentient) { ball.mood = null; ball.protecting = null; return angle; }
     let mood = null, target = null, pull = 0;
     const boss = this.boss && !this.boss.dead ? this.boss : null;
-    const foe = this.paddleAttacker;
-    if (foe && (foe.dead || this.time - this.paddleAttackerT > 10)) this.paddleAttacker = null;
-    if (this.paddleAttacker) {
-      // PROTECTIVE: someone stunned your paddle — it goes after them
-      mood = 'protective'; target = foe; pull = 0.32;
+    const foe = this.protectiveTarget();
+    if (foe) {
+      // Launch straight at the shooter; guidance continues between bounces.
+      ball.mood = 'protective';
       ball.protecting = foe;
-    } else if (boss instanceof TheEye) {
+      return Math.atan2(foe.y - ball.y, foe.x - ball.x);
+    }
+    if (boss instanceof TheEye) {
       // GRUDGE: it hasn't forgotten the Pong arena
       mood = 'grudge'; target = boss; pull = 0.16;
     } else if (ball.dull >= BORED_AFTER) {
@@ -1381,7 +1434,7 @@ const game = {
       if (target) { mood = 'curious'; pull = 0.12; }
     }
     if (mood !== ball.mood && mood && !this.attract) {
-      const say = { bored: ['BORED...', '#8d97ad'], grudge: ['GRUDGE', '#ff8fb8'], protective: ['HOW DARE YOU', '#ff8a3d'], curious: ['?', '#eef7ff'] }[mood];
+      const say = { bored: ['BORED...', '#8d97ad'], grudge: ['GRUDGE', '#ff8fb8'], curious: ['?', '#eef7ff'] }[mood];
       FX.text(ball.x, ball.y - 26, say[0], say[1], 12);
     }
     ball.mood = mood;
@@ -1395,11 +1448,35 @@ const game = {
 
   // PROTECTIVE pays off
   avenged(ball, e) {
-    ball.protecting = null;
-    ball.mood = null;
-    this.paddleAttacker = null;
+    ball.dull = 0;
+    this.clearProtectiveTarget();
     FX.text(e.x, e.y - 22, 'AVENGED', '#ff8a3d', 14);
     FX.spawn(e.x, e.y, '#ff8a3d', 18, { spd: 240 });
+  },
+
+  renderProtectiveTarget() {
+    const foe = this.protectiveTarget();
+    if (!foe) return;
+    const rx = (foe.rx || foe.r || 16) + 10, ry = (foe.ry || foe.r || 16) + 10;
+    const col = '#ff8a3d';
+    ctx.save();
+    ctx.strokeStyle = col; ctx.lineWidth = 1.25;
+    ctx.globalAlpha = 0.36;
+    ctx.setLineDash([5, 7]); ctx.lineDashOffset = FX.reduced ? 0 : -this.time * 36;
+    for (const ball of this.balls) {
+      if (ball.dead || ball.stuck || ball.protecting !== foe ||
+          (ball.invisible > 0 && Math.floor(ball.invisible * 10) % 2 === 0)) continue;
+      ctx.beginPath(); ctx.moveTo(ball.x, ball.y); ctx.lineTo(foe.x, foe.y); ctx.stroke();
+    }
+    ctx.setLineDash([]); ctx.globalAlpha = 0.95;
+    ctx.lineWidth = 2; ctx.shadowColor = col; ctx.shadowBlur = FX.reduced ? 0 : 10;
+    for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
+      const x = foe.x + sx * rx, y = foe.y + sy * ry;
+      ctx.beginPath(); ctx.moveTo(x - sx * 8, y); ctx.lineTo(x, y); ctx.lineTo(x, y - sy * 8); ctx.stroke();
+    }
+    ctx.fillStyle = col; ctx.textAlign = 'center'; ctx.font = '700 10px Orbitron, monospace';
+    ctx.fillText('TARGET LOCKED', clamp(foe.x, 80, CFG.W - 80), Math.max(16, foe.y - ry - 8));
+    ctx.restore();
   },
 
   // RAMPAGE: near the ceiling with live bricks underneath it means it got behind
@@ -1562,6 +1639,7 @@ const game = {
     if (this.boss && !this.boss.dead) this.boss.render(ctx);
     for (const l of this.lasers) l.render(ctx);
     for (const p of this.projectiles) p.render(ctx);
+    this.renderProtectiveTarget();
     // bottom shield
     if (this.timers.shield > 0) {
       ctx.save();
@@ -1892,6 +1970,7 @@ function refreshSentienceBtn() {
 $('btnSentience').onclick = () => {
   AudioSys.init(); AudioSys.sfx('click');
   Meta.data.sentience = !game.sentient;
+  if (!game.sentient) game.clearProtectiveTarget();
   Meta.save();
   refreshSentienceBtn();
 };
