@@ -62,10 +62,13 @@ it still skips songs. All arcade music pauses while either cabinet is playing
 and resumes on return. Browser audio starts after a user gesture.
 The opening menu also plays its current scene's music after the first click,
 tap, or key press, including the street track during the exterior camera shot.
-The opening track preloads without playing. The first gesture starts music even
-while the arcade art is still loading; positional emitters attach when the world
-is ready without restarting playback. Initial playback selects the current tour
-scene directly, while later movement retains the normal zone fades.
+The opening track preloads without playing. A separate audio entry point loads
+before the 3D scripts, so the first press starts playback even while Three.js or
+the arcade art is still loading. Initial playback sets the menu volume immediately,
+without the usual 0.4-second master fade. Touch release retries activation for
+browsers that require it. Positional emitters attach when the world is ready
+without restarting playback. Initial playback selects the current tour scene
+directly, while later movement retains the normal zone fades.
 
 Music uses streamed media elements routed through Web Audio instead of decoding
 the entire soundtrack into memory. No build step or extra dependency is needed.

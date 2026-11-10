@@ -8,7 +8,7 @@ import { RenderPass } from './vendor/three-addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from './vendor/three-addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from './vendor/three-addons/postprocessing/OutputPass.js';
 import { mergeGeometries } from './vendor/three-addons/utils/BufferGeometryUtils.js';
-import { createArcadeAudio } from './glitchcade-audio.js?v=glitchcade-7';
+import { arcadeAudio as audio, setAudioScene } from './glitchcade-audio-start.js?v=glitchcade-1';
 
 // ─── Palette (matches the site's design tokens) ─────────────────────────────
 const C = {
@@ -90,7 +90,6 @@ const joyKnob = $('gcJoyKnob');
 
 if (isTouch) document.body.classList.add('gc-touch');
 
-const audio = createArcadeAudio({ isTouch });
 const muteBtn = $('gcMute');
 
 // ─── Small helpers ──────────────────────────────────────────────────────────
@@ -3877,15 +3876,12 @@ muteBtn.classList.toggle('muted', audio.muted);
 muteBtn.setAttribute('aria-pressed', String(audio.muted));
 muteBtn.addEventListener('click', (e) => { e.stopPropagation(); toggleMute(); });
 
-// Browsers only allow sound after a gesture; any click, tap or key wakes the arcade up.
+// The early audio handler starts before Three.js loads, then uses the live scene.
 let audioWorld = null;
-function unlockAudio() {
-  if (gameState !== 'playing') {
-    audio.unlock(audioWorld, audioWorld ? { position: camera.position, inside: insideFactor() } : null);
-  }
-}
-window.addEventListener('pointerdown', unlockAudio, true);
-window.addEventListener('keydown', unlockAudio, true);
+setAudioScene(() => gameState === 'playing' ? null : {
+  world: audioWorld,
+  location: audioWorld ? { position: camera.position, inside: insideFactor() } : null
+});
 
 window.addEventListener('keydown', (e) => {
   if (gameState === 'playing') return;

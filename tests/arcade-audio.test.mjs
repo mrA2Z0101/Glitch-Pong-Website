@@ -3,7 +3,18 @@ import { readFile } from 'node:fs/promises';
 import { afterEach, beforeEach, test } from 'node:test';
 
 const source = await readFile(new URL('../glitchcade-audio.js', import.meta.url), 'utf8');
-const { createArcadeAudio } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+const audioModule = `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
+const { createArcadeAudio } = await import(audioModule);
+const startupSource = (await readFile(new URL('../glitchcade-audio-start.js', import.meta.url), 'utf8'))
+  .replace('./glitchcade-audio.js?v=glitchcade-8', audioModule);
+let startupImport = 0;
+async function loadStartup() {
+  const handlers = {};
+  window.matchMedia = () => ({ matches: true });
+  window.addEventListener = (name, handler) => { handlers[name] = handler; };
+  const api = await import(`data:text/javascript;base64,${Buffer.from(startupSource).toString('base64')}#${startupImport++}`);
+  return { ...api, press: name => handlers[name]() };
+}
 const originals = Object.fromEntries(['window', 'Audio', 'fetch', 'localStorage'].map(k => [k, globalThis[k]]));
 let contexts, media;
 
@@ -110,10 +121,45 @@ afterEach(() => {
   }
 });
 
-test('the first menu gesture makes the street soundtrack audible', () => {
+test('the standalone audio entry starts on press and reuses playback when the scene attaches', async () => {
+  const { arcadeAudio: audio, setAudioScene, press } = await loadStartup();
+  assert.equal(contexts.length, 0);
+  press('pointerdown');
+  assert.equal(contexts.length, 1);
+  assert.equal(streetElement().plays, 1);
+  assert.equal(contexts[0].gains[0].gain.value, 0.7);
+  streetElement().currentTime = 12;
+  setAudioScene(() => ({ world, location: { position: pos(0, 10), inside: 0 } }));
+  press('touchend');
+  press('keydown');
+  assert.equal(contexts.length, 1);
+  assert.equal(media.length, 3);
+  assert.equal(streetElement().plays, 1, 'gesture retries must not restart active playback');
+  assert.equal(streetElement().currentTime, 12);
+  audio.setMode('playing');
+  setAudioScene(() => null);
+  press('pointerdown');
+  press('touchend');
+  assert.ok(media.every(el => el.paused), 'cabinet gestures must not wake arcade music');
+  audio.setMode('paused'); // clear the delayed context suspension
+});
+
+test('a touch release retries blocked playback within the same tap', async () => {
+  const { press } = await loadStartup();
+  press('pointerdown');
+  const street = streetElement();
+  street.paused = true; // browser withheld touch activation until release
+  press('touchend');
+  assert.equal(street.plays, 2);
+  assert.equal(street.paused, false);
+  assert.equal(contexts.length, 1);
+});
+
+test('the first menu gesture starts at menu volume without a fade or a render tick', () => {
   const audio = createArcadeAudio({ isTouch: false });
   audio.setMode('intro'); // the render loop ran before the gesture
   audio.unlock(world);
+  assert.equal(contexts[0].gains[0].gain.value, 0.7, 'the first press must start at the full menu level');
   move(audio, 0, 10, 0);
   advance(1.2);
   assert.ok(contexts[0].gains[0].gain.value > 0, 'master must not remain silent');
@@ -168,8 +214,7 @@ test('an early gesture starts the opening track before the world exists', () => 
   assert.equal(audio.musicMix.street, 1, 'opening playback must not wait for a zone fade');
   assert.equal(audio.musicMix.floor, 0);
   assert.equal(audio.musicMix.groove, 0);
-  advance(0.1);
-  assert.ok(contexts[0].gains[0].gain.value > 0, 'the first click must produce output promptly');
+  assert.equal(contexts[0].gains[0].gain.value, 0.7, 'no volume ramp may delay the first press');
   opening.currentTime = 14;
   audio.unlock(world);
   assert.equal(streetElement(), opening, 'attach the world to the same prewarmed player');
@@ -219,6 +264,7 @@ test('cabinet handoff silences arcade songs and returning resumes them', () => {
   audio.unlock(world);
   audio.setMode('playing');
   assert.ok(media.every(el => el.paused));
+  advance(0.3); // music stops immediately; room ambience keeps its handoff fade
   assert.equal(contexts[0].gains[0].gain.value, 0);
   audio.setMode('paused'); // also clears the delayed suspend
   advance(0.5);

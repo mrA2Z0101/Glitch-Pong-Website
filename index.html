@@ -9,6 +9,8 @@
 <title>Glitchcade — The Glitch Pong Arcade</title>
 <meta name="description" content="Walk into the Glitchcade, a glitched-out first-person arcade, and play Glitch Pong on its own cabinet.">
 <meta name="theme-color" content="#03040a">
+<link rel="modulepreload" href="glitchcade-audio.js?v=glitchcade-8">
+<script type="module" async src="glitchcade-audio-start.js?v=glitchcade-1"></script>
 <link rel="icon" type="image/png" sizes="128x128" href="icons/icon128.png">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" sizes="128x128" href="icons/apple-touch-icon.png">
@@ -602,12 +604,12 @@ body.gc-touch .gm-keys.touch { display: grid; }
 <!-- Served by the local multiplayer server. This 404s harmlessly in static-only mode. -->
 <script src="/socket.io/socket.io.js"></script>
 <script src="glitchpong-site.js?v=glitchcade-8"></script>
-<script type="module" src="glitchcade.js?v=glitchcade-15"></script>
+<script type="module" src="glitchcade.js?v=glitchcade-16"></script>
 
 <script>
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
   window.addEventListener('load', function () {
-    navigator.serviceWorker.register('./service-worker.js?v=menu-startup-22', { updateViaCache: 'none' })
+    navigator.serviceWorker.register('./service-worker.js?v=instant-music-23', { updateViaCache: 'none' })
       .then(function (registration) { return registration.update(); })
       .catch(function () {});
   }, { once: true });
