@@ -289,3 +289,34 @@ test('browsers without cancelAndHoldAtTime still cancel an interrupted fade', ()
     Param.prototype.cancelAndHoldAtTime = hold;
   }
 });
+
+test('the beat clock follows the jukebox song for PRIZETRON\'s dance', () => {
+  const audio = createArcadeAudio({ isTouch: false });
+  assert.equal(audio.beatClock(), null, 'no clock before the audio graph exists');
+  audio.unlock(world);
+  const juke = media.find(el => el.src?.includes('prizetrons-groove-1'));
+  assert.ok(juke, 'the jukebox starts on PRIZETRON\'S GROOVE 01');
+  juke.paused = false;
+  // Groove 01 is 112.044 BPM with its first grid beat at 0.2984 s.
+  const period = 60 / 112.044;
+  juke.currentTime = 0.2984 + period * 10;
+  let c = audio.beatClock();
+  assert.equal(c.playing, true);
+  assert.equal(c.title, "PRIZETRON'S GROOVE 01");
+  assert.ok(Math.abs(c.beat - 10) < 0.01, `beat 10, got ${c.beat}`);
+  // The take speeds up near the end; the drift curve keeps beats on the grid
+  // the audio actually has (167 ms early by the last measured point).
+  juke.currentTime = 115.71;
+  c = audio.beatClock();
+  const plain = (115.71 - 0.2984) / period;
+  assert.ok(Math.abs((c.beat - plain) * period - 0.167) < 0.002, 'drift correction applied');
+  // Next track: Groove 02's own grid, and a paused song reports not playing.
+  audio.nextTrack(false);
+  const juke2 = media.find(el => el.src?.includes('prizetrons-groove-2')) || juke;
+  juke2.paused = true;
+  juke2.currentTime = 0.3028 + (60 / 112.502) * 4;
+  c = audio.beatClock();
+  assert.equal(c.title, "PRIZETRON'S GROOVE 02");
+  assert.equal(c.playing, false);
+  assert.ok(Math.abs(c.beat - 4) < 0.01, `beat 4, got ${c.beat}`);
+});

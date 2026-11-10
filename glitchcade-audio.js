@@ -20,15 +20,49 @@ const SFX_FILES = {
   juke: 'Juke Sound'
 };
 
+// Beat maps measured offline from the audio files (onset folding over the
+// whole song). bpm/offset give the beat grid in seconds of song time; down is
+// which beat of the grid starts a bar. PRIZETRON's own songs are measured to
+// a few ms and carry a drift curve (ms at evenly spaced points in the song)
+// for the take that speeds up near the end. The Construct tracks have less
+// regular rhythm sections, so `lock` lets live kick detection nudge the grid.
+const GROOVE_POINTS = [3.73, 11.2, 18.66, 26.13, 33.59, 41.06, 48.52, 55.99, 63.45, 70.92, 78.38, 85.85, 93.32, 100.78, 108.25, 115.71];
+const CONSTRUCT_BEATS = [
+  { bpm: 86.923, offset: 0.2786, down: 0, lock: 0.18 },   // measured 173.85, danced half-time
+  { bpm: 140.224, offset: 0.0825, down: 3, lock: 0.18 },
+  { bpm: 100.004, offset: 0.0219, down: 0, lock: 0.18 },
+  { bpm: 135.988, offset: 0.1448, down: 1, lock: 0.18 },
+  { bpm: 100.998, offset: 0.065, down: 0, lock: 0.12 },
+  { bpm: 133.408, offset: 0.2881, down: 2, lock: 0.18 }
+];
+
 // PRIZETRON's two takes lead the jukebox; keep the original Construct selections.
 const PLAYLIST = [
-  { src: 'sounds/music/prizetrons-groove-1.mp3', title: "PRIZETRON'S GROOVE 01" },
-  { src: 'sounds/music/prizetrons-groove-2.mp3', title: "PRIZETRON'S GROOVE 02" },
+  { src: 'sounds/music/prizetrons-groove-1.mp3', title: "PRIZETRON'S GROOVE 01",
+    beat: { bpm: 112.044, offset: 0.2984, down: 1, lock: 0,
+            drift: [GROOVE_POINTS, [-6, 0, 0, 0, 6, 11, 11, 6, 0, 0, -22, -45, -61, -100, -134, -167]] } },
+  { src: 'sounds/music/prizetrons-groove-2.mp3', title: "PRIZETRON'S GROOVE 02",
+    beat: { bpm: 112.502, offset: 0.3028, down: 2, lock: 0 } },
   ...[1, 2, 3, 4, 5, 6].map((n) => ({
     src: `sounds/music/construct_music${n}.mp3`,
-    title: `THE CONSTRUCT ${String(n).padStart(2, '0')}`
+    title: `THE CONSTRUCT ${String(n).padStart(2, '0')}`,
+    beat: CONSTRUCT_BEATS[n - 1]
   }))
 ];
+
+// Piecewise-linear lookup in a [times, ms] drift curve, returned in seconds.
+function driftAt(drift, t) {
+  if (!drift) return 0;
+  const [xs, ys] = drift;
+  if (t <= xs[0]) return ys[0] / 1000;
+  for (let i = 1; i < xs.length; i++) {
+    if (t <= xs[i]) {
+      const k = (t - xs[i - 1]) / (xs[i] - xs[i - 1]);
+      return (ys[i - 1] + (ys[i] - ys[i - 1]) * k) / 1000;
+    }
+  }
+  return ys[ys.length - 1] / 1000;
+}
 
 const MUTE_KEY = 'glitchcade_muted';
 const MUSIC_LEVELS = { street: 0.45, floor: 0.4, groove: 0.55 };
@@ -338,7 +372,16 @@ export function createArcadeAudio({ isTouch }) {
     prizePos = counterPos;
     const counterPanner = makePanner(counterPos, { ref: 2, rolloff: 2 });
     g.connect(counterPanner).connect(indoorIn);
-    jukebox = { panner, counterPanner, gain: g, pos };
+    // Tap the song before its volume/zone gain so PRIZETRON hears the kick
+    // drum at the same strength wherever the player is standing.
+    let analyser = null;
+    if (typeof ctx.createAnalyser === 'function') {
+      analyser = ctx.createAnalyser();
+      analyser.fftSize = 1024;
+      analyser.smoothingTimeConstant = 0;
+      src.connect(analyser);
+    }
+    jukebox = { panner, counterPanner, gain: g, pos, analyser, bins: analyser ? new Uint8Array(analyser.frequencyBinCount) : null };
     loadTrack();
   }
 
@@ -374,6 +417,64 @@ export function createArcadeAudio({ isTouch }) {
         el.play().catch(() => {});
       }
     }
+  }
+
+  // ── Beat clock: where the jukebox song is in its beat grid ────────────────
+  const beatState = { track: -1, corr: 0, prevBass: 0, fluxAvg: 0, lastOnset: -9, peak: 0.08, level: 0, lastT: 0 };
+
+  function beatClock() {
+    if (!musicEl || !jukebox) return null;
+    const entry = PLAYLIST[trackIndex];
+    const info = entry.beat;
+    if (!info) return null;
+    const period = 60 / info.bpm;
+    const latency = ctx ? (ctx.outputLatency || 0) + (ctx.baseLatency || 0) : 0;
+    const t = Math.max(0, (Number(musicEl.currentTime) || 0) - latency);
+    // A new track, or a jump back (loop/seek), restarts the live correction.
+    if (beatState.track !== trackIndex || t < beatState.lastT - 1) {
+      Object.assign(beatState, { track: trackIndex, corr: 0, prevBass: 0, fluxAvg: 0, lastOnset: -9, level: 0 });
+    }
+    beatState.lastT = t;
+    const playing = !musicEl.paused && !musicEl.ended && (musicEl.readyState === undefined || musicEl.readyState >= 2);
+    const drift = driftAt(info.drift, t);
+    let kick = false;
+    if (playing && jukebox.analyser) {
+      jukebox.analyser.getByteFrequencyData(jukebox.bins);
+      const binHz = ctx.sampleRate / jukebox.analyser.fftSize;
+      const hi = Math.max(2, Math.round(160 / binHz));
+      let sum = 0;
+      for (let i = 1; i <= hi; i++) sum += jukebox.bins[i];
+      const bass = sum / (hi * 255);
+      beatState.peak = Math.max(beatState.peak * 0.998, bass, 0.08);
+      beatState.level += (bass / beatState.peak - beatState.level) * 0.35;
+      const flux = Math.max(0, bass - beatState.prevBass);
+      beatState.prevBass = bass;
+      if (flux > beatState.fluxAvg * 2.4 + 0.035 && t - beatState.lastOnset > period * 0.5) {
+        beatState.lastOnset = t;
+        kick = true;
+        if (info.lock) {
+          const pos = (t - info.offset - drift - beatState.corr) / period;
+          const err = (pos - Math.round(pos)) * period;
+          if (Math.abs(err) < period * 0.3) {
+            beatState.corr = Math.max(-period / 2, Math.min(period / 2, beatState.corr + err * info.lock));
+          }
+        }
+      }
+      beatState.fluxAvg = beatState.fluxAvg * 0.9 + flux * 0.1;
+    } else if (!playing) {
+      beatState.level *= 0.9;
+    }
+    return {
+      playing,
+      title: entry.title,
+      bpm: info.bpm,
+      time: t,
+      beat: (t - info.offset - drift - beatState.corr) / period,   // beats since the grid's first beat
+      down: info.down || 0,                                        // grid beat index (mod 4) that starts a bar
+      level: Math.max(0, Math.min(1.5, beatState.level)),         // live bass energy, ~1 at a kick
+      kick,
+      correctionMs: Math.round(beatState.corr * 1000)
+    };
   }
 
   function musicGains() {
@@ -463,6 +564,8 @@ export function createArcadeAudio({ isTouch }) {
     get muted() { return muted; },
     get ready() { return !!ctx; },
     get trackTitle() { return PLAYLIST[trackIndex].title; },
+    // The jukebox song's beat position, for PRIZETRON's dance (null before audio starts).
+    beatClock,
     // debugging / tests
     get contextState() { return ctx ? ctx.state : 'none'; },
     get musicPlaying() { return !!musicEl && !musicEl.paused; },
