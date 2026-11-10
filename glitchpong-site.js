@@ -584,12 +584,11 @@ const GlitchSave = (function() {
     glitchPong_cosmetics_v1: (v) => {
       if (!v || typeof v !== "object") return null;
       const equipped = {};
+      const slots = ["paddle", "trail", "ball", "hit", "score", "dash", "teleport"];
       ["blue", "red"].forEach((owner) => {
         const side = v.equipped && v.equipped[owner];
-        equipped[owner] = {
-          paddle: side && ID_RE.test(side.paddle || "") ? side.paddle : "default",
-          trail: side && ID_RE.test(side.trail || "") ? side.trail : "default"
-        };
+        equipped[owner] = {};
+        slots.forEach((slot) => { equipped[owner][slot] = side && ID_RE.test(side[slot] || "") ? side[slot] : "default"; });
       });
       const seen = Array.isArray(v.seen) ? v.seen.filter((x) => typeof x === "string" && ID_RE.test(x)).slice(0, 100) : [];
       return { equipped, seen };
@@ -2406,6 +2405,11 @@ function injectGameById(gameId, options = {}) {
     let rightDashCooldown = 0;
     let leftDashTrail = [];
     let rightDashTrail = [];
+    // Cosmetic effects (glitchpong-cosmetics.js): one-shot hit/score/teleport
+    // effects, when each paddle last returned the ball, and last frame's state.
+    const cosmeticFx = typeof GlitchCosmetics !== "undefined" ? GlitchCosmetics.createFX() : null;
+    const cosmeticHitAt = { blue: -1e9, red: -1e9 };
+    const cosmeticWatch = { owner: null, left: null, right: null, x: 0, y: 0, last: 0 };
 
     // Powerup system: only one arena pickup exists at a time. The ball color tracks
     // ownership, and whichever paddle owns the ball when it collects the pickup gets
@@ -4957,7 +4961,9 @@ function injectGameById(gameId, options = {}) {
           pulse: glitchPulse,
           quality: getVisualQualityScale(),
           img,
-          imgReady: isReady
+          imgReady: isReady,
+          ballY,
+          hitFlash: owner ? Math.max(0, 1 - (performance.now() - cosmeticHitAt[owner]) / 350) : 0
         });
         return;
       }
@@ -5017,28 +5023,86 @@ function injectGameById(gameId, options = {}) {
       }
     }
 
+    // ── Equipped ball skin, dash style and one-shot effects ─────────────────
+    // Ball, decoys and effects are all purely visual: the hitbox stays the
+    // plain BALL_R circle. Split decoys always wear the same skin as the real
+    // ball so the cosmetic can never give the real one away.
+
+    function drawSkinnedBall(x, y, r, glowBlur, glowAlpha) {
+      if (typeof GlitchCosmetics === "undefined") {
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fillStyle = ownerHex(ballOwner);
+        ctx.shadowColor = ownerColor(ballOwner, glowAlpha);
+        ctx.shadowBlur = glowBlur;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        return;
+      }
+      const skin = ballOwner === "neutral" ? "default" : equippedCosmetic(ballOwner, "ball");
+      GlitchCosmetics.drawBallSkin(ctx, skin, x, y, r, {
+        rgb: ownerRgb(ballOwner), hex: ownerHex(ballOwner), glowBlur, glowAlpha,
+        t: performance.now() / 1000, vx, vy, quality: getVisualQualityScale()
+      });
+    }
+
+    function spawnCosmeticFx(owner, slot, x, y, extra) {
+      if (!cosmeticFx || owner === "neutral" || !owner) return;
+      const id = equippedCosmetic(owner, slot);
+      if (id === "default") return;
+      cosmeticFx.spawn(slot, id, x, y, Object.assign({ rgb: ownerRgb(owner), r: BALL_R, w: canvas.width, h: canvas.height }, extra));
+    }
+
+    // Watches the match state each frame, so hit and score effects fire the
+    // same way in local play, AI vs AI, the menu demo, and online matches.
+    function updateCosmeticEvents() {
+      const w = cosmeticWatch;
+      if (w.left === null) { w.owner = ballOwner; w.left = leftScore; w.right = rightScore; }
+      if (ballOwner !== w.owner && (ballOwner === "blue" || ballOwner === "red")) {
+        cosmeticHitAt[ballOwner] = performance.now();
+        spawnCosmeticFx(ballOwner, "hit", ballX, ballY, { dir: ballOwner === "blue" ? 1 : -1 });
+      }
+      if (leftScore > w.left) spawnCosmeticFx("blue", "score", canvas.width, w.y, { dir: -1 });
+      if (rightScore > w.right) spawnCosmeticFx("red", "score", 0, w.y, { dir: 1 });
+      w.owner = ballOwner; w.left = leftScore; w.right = rightScore;
+      w.x = ballX; w.y = ballY;
+    }
+
+    // Called where the ball is drawn (world space), after the ball.
+    function drawCosmeticFX() {
+      if (!cosmeticFx) return;
+      updateCosmeticEvents();
+      const now = performance.now();
+      const dt = cosmeticWatch.last ? Math.min(0.05, Math.max(0, (now - cosmeticWatch.last) / 1000)) : 1 / 60;
+      cosmeticWatch.last = now;
+      cosmeticFx.draw(ctx, dt);
+    }
+
+    function drawDashFX(trail, owner, x, curY) {
+      const legacyRgb = owner === "blue" ? "103,239,255" : "255,79,216";
+      const heat = getHeatRatio();
+      if (typeof GlitchCosmetics === "undefined") {
+        for (const tr of trail) {
+          const alpha = Math.max(0, tr.life / 16) * (0.18 + heat * 0.14);
+          ctx.fillStyle = `rgba(${legacyRgb},${alpha})`;
+          ctx.fillRect(tr.x, tr.y, paddleW, paddleH);
+        }
+        return;
+      }
+      GlitchCosmetics.drawDash(ctx, equippedCosmetic(owner, "dash"), trail, {
+        w: paddleW, h: paddleH, rgb: ownerRgb(owner), legacyRgb, heat,
+        t: performance.now() / 1000, curY, quality: getVisualQualityScale()
+      });
+    }
+
     // The regular arenas use a moving/zooming camera. Keep their paddles in
     // screen space, as Matrix already does, so neither can slip beyond an edge.
     function drawScreenSpacePaddles() {
       const heatRatio = getHeatRatio();
       ctx.save();
 
-      for (const trail of leftDashTrail) {
-        const alpha = Math.max(0, trail.life / 16) * (0.18 + heatRatio * 0.14);
-        ctx.fillStyle = `rgba(103,239,255,${alpha})`;
-        ctx.shadowColor = `rgba(103,239,255,${alpha * 1.4})`;
-        ctx.shadowBlur = 16;
-        ctx.fillRect(trail.x, trail.y, paddleW, paddleH);
-        ctx.shadowBlur = 0;
-      }
-      for (const trail of rightDashTrail) {
-        const alpha = Math.max(0, trail.life / 16) * (0.18 + heatRatio * 0.14);
-        ctx.fillStyle = `rgba(255,79,216,${alpha})`;
-        ctx.shadowColor = `rgba(255,79,216,${alpha * 1.4})`;
-        ctx.shadowBlur = 16;
-        ctx.fillRect(trail.x, trail.y, paddleW, paddleH);
-        ctx.shadowBlur = 0;
-      }
+      drawDashFX(leftDashTrail, "blue", leftX, leftY);
+      drawDashFX(rightDashTrail, "red", rightX, rightY);
 
       if (powerState.blue.shieldTimer > 0) {
         ctx.fillStyle = "rgba(103,239,255,0.10)";
@@ -5483,13 +5547,7 @@ function injectGameById(gameId, options = {}) {
         for (let i = 0; i < decoys.length; i++) {
           const decoy = decoys[i];
           const lifeRatio = Math.max(0, decoy.life / decoy.maxLife);
-          ctx.beginPath();
-          ctx.arc(decoy.x, decoy.y, (8 + heatRatio * 0.6) * (0.92 + lifeRatio * 0.18), 0, Math.PI * 2);
-          ctx.fillStyle = ownerHex(ballOwner);
-          ctx.shadowColor = ownerColor(ballOwner, 0.75 + heatRatio * 0.2);
-          ctx.shadowBlur = 22 + heatRatio * 12;
-          ctx.fill();
-          ctx.shadowBlur = 0;
+          drawSkinnedBall(decoy.x, decoy.y, (8 + heatRatio * 0.6) * (0.92 + lifeRatio * 0.18), 22 + heatRatio * 12, 0.75 + heatRatio * 0.2);
         }
 
         if (arenaPowerup) {
@@ -5521,13 +5579,8 @@ function injectGameById(gameId, options = {}) {
         const chargeGlow  = (colorCharge - 1) * 9;
         const chargeSize  = (colorCharge - 1) * 0.5;
         drawColorChargeFX(ballX, ballY);   // extra effects below/around ball
-        ctx.beginPath();
-        ctx.arc(ballX, ballY, BALL_R + heatRatio * 1.2 + chargeSize, 0, Math.PI * 2);
-        ctx.fillStyle   = ownerHex(ballOwner);
-        ctx.shadowColor = ownerColor(ballOwner, 0.75 + heatRatio * 0.2 + (colorCharge - 1) * 0.05);
-        ctx.shadowBlur  = 22 + heatRatio * 12 + chargeGlow;
-        ctx.fill();
-        ctx.shadowBlur  = 0;
+        drawSkinnedBall(ballX, ballY, BALL_R + heatRatio * 1.2 + chargeSize, 22 + heatRatio * 12 + chargeGlow, 0.75 + heatRatio * 0.2 + (colorCharge - 1) * 0.05);
+        drawCosmeticFX();
 
         // Drowsy Z particles — float up from the ball during exhaustion
         drawDrowsyFX(heatRatio);
@@ -6220,7 +6273,9 @@ function injectGameById(gameId, options = {}) {
       if (newCosmetics.length) {
         const ca = Math.min(1, Math.max(0, (progSummaryTimer - 58 - reasons.length * 5) / 20));
         const cosY = afterTable + (d.levelBefore !== d.levelAfter ? 64 : 22);
-        const names = newCosmetics.map(c => `${c.item.name} ${c.slot === "paddle" ? "SKIN" : "TRAIL"}`).join("  ·  ");
+        const names = newCosmetics.length > 3
+          ? `${newCosmetics.length} NEW COSMETICS`
+          : newCosmetics.map(c => `${c.item.name} ${GlitchCosmetics.SLOT_INFO[c.slot].noun}`).join("  ·  ");
         ctx.textAlign = "center";
         ctx.shadowColor = "rgba(255,79,216,0.9)";
         ctx.shadowBlur = 10 * ca;
@@ -7547,25 +7602,14 @@ function injectGameById(gameId, options = {}) {
         for (let i = 0; i < decoys.length; i++) {
           const decoy = decoys[i];
           const lifeRatio = Math.max(0, decoy.life / decoy.maxLife);
-          ctx.beginPath();
-          ctx.arc(decoy.x, decoy.y, (8 + hr * 0.6) * (0.92 + lifeRatio * 0.18), 0, Math.PI * 2);
-          ctx.fillStyle   = ownerHex(ballOwner);
-          ctx.shadowColor = ownerColor(ballOwner, 0.75 + hr * 0.2);
-          ctx.shadowBlur  = 22 + hr * 12;
-          ctx.fill();
-          ctx.shadowBlur  = 0;
+          drawSkinnedBall(decoy.x, decoy.y, (8 + hr * 0.6) * (0.92 + lifeRatio * 0.18), 22 + hr * 12, 0.75 + hr * 0.2);
         }
         // Ball — keep original cyan/magenta glow so it pops against the green
         const chargeGlow = (colorCharge - 1) * 9;
         const chargeSize = (colorCharge - 1) * 0.5;
         drawColorChargeFX(ballX, ballY);
-        ctx.beginPath();
-        ctx.arc(ballX, ballY, BALL_R + hr * 1.2 + chargeSize, 0, Math.PI * 2);
-        ctx.fillStyle   = ownerHex(ballOwner);
-        ctx.shadowColor = ownerColor(ballOwner, 0.75 + hr * 0.2 + (colorCharge - 1) * 0.05);
-        ctx.shadowBlur  = 22 + hr * 12 + chargeGlow;
-        ctx.fill();
-        ctx.shadowBlur  = 0;
+        drawSkinnedBall(ballX, ballY, BALL_R + hr * 1.2 + chargeSize, 22 + hr * 12 + chargeGlow, 0.75 + hr * 0.2 + (colorCharge - 1) * 0.05);
+        drawCosmeticFX();
 
         // Drowsy Z particles
         drawDrowsyFX(hr);
@@ -7579,18 +7623,8 @@ function injectGameById(gameId, options = {}) {
       // off-screen toward the goal walls.
       ctx.save();
       // Dash trails (raw game coords match screen coords here)
-      for (const trail of leftDashTrail) {
-        const da = Math.max(0, trail.life / 16) * (0.18 + hr * 0.14);
-        ctx.fillStyle = `rgba(103,239,255,${da})`;
-        ctx.shadowColor = `rgba(103,239,255,${da * 1.4})`; ctx.shadowBlur = 16;
-        ctx.fillRect(trail.x, trail.y, paddleW, paddleH); ctx.shadowBlur = 0;
-      }
-      for (const trail of rightDashTrail) {
-        const da = Math.max(0, trail.life / 16) * (0.18 + hr * 0.14);
-        ctx.fillStyle = `rgba(255,79,216,${da})`;
-        ctx.shadowColor = `rgba(255,79,216,${da * 1.4})`; ctx.shadowBlur = 16;
-        ctx.fillRect(trail.x, trail.y, paddleW, paddleH); ctx.shadowBlur = 0;
-      }
+      drawDashFX(leftDashTrail, "blue", leftX, leftY);
+      drawDashFX(rightDashTrail, "red", rightX, rightY);
       if (powerState.blue.shieldTimer > 0) {
         ctx.fillStyle = "rgba(103,239,255,0.10)"; ctx.fillRect(0, 0, leftX + paddleW + 4, canvas.height);
         ctx.fillStyle = "rgba(103,239,255,0.22)"; ctx.fillRect(leftX + paddleW, 0, 4, canvas.height);
@@ -7977,6 +8011,15 @@ function injectGameById(gameId, options = {}) {
       <div id="gp-store-body"></div>
       <button type="button" aria-label="Store Back" style="margin:18px auto 0;display:block;padding:10px 28px;border-radius:12px;border:1px solid rgba(255,209,102,.32);background:rgba(255,209,102,.08);color:#ffe1a0;font:bold 13px monospace;letter-spacing:.1em;cursor:pointer;">BACK</button>`;
 
+    const STORE_SLOT_NOTES = {
+      paddle: "Hitboxes never change. Each side keeps its own skin.",
+      trail: "The ball shows the trail of whoever hit it last. An unhit ball always uses Ghost Echo.",
+      ball: "The ball wears the skin of whoever hit it last. Split decoys always match the real ball.",
+      hit: "Plays where the ball meets your paddle.",
+      score: "Plays at the goal when you score.",
+      dash: "Replaces the afterimages your paddle leaves when you dash.",
+      teleport: "Plays when a ball you hit glitch-teleports across the arena."
+    };
     let storeSide = "blue";      // which paddle the locker is editing
     let storeSlot = "paddle";    // "paddle" | "trail"
     let storePreviewRaf = 0;
@@ -7997,8 +8040,8 @@ function injectGameById(gameId, options = {}) {
       const items = GlitchCosmetics.CATALOG[storeSlot];
       const equipped = GlitchCosmetics.getEquipped(storeSide, storeSlot, data);
       const sideColor = getPaddleColor(storeSide);
-      const allItems = GlitchCosmetics.PADDLE_SKINS.length + GlitchCosmetics.BALL_TRAILS.length;
-      const unlockedCount = ["paddle", "trail"].reduce((n, slot) =>
+      const allItems = GlitchCosmetics.SLOTS.reduce((n, slot) => n + GlitchCosmetics.CATALOG[slot].length, 0);
+      const unlockedCount = GlitchCosmetics.SLOTS.reduce((n, slot) =>
         n + GlitchCosmetics.CATALOG[slot].filter(item => GlitchCosmetics.progressFor(item, data).unlocked).length, 0);
       const newIn = slot => GlitchCosmetics.CATALOG[slot].filter(item => GlitchCosmetics.isNew(slot, item.id, data)).length;
 
@@ -8013,7 +8056,7 @@ function injectGameById(gameId, options = {}) {
       const slotBtn = (slot, label) => {
         const on = slot === storeSlot;
         const n = newIn(slot);
-        return `<button type="button" data-store-slot="${slot}" aria-pressed="${on}" style="flex:1;padding:9px 0;border-radius:10px;cursor:pointer;font:bold 12px monospace;letter-spacing:.10em;color:${on ? "#ffd166" : "rgba(255,209,102,.5)"};border:1px solid ${on ? "rgba(255,209,102,.6)" : "rgba(255,209,102,.18)"};background:${on ? "rgba(255,209,102,.12)" : "rgba(255,209,102,.03)"};">${label}${n ? ` <span style="color:#ff8fab;">● ${n} NEW</span>` : ""}</button>`;
+        return `<button type="button" data-store-slot="${slot}" aria-pressed="${on}" style="padding:8px 4px;border-radius:10px;cursor:pointer;font:bold 10px/1.3 monospace;letter-spacing:.08em;color:${on ? "#ffd166" : "rgba(255,209,102,.55)"};border:1px solid ${on ? "rgba(255,209,102,.6)" : "rgba(255,209,102,.18)"};background:${on ? "rgba(255,209,102,.12)" : "rgba(255,209,102,.03)"};">${label}${n ? `<br><span style="color:#ff8fab;">● ${n} NEW</span>` : ""}</button>`;
       };
 
       const cards = items.map(item => {
@@ -8050,12 +8093,10 @@ function injectGameById(gameId, options = {}) {
 
       body.innerHTML = `
         <div style="display:flex;gap:8px;margin-bottom:8px;">${sideBtn("blue", "PLAYER 1 // LEFT")}${sideBtn("red", "PLAYER 2 // RIGHT")}</div>
-        <div style="display:flex;gap:8px;margin-bottom:12px;">${slotBtn("paddle", "PADDLE SKINS")}${slotBtn("trail", "BALL TRAILS")}</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:6px;margin-bottom:12px;">${GlitchCosmetics.SLOTS.map(slot => slotBtn(slot, GlitchCosmetics.SLOT_INFO[slot].label)).join("")}</div>
         <div style="padding:9px 12px;margin-bottom:12px;border-left:2px solid ${sideColor.hex};background:rgba(255,255,255,.03);font:10px/1.6 monospace;color:rgba(235,245,255,.62);">
-          ${storeSlot === "paddle"
-            ? "Skins are cosmetic only: the hitbox never changes. Each side keeps its own skin and colour."
-            : "The ball shows the trail of whoever hit it last. An unhit ball always uses Ghost Echo."}
-          Colours are set in Settings → Appearance.
+          ${STORE_SLOT_NOTES[storeSlot] || ""}
+          Everything here is cosmetic only. Colours are set in Settings → Appearance.
         </div>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;">${cards}</div>`;
 
@@ -8119,26 +8160,103 @@ function injectGameById(gameId, options = {}) {
           imgReady: storeSide === "blue" ? leftImageReady : rightImageReady
         });
       } else {
-        // A tiny Pong rally: the ball bounces around the card.
+        // A tiny Pong scene per card, driven by its own little simulation.
         let sim = storePreviewTrails.get(canvasEl);
         if (!sim) {
-          sim = { x: cw * 0.3, y: ch * 0.4, vx: 4.4, vy: 2.6, trail: [] };
+          sim = { x: cw * 0.3, y: ch * 0.4, vx: 4.4, vy: 2.6, trail: [], fx: GlitchCosmetics.createFX(), last: t, timer: 0,
+                  padY: ch / 2 - 22, dash: [], dashDir: 1 };
           storePreviewTrails.set(canvasEl, sim);
         }
-        const r = 7;
-        sim.x += sim.vx; sim.y += sim.vy;
-        if (sim.x < r || sim.x > cw - r) { sim.vx *= -1; sim.x = Math.max(r, Math.min(cw - r, sim.x)); }
-        if (sim.y < r || sim.y > ch - r) { sim.vy *= -1; sim.y = Math.max(r, Math.min(ch - r, sim.y)); }
-        sim.trail.unshift({ x: sim.x, y: sim.y });
-        if (sim.trail.length > 12) sim.trail.pop();
-        GlitchCosmetics.drawBallTrail(pctx, id, sim.trail, { r, heat, rgb: color.rgb, charge: 2.2, t, quality: 1 });
-        pctx.beginPath();
-        pctx.arc(sim.x, sim.y, r, 0, Math.PI * 2);
-        pctx.fillStyle = color.hex;
-        pctx.shadowColor = `rgba(${color.rgb},0.85)`;
-        pctx.shadowBlur = 16;
-        pctx.fill();
-        pctx.shadowBlur = 0;
+        const dt = Math.min(0.05, Math.max(0, t - sim.last));
+        sim.last = t;
+        sim.timer += dt;
+        const data = GlitchProgression.data;
+        const r = storeSlot === "ball" ? 10 : 7;
+        const padW = 10, padH = 44;
+        const fxOpts = (extra) => Object.assign({ rgb: color.rgb, r, w: cw, h: ch }, extra);
+        const ballSkin = storeSlot === "ball" ? id : GlitchCosmetics.getEquipped(storeSide, "ball", data);
+        const paddleSkin = GlitchCosmetics.getEquipped(storeSide, "paddle", data);
+        const drawPreviewBall = () => GlitchCosmetics.drawBallSkin(pctx, ballSkin, sim.x, sim.y, r,
+          { rgb: color.rgb, hex: color.hex, glowBlur: 16, glowAlpha: 0.85, t, vx: sim.vx, vy: sim.vy, quality: 1 });
+        const drawPreviewPaddle = (x, y) => GlitchCosmetics.drawPaddleSkin(pctx, paddleSkin, x, y, padW, padH,
+          { rgb: color.rgb, hex: color.hex, t, heat, quality: 1, ballY: sim.y, hitFlash: Math.max(0, 1 - sim.timer * 3) });
+        const bounceY = () => { if (sim.y < r || sim.y > ch - r) { sim.vy *= -1; sim.y = Math.max(r, Math.min(ch - r, sim.y)); } };
+        const pushTrail = () => { sim.trail.unshift({ x: sim.x, y: sim.y }); if (sim.trail.length > 12) sim.trail.pop(); };
+
+        if (storeSlot === "trail" || storeSlot === "ball") {
+          sim.x += sim.vx; sim.y += sim.vy;
+          if (sim.x < r || sim.x > cw - r) { sim.vx *= -1; sim.x = Math.max(r, Math.min(cw - r, sim.x)); }
+          bounceY();
+          pushTrail();
+          GlitchCosmetics.drawBallTrail(pctx, storeSlot === "trail" ? id : "default", sim.trail, { r, heat, rgb: color.rgb, charge: 2.2, t, quality: 1 });
+          drawPreviewBall();
+        } else if (storeSlot === "hit") {
+          // the ball keeps coming back to the paddle on the left
+          const face = 14 + padW;
+          sim.x += sim.vx; sim.y += sim.vy;
+          bounceY();
+          if (sim.x > cw - r) { sim.vx = -Math.abs(sim.vx); }
+          if (sim.x < face + r && sim.vx < 0) {
+            sim.vx = Math.abs(sim.vx);
+            sim.x = face + r;
+            sim.timer = 0;
+            sim.fx.spawn("hit", id, sim.x - r * 0.6, sim.y, fxOpts({ dir: 1 }));
+          }
+          sim.padY += ((sim.y - padH / 2) - sim.padY) * 0.25;
+          pushTrail();
+          GlitchCosmetics.drawBallTrail(pctx, "default", sim.trail, { r, heat: 0.2, rgb: color.rgb, charge: 2, t, quality: 1 });
+          drawPreviewPaddle(14, Math.max(0, Math.min(ch - padH, sim.padY)));
+          drawPreviewBall();
+          sim.fx.draw(pctx, dt);
+        } else if (storeSlot === "score") {
+          // the ball flies into the right-hand goal, then serves again
+          if (sim.x <= cw + r) {
+            sim.x += Math.abs(sim.vx) * 1.2; sim.y += sim.vy; bounceY();
+            if (sim.x > cw + r) { sim.fx.spawn("score", id, cw, Math.max(ch * 0.55, Math.min(ch - 12, sim.y)), fxOpts({ dir: -1 })); sim.timer = 0; }
+            pushTrail();
+            GlitchCosmetics.drawBallTrail(pctx, "default", sim.trail, { r, heat: 0.2, rgb: color.rgb, charge: 2, t, quality: 1 });
+            drawPreviewBall();
+          } else if (sim.timer > 1.7) {
+            sim.x = cw * 0.15; sim.y = ch * (0.3 + Math.random() * 0.4); sim.trail = [];
+          }
+          sim.fx.draw(pctx, dt);
+        } else if (storeSlot === "dash") {
+          // the paddle dashes up and down the card
+          if (sim.timer > 0.85) {
+            sim.timer = 0;
+            const span = ch - padH - 8;
+            const next = sim.dashDir > 0 ? 4 + span : 4;
+            const dir = next > sim.padY ? 1 : -1;
+            const dist = Math.abs(next - sim.padY);
+            sim.dash = [
+              { x: cw / 2 - padW / 2, y: next - dir * dist * 0.24, life: 8 },
+              { x: cw / 2 - padW / 2, y: next - dir * dist * 0.53, life: 12 },
+              { x: cw / 2 - padW / 2, y: next - dir * dist * 0.82, life: 16 }
+            ];
+            sim.padY = next;
+            sim.dashDir *= -1;
+          }
+          sim.dash.forEach((d) => { d.life -= dt * 60; });
+          sim.dash = sim.dash.filter((d) => d.life > 0);
+          GlitchCosmetics.drawDash(pctx, id, sim.dash, { w: padW, h: padH, rgb: color.rgb,
+            legacyRgb: storeSide === "blue" ? "103,239,255" : "255,79,216", heat, t, curY: sim.padY, quality: 1 });
+          drawPreviewPaddle(cw / 2 - padW / 2, sim.padY);
+        } else if (storeSlot === "teleport") {
+          // the ball blinks to a new spot every second or so
+          sim.x += sim.vx * 0.6; sim.y += sim.vy * 0.6;
+          if (sim.x < r || sim.x > cw - r) { sim.vx *= -1; sim.x = Math.max(r, Math.min(cw - r, sim.x)); }
+          bounceY();
+          if (sim.timer > 1.25) {
+            sim.timer = 0;
+            const to = { x: cw * (0.15 + Math.random() * 0.7), y: ch * (0.2 + Math.random() * 0.6) };
+            sim.fx.spawn("teleport", id, sim.x, sim.y, fxOpts({ to }));
+            sim.x = to.x; sim.y = to.y; sim.trail = [];
+          }
+          pushTrail();
+          GlitchCosmetics.drawBallTrail(pctx, "default", sim.trail, { r, heat: 0.2, rgb: color.rgb, charge: 2, t, quality: 1 });
+          drawPreviewBall();
+          sim.fx.draw(pctx, dt);
+        }
       }
       pctx.restore();
 
@@ -8673,10 +8791,10 @@ function injectGameById(gameId, options = {}) {
           rewards.push(`<span style="color:rgba(255,79,216,${isPast||isCurrent?0.9:0.35});">▶ PERK CHOICE</span>`);
         }
         if (typeof GlitchCosmetics !== "undefined") {
-          ["paddle", "trail"].forEach(slot => {
+          GlitchCosmetics.SLOTS.forEach(slot => {
             GlitchCosmetics.CATALOG[slot]
               .filter(item => item.unlock.type === "level" && item.unlock.level === lvl)
-              .forEach(item => rewards.push(`<span style="color:rgba(143,245,177,${isPast||isCurrent?0.9:0.35});">◆ ${item.name} ${slot === "paddle" ? "SKIN" : "TRAIL"}</span>`));
+              .forEach(item => rewards.push(`<span style="color:rgba(143,245,177,${isPast||isCurrent?0.9:0.35});">◆ ${item.name} ${GlitchCosmetics.SLOT_INFO[slot].noun}</span>`));
           });
         }
         const checkmark = isPast ? `<span style="color:rgba(103,239,255,0.5);margin-right:6px;">✓</span>` : "";
@@ -10256,8 +10374,10 @@ function injectGameById(gameId, options = {}) {
         if (teleportCooldown > 0) {
           teleportCooldown--;
         } else {
+          const teleportFrom = { x: ballX, y: ballY, owner: ballOwner };
           ballX = canvas.width * (0.2 + Math.random() * 0.6);
           ballY = canvas.height * (0.15 + Math.random() * 0.7);
+          spawnCosmeticFx(teleportFrom.owner, "teleport", teleportFrom.x, teleportFrom.y, { to: { x: ballX, y: ballY } });
           // A glitch that sends the ball back the way it came makes it neutral (1 point), never an own goal.
           if (Math.random() < 0.5 + heatRatio * 0.15) { vx = -vx; ballOwner = "neutral"; }
           if (Math.random() < 0.35 + heatRatio * 0.2) vy = -vy;
