@@ -69,9 +69,12 @@ class Context {
 class Media {
   paused = true;
   listeners = {};
+  loads = 0;
+  plays = 0;
   constructor() { media.push(this); }
   addEventListener(name, fn) { this.listeners[name] = fn; }
-  play() { this.paused = false; return Promise.resolve(); }
+  load() { this.loads++; this.error = null; }
+  play() { this.plays++; this.paused = false; return Promise.resolve(); }
   pause() { this.paused = true; }
   end() { this.paused = true; this.listeners.ended(); }
 }
@@ -81,6 +84,7 @@ const world = {
   gpScreen: pos(-6, -26), jukeboxPos: pos(9, -2), soonCabinets: [],
 };
 const camera = { position: pos(0, 10), getWorldDirection: () => ({ x: 0, y: 0, z: -1 }) };
+const streetElement = () => media.find(el => el.src?.includes('neon-on-wet-asphalt'));
 function advance(seconds) { contexts[0].currentTime += seconds; }
 function move(audio, x, z, inside = 1) {
   camera.position = pos(x, z);
@@ -115,7 +119,7 @@ test('the first menu gesture makes the street soundtrack audible', () => {
   assert.ok(contexts[0].gains[0].gain.value > 0, 'master must not remain silent');
   assert.equal(media.length, 3);
   assert.ok(media.every(el => !el.paused));
-  assert.match(media[2].src, /neon-on-wet-asphalt-1\.mp3$/);
+  assert.match(streetElement().src, /neon-on-wet-asphalt-1\.mp3$/);
   assert.equal(audio.musicMix.street, 1);
 });
 
@@ -123,7 +127,7 @@ test('menu music loops and respects mute/unmute', () => {
   const audio = createArcadeAudio({ isTouch: true });
   audio.unlock(world);
   for (const el of media) el.end();
-  assert.match(media[2].src, /neon-on-wet-asphalt-2\.mp3$/);
+  assert.match(streetElement().src, /neon-on-wet-asphalt-2\.mp3$/);
   assert.ok(media.every(el => !el.paused), 'second takes must play on the menu');
   audio.toggleMute();
   advance(0.5);
@@ -147,8 +151,68 @@ test('street music returns outside after entering the arcade', () => {
   advance(2);
   assert.equal(audio.musicMix.floor, 0);
   assert.equal(audio.musicMix.street, 1);
-  assert.equal(media[2].paused, false);
+  assert.equal(streetElement().paused, false);
 });
+
+test('an early gesture starts the opening track before the world exists', () => {
+  const audio = createArcadeAudio({ isTouch: true });
+  assert.equal(contexts.length, 0, 'preloading must not create an autoplay context');
+  assert.equal(media.length, 1, 'warm only the opening track');
+  const opening = streetElement();
+  assert.equal(opening.preload, 'auto');
+  assert.equal(opening.loads, 1);
+  assert.equal(opening.plays, 0, 'loading must not play sound before a gesture');
+  audio.setMode('intro');
+  audio.unlock(null);
+  assert.ok(media.every(el => !el.paused));
+  assert.equal(audio.musicMix.street, 1, 'opening playback must not wait for a zone fade');
+  assert.equal(audio.musicMix.floor, 0);
+  assert.equal(audio.musicMix.groove, 0);
+  advance(0.1);
+  assert.ok(contexts[0].gains[0].gain.value > 0, 'the first click must produce output promptly');
+  opening.currentTime = 14;
+  audio.unlock(world);
+  assert.equal(streetElement(), opening, 'attach the world to the same prewarmed player');
+  assert.equal(opening.currentTime, 14, 'world readiness must not restart the song');
+  assert.equal(media.length, 3);
+  assert.equal(contexts.length, 1);
+  const count = contexts[0].gains.length;
+  audio.unlock(world);
+  assert.equal(contexts[0].gains.length, count, 'world emitters must only attach once');
+});
+
+test('an early gesture respects saved mute and the sound button can start playback', () => {
+  globalThis.localStorage.getItem = () => '1';
+  const audio = createArcadeAudio({ isTouch: false });
+  audio.unlock(null);
+  assert.ok(media.every(el => el.paused));
+  assert.equal(contexts[0].gains[0].gain.value, 0);
+  audio.toggleMute();
+  advance(0.5);
+  assert.ok(media.every(el => !el.paused));
+  assert.equal(audio.musicMix.street, 1);
+});
+
+test('the first real gesture retries a failed opening-track preload', () => {
+  const audio = createArcadeAudio({ isTouch: false });
+  const opening = streetElement();
+  opening.error = { code: 2 };
+  audio.unlock(null);
+  assert.equal(opening.loads, 2);
+  assert.equal(opening.error, null);
+  assert.equal(opening.paused, false);
+  assert.equal(opening.plays, 1);
+});
+
+for (const [zone, position] of [['floor', pos(0, -15)], ['groove', pos(0, -28)]]) {
+  test(`first playback selects ${zone} immediately when the tour is already indoors`, () => {
+    const audio = createArcadeAudio({ isTouch: false });
+    audio.unlock(world, { position, inside: 1 });
+    assert.equal(audio.musicMix.zone, zone);
+    assert.equal(audio.musicMix[zone], 1);
+    assertSingleSong(audio);
+  });
+}
 
 test('cabinet handoff silences arcade songs and returning resumes them', () => {
   const audio = createArcadeAudio({ isTouch: false });

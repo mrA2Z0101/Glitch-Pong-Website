@@ -60,6 +60,14 @@ export function createArcadeAudio({ isTouch }) {
   let floorMusic = null, streetMusic = null, prizePos = null;
   let musicZone = null;
   const sceneMusic = [];
+  let worldAttached = false;
+
+  // Warm the opening song while the arcade art loads. Loading never plays it;
+  // the first user gesture still owns AudioContext creation and play().
+  const openingStreet = new Audio();
+  openingStreet.preload = 'auto';
+  openingStreet.src = 'sounds/music/neon-on-wet-asphalt-1.mp3';
+  try { openingStreet.load(); } catch (e) {}
 
   // Start fetching the small SFX files right away; decode once we have a context.
   const rawSfx = {};
@@ -317,7 +325,7 @@ export function createArcadeAudio({ isTouch }) {
   }
 
   // ── Jukebox (streams the soundtrack through a positional panner) ──────────
-  function setupJukebox(pos, counterPos) {
+  function setupJukebox(pos = { x: 0, y: 1.7, z: 0 }, counterPos = pos) {
     musicEl = new Audio();
     musicEl.preload = 'none';
     musicEl.addEventListener('ended', () => api.nextTrack(false));
@@ -328,19 +336,20 @@ export function createArcadeAudio({ isTouch }) {
     src.connect(g).connect(panner).connect(indoorIn);
     // The same song comes from the prize counter's speakers, in sync.
     prizePos = counterPos;
-    g.connect(makePanner(counterPos, { ref: 2, rolloff: 2 })).connect(indoorIn);
-    jukebox = { panner, gain: g };
+    const counterPanner = makePanner(counterPos, { ref: 2, rolloff: 2 });
+    g.connect(counterPanner).connect(indoorIn);
+    jukebox = { panner, counterPanner, gain: g, pos };
     loadTrack();
   }
 
-  function setupSceneMusic(stem, dest, initialGain) {
-    const el = new Audio();
-    el.preload = 'none';
+  function setupSceneMusic(stem, dest, initialGain, readyElement = null) {
+    const el = readyElement || new Audio();
+    if (!readyElement) el.preload = 'none';
     const gain = ctx.createGain();
     gain.gain.value = initialGain;
     ctx.createMediaElementSource(el).connect(gain).connect(dest);
     let take = 1;
-    el.src = `sounds/music/${stem}-${take}.mp3`;
+    if (!readyElement) el.src = `sounds/music/${stem}-${take}.mp3`;
     el.addEventListener('ended', () => {
       take = take === 1 ? 2 : 1;
       el.src = `sounds/music/${stem}-${take}.mp3`;
@@ -359,7 +368,11 @@ export function createArcadeAudio({ isTouch }) {
     // Start during the title-menu gesture too: Safari needs play() inside it.
     if (!musicEl || muted || mode === 'playing') return;
     for (const el of [musicEl, ...sceneMusic.map(s => s.el)]) {
-      if (el.paused) el.play().catch(() => {});
+      if (el.paused) {
+        // A failed speculative preload must not poison the first real click.
+        if (el.error) { try { el.load(); } catch (e) {} }
+        el.play().catch(() => {});
+      }
     }
   }
 
@@ -367,7 +380,7 @@ export function createArcadeAudio({ isTouch }) {
     return { street: streetMusic.gain.gain, floor: floorMusic.gain.gain, groove: jukebox.gain.gain };
   }
 
-  function changeMusicZone(zone) {
+  function changeMusicZone(zone, immediate = false) {
     if (zone === musicZone) return;
     musicZone = zone;
     const gains = musicGains();
@@ -383,7 +396,9 @@ export function createArcadeAudio({ isTouch }) {
       // Anchor even a settled gain: otherwise a new linear ramp can start at
       // an older automation event and immediately jump partway down the fade.
       gain.setValueAtTime(current, t);
-      if (key !== zone) {
+      if (immediate) {
+        gain.setValueAtTime(key === zone ? MUSIC_LEVELS[key] : 0, t);
+      } else if (key !== zone) {
         gain.linearRampToValueAtTime(0, t + fadeOut);
       } else {
         // These tracks have different beats: finish fading the old one to
@@ -395,7 +410,7 @@ export function createArcadeAudio({ isTouch }) {
     }
   }
 
-  function updateMusicZone(position, inside) {
+  function updateMusicZone(position, inside, immediate = false) {
     if (!floorMusic || !streetMusic || !jukebox) return;
     // Separate enter/leave thresholds keep doorways and speaker-zone edges
     // from repeatedly switching songs when the player lingers there.
@@ -403,7 +418,22 @@ export function createArcadeAudio({ isTouch }) {
     const distance = pos => Math.hypot(position.x - pos.x, position.z - pos.z);
     const speakerDistance = Math.min(distance(jukebox.pos), distance(prizePos));
     const nearSpeakers = speakerDistance < (musicZone === 'groove' ? 6.75 : 5.5);
-    changeMusicZone(!indoors ? 'street' : nearSpeakers ? 'groove' : 'floor');
+    changeMusicZone(!indoors ? 'street' : nearSpeakers ? 'groove' : 'floor', immediate);
+  }
+
+  function attachWorld(world) {
+    if (!world || worldAttached) return;
+    signEmitter = buzzEmitter(world.signPos);
+    signEmitter.pos = world.signPos;
+    curtainEmitter(world.doorPos);
+    robotEmitter = hologramEmitter(world.robotPos);
+    world.soonCabinets.forEach((cab, i) => cabinetEmitter(cab, i));
+    gpEmitter = { pos: world.gpScreen };
+    jukebox.pos = world.jukeboxPos;
+    prizePos = world.robotPos;
+    setPannerPos(jukebox.panner, jukebox.pos);
+    setPannerPos(jukebox.counterPanner, prizePos);
+    worldAttached = true;
   }
 
   // ── Mixing per mode ────────────────────────────────────────────────────
@@ -455,7 +485,8 @@ export function createArcadeAudio({ isTouch }) {
     },
 
     // Call from inside a user gesture (click / tap / key).
-    unlock(world) {
+    unlock(world, location = null) {
+      let created = false;
       if (!ctx) {
         try {
           ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -464,18 +495,17 @@ export function createArcadeAudio({ isTouch }) {
         }
         buildGraph();
         decodeSfx();
-        if (world) {
-          signEmitter = buzzEmitter(world.signPos);
-          signEmitter.pos = world.signPos;
-          curtainEmitter(world.doorPos);
-          robotEmitter = hologramEmitter(world.robotPos);
-          world.soonCabinets.forEach((cab, i) => cabinetEmitter(cab, i));
-          gpEmitter = { pos: world.gpScreen };
-          setupJukebox(world.jukeboxPos, world.robotPos);
-          jukebox.pos = world.jukeboxPos;
-          floorMusic = setupSceneMusic('arcade-main', indoorIn, 0);
-          streetMusic = setupSceneMusic('neon-on-wet-asphalt', outdoorIn, 0);
-        }
+        setupJukebox();
+        floorMusic = setupSceneMusic('arcade-main', indoorIn, 0);
+        streetMusic = setupSceneMusic('neon-on-wet-asphalt', outdoorIn, 0, openingStreet);
+        created = true;
+      }
+      attachWorld(world);
+      if (created) {
+        // First playback should not wait for a scene transition fade, or for
+        // world geometry. Later zone changes retain their normal smooth fades.
+        if (location && worldAttached) updateMusicZone(location.position, location.inside, true);
+        else changeMusicZone('street', true);
         // setMode('intro') often ran before the first gesture created ctx.
         // Apply it now so the new master isn't left at buildGraph's zero gain.
         applyMode();
