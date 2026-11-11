@@ -22,12 +22,13 @@ function createOnlineHost({ sessions, io }) {
 
   // Each throws an Error whose message is shown to the player.
   const api = {
-    create(nickname) {
-      const { session, host, ticket } = sessions.create(nickname);
+    // `card` is the player's title and nameplate (ids only; see session-manager.js).
+    create(nickname, card) {
+      const { session, host, ticket } = sessions.create(nickname, card);
       return sessionResponse(session, host, ticket);
     },
-    join(code, nickname, ip) {
-      const { session, player, ticket } = sessions.join(code, nickname, ip);
+    join(code, nickname, ip, card) {
+      const { session, player, ticket } = sessions.join(code, nickname, ip, card);
       return sessionResponse(session, player, ticket);
     },
     rejoin(code, resumeToken) {

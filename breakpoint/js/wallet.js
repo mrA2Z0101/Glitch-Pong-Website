@@ -49,6 +49,27 @@ const Wallet = (() => {
   };
 })();
 
+// How many sectors you have cleared by hand, ever. Glitch Pong's Store reads this
+// (glitchpong-site.js → glitchBreakpointSectors) to unlock its Breakpoint cosmetics.
+const SectorLog = (() => {
+  const KEY = 'glitchcade_breakpoint_v1';
+  function read() {
+    try {
+      const d = JSON.parse(localStorage.getItem(KEY));
+      return Math.max(0, Math.floor(Number(d && d.sectors) || 0));
+    } catch (e) { return 0; }
+  }
+  return {
+    KEY,
+    get: read,
+    add() {
+      const n = read() + 1;
+      try { localStorage.setItem(KEY, JSON.stringify({ sectors: n })); } catch (e) {}
+      return n;
+    },
+  };
+})();
+
 // What a cleared sector pays. A Glitch Pong win against the AI pays 10.
 const COINS = { sector: 2, boss: 10 };
 

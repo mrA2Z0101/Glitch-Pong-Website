@@ -70,6 +70,7 @@ With a server, the other end of the connection was yours. Peer-to-peer, it's a s
 
 - Lobbies, snapshots and join replies are reduced to the expected fields, with types, lengths and ranges checked. A snapshot with an out-of-range or non-finite number is dropped whole (JSON can carry `1e999`, which parses to `Infinity`).
 - Names are length-limited and stripped of control, zero-width and direction-override characters, and are escaped wherever they're put in the page. Before this work the lobby inserted `lobby.code` and nicknames into `innerHTML` unescaped, which let a hostile host run script in a guest's page. That also closed a smaller version of the same hole in server mode.
+- A player's title and nameplate arrive as two catalog ids (`card`). Anything that is not a short id becomes `default`, and the game looks ids up in its own catalog, so a host can't put text of its own on the guest's screen that way.
 - A guest only passes on the events a host legitimately sends, so a host can't fake a "disconnect".
 
 The other direction is guarded too: a host accepts only the five events a client may send, drops connections that never identify themselves, limits connections and message rates, and answers strangers' malformed messages with nothing.

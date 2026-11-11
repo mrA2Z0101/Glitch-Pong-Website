@@ -1199,6 +1199,73 @@ export function installFloor(ctx) {
   })();
   audio.setOwnedPacks(F().packs);
 
+  // ── cosmetics rack: the Glitch Pong Store items that cost coins, sold here too ──
+  // The catalog and the purchase both belong to glitchpong-cosmetics.js; this is
+  // only a second place to pay.
+  const cosmetics = () => (typeof window !== 'undefined' && window.GlitchCosmetics && window.GlitchCosmetics.coinItems ? window.GlitchCosmetics : null);
+  const cosmeticsForSale = () => { const cos = cosmetics(); return cos ? cos.coinItems().filter((it) => !it.owned) : []; };
+  (() => {
+    const x = 1.25;
+    const g = new THREE.Group();
+    g.position.set(x, counterY, counterZ);
+    scene.add(g);
+    const frame = std(0x2a1c3e, { roughness: 0.7, metalness: 0.1 });
+    [[0, 0.01, 0, 0.5, 0.02, 0.18], [-0.24, 0.18, 0, 0.02, 0.34, 0.02], [0.24, 0.18, 0, 0.02, 0.34, 0.02], [0, 0.35, 0, 0.5, 0.02, 0.02]]
+      .forEach(([px, py, pz, w, h, d]) => { const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), frame); b.position.set(px, py, pz); g.add(b); });
+    // five little paddles hanging from the rail, one in each neon colour
+    [C.cyan, C.pink, C.amber, C.green, C.purple].forEach((col, i) => {
+      const paddle = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.2, 0.02), lit(col, 0.7));
+      paddle.position.set(-0.16 + i * 0.08, 0.22, 0);
+      const hook = new THREE.Mesh(new THREE.BoxGeometry(0.008, 0.03, 0.008), std(0xd8d8e8, { metalness: 0.9, roughness: 0.25 }));
+      hook.position.set(-0.16 + i * 0.08, 0.335, 0);
+      g.add(paddle, hook);
+    });
+    const lcv = makeCanvas(256, 64);
+    const l2 = lcv.getContext('2d');
+    l2.fillStyle = '#0b0816';
+    l2.fillRect(0, 0, 256, 64);
+    l2.font = '900 30px Orbitron, "Arial Black", sans-serif';
+    l2.textAlign = 'center';
+    l2.textBaseline = 'middle';
+    chromaText(l2, 'SKINS', 128, 34, 2, C.text, C.cyan);
+    const label = new THREE.Mesh(new THREE.PlaneGeometry(0.4, 0.1), new THREE.MeshBasicMaterial({ map: canvasTexture(lcv), toneMapped: false }));
+    label.position.set(0, 0.07, 0.092);
+    g.add(label);
+    rayTargets.push({
+      kind: 'cosmetics', center: new THREE.Vector3(x, counterY + 0.2, counterZ), radius: 0.28, range: 3.2,
+      prompt: () => {
+        if (!cosmetics()) return { soon: true, title: 'COSMETICS RACK', sub: 'OUT OF ORDER' };
+        const left = cosmeticsForSale().length;
+        return { title: 'BROWSE COSMETICS', sub: left ? `GLITCH PONG STORE ITEMS // ${left} FOR SALE` : 'GLITCH PONG STORE ITEMS // YOU OWN THEM ALL' };
+      },
+      use() {
+        const cos = cosmetics();
+        if (!cos) { audio.deny(); return true; }
+        openList({
+          title: 'COSMETICS RACK',
+          sub: () => `FOR YOUR GLITCH PONG LOCKER  //  ◎ ${Wallet.get().coins} COINS`,
+          items: () => cos.coinItems().map(({ slot, item, cost, owned }) => ({
+            label: `${item.name} · ${cos.SLOT_INFO[slot].noun}`,
+            note: owned ? 'OWNED' : `◎ ${cost}`,
+            disabled: owned,
+            stay: true,
+            pick() {
+              const result = cos.buy(slot, item.id, Wallet, gpData());
+              if (result === 'poor') { audio.deny(); ctx.robotSay(`THE ${item.name} COSTS ${cost} COINS. YOU ARE ${cost - Wallet.get().coins} SHORT.`); return; }
+              if (result !== 'ok') return;
+              try { if (typeof GlitchProgression !== 'undefined') GlitchProgression.save(); } catch (e) {}
+              audio.redeem();
+              ctx.pulseCoinHud();
+              ctx.toast(`COSMETIC BOUGHT: ${item.name} — EQUIP IT IN THE GLITCH PONG STORE`);
+              ctx.robotSay(`THE ${item.name}. IT IS IN YOUR LOCKER. OPEN THE STORE ON THE GLITCH PONG MENU TO WEAR IT.`);
+            }
+          }))
+        });
+        return true;
+      }
+    });
+  })();
+
   // ── jukebox: pick the track, and PRIZETRON's request ──
   function ensureRequest() {
     const f = F();
@@ -1268,6 +1335,8 @@ export function installFloor(ctx) {
     }
     const req = ensureRequest();
     if (!req.done) out.push(`REQUEST: PUT ${req.title} ON THE JUKEBOX. I PAY THREE COINS FOR GOOD TASTE.`);
+    const rack = cosmeticsForSale();
+    if (rack.length) out.push(`THE RACK ON MY COUNTER SELLS GLITCH PONG COSMETICS. ${rack.length} STILL FOR SALE, FROM ${rack[0].cost} COINS.`);
     if (!f.capsule.bought) out.push(`TODAY'S MYSTERY CAPSULE IS ${CAPSULE_COST} COINS. I DO NOT KNOW WHAT IS IN IT. I CHOSE NOT TO LOOK.`);
     const st = dailyState();
     if (!f.daily.claimed) out.push(st.done ? `YOUR DAILY GLITCH IS COMPLETE. CLAIM ${st.ch.reward} COINS AT THE BOARD BY THE DOOR.` : `TODAY'S DAILY GLITCH: ${st.parts.map((x) => x.label).join(' AND ')}. ${st.ch.reward} COINS.`);

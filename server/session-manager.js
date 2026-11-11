@@ -23,6 +23,14 @@ function toBase64Url(bytes) {
 function id() { return cryptoApi.randomUUID(); }
 function token() { return toBase64Url(randomBytes(32)); }
 // A uniformly random six-digit code (rejection sampling, so no digit is favoured).
+// A player's card: the ids of the title and nameplate they chose in the Store.
+// Only ids are kept, never display text; each client looks them up in its own
+// catalog (glitchpong-cosmetics.js) and ignores any it does not know.
+const CARD_ID = /^[a-z0-9_-]{1,24}$/i;
+function cleanCard(card) {
+  const pick = value => (typeof value === "string" && CARD_ID.test(value) ? value : "default");
+  return { title: pick(card && card.title), plate: pick(card && card.plate) };
+}
 function randomCode() {
   const limit = 4294967296 - (4294967296 % 1000000);
   const word = new Uint32Array(1);
@@ -37,11 +45,11 @@ class SessionManager {
     this.joinAttempts = new Map();
   }
 
-  create(hostName = "Host") {
+  create(hostName = "Host", card) {
     const sessionId = id();
     let joinCode;
     do { joinCode = randomCode(); } while (this.codes.has(joinCode));
-    const host = this.makePlayer(hostName, "left", true);
+    const host = this.makePlayer(hostName, "left", true, card);
     const session = {
       sessionId, joinCode, status: "lobby", joinLocked: false, maxPlayers: 2,
       createdAt: Date.now(), expiresAt: Date.now() + LOBBY_TTL_MS,
@@ -52,12 +60,12 @@ class SessionManager {
     return { session, host, ticket: this.issueTicket(session, host) };
   }
 
-  makePlayer(nickname, side, host = false) {
-    return { playerId: id(), nickname: String(nickname || "Player").trim().slice(0, 20) || "Player", side, host, connected: false, ready: false, resumeToken: token(), disconnectedAt: null, socketId: null };
+  makePlayer(nickname, side, host = false, card) {
+    return { playerId: id(), nickname: String(nickname || "Player").trim().slice(0, 20) || "Player", card: cleanCard(card), side, host, connected: false, ready: false, resumeToken: token(), disconnectedAt: null, socketId: null };
   }
 
   publicLobby(session) {
-    return { code: session.joinCode, status: session.status, joinLocked: session.joinLocked, expiresAt: session.expiresAt, players: session.players.map(({ playerId, nickname, side, host, connected, ready }) => ({ playerId, nickname, side, host, connected, ready })) };
+    return { code: session.joinCode, status: session.status, joinLocked: session.joinLocked, expiresAt: session.expiresAt, players: session.players.map(({ playerId, nickname, card, side, host, connected, ready }) => ({ playerId, nickname, card, side, host, connected, ready })) };
   }
 
   getByCode(code) {
@@ -73,11 +81,11 @@ class SessionManager {
     return recent.length > 12;
   }
 
-  join(code, nickname, ip) {
+  join(code, nickname, ip, card) {
     if (this.rateLimited(ip)) throw new Error("Too many attempts. Please wait a moment.");
     const session = this.getByCode(code);
     if (!session || session.status !== "lobby" || session.joinLocked || session.players.length >= session.maxPlayers) throw new Error("Invalid or expired code.");
-    const player = this.makePlayer(nickname, "right", false);
+    const player = this.makePlayer(nickname, "right", false, card);
     session.players.push(player);
     return { session, player, ticket: this.issueTicket(session, player) };
   }
@@ -149,5 +157,5 @@ class SessionManager {
   }
 }
 
-return { SessionManager };
+return { SessionManager, cleanCard };
 });

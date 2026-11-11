@@ -76,6 +76,7 @@ Two channels were added to the rotation:
 Talking to him now cycles through extra lines that depend on your record: your win streak, your longest rally, how many cabinets are still dark, the air hockey score between you.
 
 - **Mystery capsule** (the machine on the counter, 8 coins, one a day): the contents are fixed by the date. Usually a toy you don't own yet, sometimes a 12–24 coin jackpot. The eight toys line up on the counter.
+- **Cosmetics rack** (the rail of little paddles on the counter): sells the Glitch Pong Store items that cost coins. The list and the purchase belong to `glitchpong-cosmetics.js`; the same items can be bought in the Store. See [cosmetics.md](cosmetics.md).
 - **Jukebox request**: each day he asks for one track. Put it on at the jukebox and he pays 3 coins.
 
 ## Jukebox and records

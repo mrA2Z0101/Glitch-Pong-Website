@@ -40,8 +40,9 @@ it('a lobby is rebuilt from known fields only', () => {
   const hostile = {
     code: '"><img src=x onerror=alert(1)>123456789', status: '<b>', joinLocked: 'yes', expiresAt: 'soon', __proto__: { polluted: true }, extra: 'x'.repeat(100000),
     players: [
-      { playerId: 'a'.repeat(5000), nickname: '<img src=x onerror=1>' + 'z'.repeat(5000), side: 'middle', host: 1, connected: 'true', ready: {} },
-      null, 5, 'player', { nickname: 'second', side: 'right', connected: true },
+      { playerId: 'a'.repeat(5000), nickname: '<img src=x onerror=1>' + 'z'.repeat(5000), side: 'middle', host: 1, connected: 'true', ready: {},
+        card: { title: '<img src=x onerror=1>', plate: 'p'.repeat(500), extra: 'x' } },
+      null, 5, 'player', { nickname: 'second', side: 'right', connected: true, card: { title: 'netrunner', plate: 'gold' } },
       { nickname: 'third' }, { nickname: 'fourth' }
     ]
   };
@@ -54,11 +55,16 @@ it('a lobby is rebuilt from known fields only', () => {
   assert.ok(out.players.length <= 2);
   for (const p of out.players) {
     assert.ok(p.nickname.length <= 20 && p.playerId.length <= 64);
-    assert.deepEqual(Object.keys(p).sort(), ['connected', 'host', 'nickname', 'playerId', 'ready', 'side']);
+    assert.deepEqual(Object.keys(p).sort(), ['card', 'connected', 'host', 'nickname', 'playerId', 'ready', 'side']);
+    assert.deepEqual(Object.keys(p.card).sort(), ['plate', 'title'], 'a card is two ids and nothing else');
+    for (const id of Object.values(p.card)) assert.match(id, /^[a-z0-9_-]{1,24}$/i);
     assert.ok(typeof p.connected === 'boolean' && typeof p.host === 'boolean');
     assert.ok(p.side === 'left' || p.side === 'right');
   }
   assert.equal(out.players[0].connected, false, '"true" is not true');
+  assert.deepEqual(out.players[0].card, { title: 'default', plate: 'default' }, 'markup and oversized ids fall back to the default');
+  assert.deepEqual(clean.card({ title: 'netrunner', plate: 'gold', extra: 1 }), { title: 'netrunner', plate: 'gold' }, 'well-formed ids pass through');
+  for (const junk of [null, 5, 'gold', [], { title: 7, plate: {} }]) assert.deepEqual(clean.card(junk), { title: 'default', plate: 'default' });
   assert.equal({}.polluted, undefined);
   for (const bad of [null, undefined, 5, 'x', [], {}, { players: 'no' }, { players: {} }]) assert.equal(clean.lobby(bad), null);
 });
