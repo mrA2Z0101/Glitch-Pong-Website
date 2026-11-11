@@ -110,6 +110,8 @@ Two more perks don't help against the AI, because the AI uses the same values:
 ### F. Remove the Q debug key from the public build
 Pressing **Q** in a match instantly maxes Heat and summons the Eye. It's handy for testing, but players can use it to force a 2-point gamble whenever they like. Keep it behind a debug flag.
 
+**Done.** Q now only works in [admin mode](admin.md), where it is also a button in the cheat menu. For everyone else it does nothing.
+
 ### G. Smaller notes
 - **Teleport.** It fires every 7–20 s at any Heat, from the very first rally. Consider only enabling it above some Heat (say 30%), so early rallies are clean and the chaos builds with Heat, like glitch walls do.
 - **Rubber-banding is fine.** Spite (wall bounces bend toward the losing player) and serve memory (serves aim at where the receiver missed) are mild and give the ball personality. Keep them, and mention them in the How to Play page so they don't feel like bugs.

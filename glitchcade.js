@@ -2398,6 +2398,8 @@ const PRIZES = [
   { id: 'eye-shard', name: 'EYE SHARD', cost: 90 },
   { id: 'golden-paddle', name: 'GOLDEN PADDLE TROPHY', cost: 100 }
 ];
+// The admin menu (glitchpong-admin.js) unlocks every prize by id.
+window.GlitchcadePrizeIds = PRIZES.map((p) => p.id);
 const PRIZES_PER_ROW = 6;
 const ROBOT_NAME = 'PRIZETRON-80';
 const ROBOT_POS = new THREE.Vector3(0, 0, -30.35);

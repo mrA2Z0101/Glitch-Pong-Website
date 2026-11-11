@@ -779,15 +779,17 @@ body.gc-touch .gf-pad { display: flex; }
 <!-- Peer-to-peer online play for when there is no socket.io server. Tiny: it only fetches
      PeerJS and the game modules when someone opens multiplayer. -->
 <script src="glitchpong-p2p.js?v=p2p-2"></script>
-<script src="glitchpong-cosmetics.js?v=cosmetics-3"></script>
+<script src="glitchpong-cosmetics.js?v=cosmetics-4"></script>
 <script src="glitchcade-power.js?v=power-1"></script>
-<script src="glitchpong-site.js?v=glitchcade-14"></script>
-<script type="module" src="glitchcade.js?v=glitchcade-19"></script>
+<script src="glitchpong-site.js?v=glitchcade-15"></script>
+<!-- Private admin mode and cheat menu. Does nothing until the passphrase is entered. -->
+<script src="glitchpong-admin.js?v=admin-1"></script>
+<script type="module" src="glitchcade.js?v=glitchcade-20"></script>
 
 <script>
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
   window.addEventListener('load', function () {
-    navigator.serviceWorker.register('./service-worker.js?v=p2p-25', { updateViaCache: 'none' })
+    navigator.serviceWorker.register('./service-worker.js?v=p2p-26', { updateViaCache: 'none' })
       .then(function (registration) { return registration.update(); })
       .catch(function () {});
   }, { once: true });

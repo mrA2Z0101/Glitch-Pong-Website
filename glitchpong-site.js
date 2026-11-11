@@ -2738,6 +2738,66 @@ function injectGameById(gameId, options = {}) {
     const PB_SPEECH    = 80;  // frames: ball frozen, speech bubble visible
     const PB_GLITCH    = 120; // frames: ball glitches to center
     const PB_MORPH     = 195; // frames: ball morphs into eye
+
+    // ── Admin cheat hooks ───────────────────────────────────────────────────
+    // glitchpong-admin.js drives these from its cheat menu and lets nobody else
+    // near them. They act on a local match only: online and peer-to-peer
+    // matches are never touched, and with admin mode off none of this runs.
+    const adminCheats = () => !!(window.GlitchAdmin && window.GlitchAdmin.cheatsAllowed());
+    const adminGod = () => !!(window.GlitchAdmin && window.GlitchAdmin.godActive());
+    const adminFrozen = () => !!(window.GlitchAdmin && window.GlitchAdmin.menuOpen);
+    const adminHooks = {
+      online: () => onlineState.active,
+      inMatch: () => currentScreen === "game" && modeSelected && !gameOver && !finalScoreCinematic && !onlineState.active,
+      snapshot: () => ({ left: leftScore, right: rightScore, win: WIN_SCORE }),
+      maxHeat() {
+        if (!adminHooks.inMatch()) return { ok: false, msg: "NO MATCH IN PLAY" };
+        heat = HEAT_MAX;
+        return { ok: true, msg: "HEAT MAXED" };
+      },
+      // Unlike the Eye's normal once-a-match trigger, the admin can call it again.
+      spawnEye() {
+        if (!adminHooks.inMatch()) return { ok: false, msg: "NO MATCH IN PLAY" };
+        if (!rules.boss) return { ok: false, msg: "THE EYE IS OFF IN THESE CUSTOM RULES" };
+        if (bossModeActive || preBossActive) return { ok: false, msg: "THE EYE IS ALREADY HERE" };
+        // Between points the 3-2-1 countdown relaunches the ball and would undo the Eye's cinematic.
+        if (isPaused || roundFrozen || countdownActive) return { ok: false, msg: "WAIT FOR THE BALL TO BE IN PLAY" };
+        heat = HEAT_MAX;
+        bossEncounteredThisMatch = false;
+        bossTriggeredThisRally = false;
+        triggerPreBoss();
+        return preBossActive ? { ok: true, msg: "THE EYE IS WAKING" } : { ok: false, msg: "THE EYE WOULDN'T COME" };
+      },
+      setScore(side, value) {
+        if (!adminHooks.inMatch()) return { ok: false, msg: "NO MATCH IN PLAY" };
+        const v = Math.max(0, Math.min(WIN_SCORE, Math.floor(Number(value) || 0)));
+        if (v >= WIN_SCORE && (bossModeActive || preBossActive)) return { ok: false, msg: "FINISH THE EYE FIRST" };
+        if (side === "left") leftScore = v; else rightScore = v;
+        spiteBias = Math.sign(rightScore - leftScore) * Math.min(1, Math.abs(rightScore - leftScore) * 0.4);
+        if (v >= WIN_SCORE) startFinalScoreCinematic(side === "left" ? "LEFT" : "RIGHT");
+        return { ok: true, msg: `SCORE ${leftScore}–${rightScore}` };
+      },
+      winMatch() { return adminHooks.setScore("left", WIN_SCORE); },
+      loseMatch() { return adminHooks.setScore("right", WIN_SCORE); },
+      // Ends the rally as if the ball had got past the right paddle: left scores.
+      skipRound() {
+        if (!adminHooks.inMatch() || isPaused || roundFrozen || countdownActive || bossModeActive || preBossActive) {
+          return { ok: false, msg: "WAIT FOR THE BALL TO BE IN PLAY" };
+        }
+        leftScore += 1;
+        spiteBias = Math.sign(rightScore - leftScore) * Math.min(1, Math.abs(rightScore - leftScore) * 0.4);
+        matchRallyHits = 0; exhaustionPhase = 0; exhaustionAmp = 0; lastWallBounceTime = 0; drowsyZs = []; drowsyZSpawnTimer = 0; drowsyWarningShown = false;
+        colorCharge = 1; lastHitSide = null; clearGlitchWalls();
+        if (leftScore >= WIN_SCORE) { leftScore = WIN_SCORE; startFinalScoreCinematic("LEFT"); }
+        else triggerScoreShake(-1);
+        return { ok: true, msg: `ROUND SKIPPED. SCORE ${leftScore}–${rightScore}` };
+      }
+    };
+    if (window.GlitchAdmin) {
+      window.GlitchAdmin.attachGame(adminHooks);
+      state.listeners.push(() => window.GlitchAdmin.detachGame(adminHooks));
+    }
+
     const pongAudio = (() => {
       const SOUND_FILES = {
         gameTracks: [
@@ -4712,6 +4772,8 @@ function injectGameById(gameId, options = {}) {
     function finishBossFightWithScore() {
       if (!bossModeActive || !bossOutcome) return;
       const awardSide = bossOutcome && bossOutcome.awardSide ? bossOutcome.awardSide : "right";
+      // God mode: the Eye can't take points off the left side either.
+      if (bossOutcome.type === "fail" && awardSide === "right" && adminGod()) bossOutcome = Object.assign({}, bossOutcome, { type: "success" });
 
       const freezeAtCenter = () => {
         ballX = canvas.width / 2;
@@ -10800,7 +10862,8 @@ function injectGameById(gameId, options = {}) {
         return;
       }
 
-      if (isPaused) {
+      // The admin cheat menu freezes a local match while it is open.
+      if (isPaused || adminFrozen()) {
         render();
         state.raf = requestAnimationFrame(loop);
         return;
@@ -11226,7 +11289,7 @@ function injectGameById(gameId, options = {}) {
           const nearMissThreshold = 28;
           const missedClose = ballY > leftY - nearMissThreshold && ballY < leftY + paddleH + nearMissThreshold && (ballY < leftY || ballY > leftY + paddleH);
           if (missedClose) awardXP(GlitchProgression.XP_REWARDS.nearMiss, "nearMiss", leftX + 20, ballY);
-          if (powerState.blue.shieldTimer > 0) {
+          if (powerState.blue.shieldTimer > 0 || adminGod()) {
             powerState.blue.shieldTimer = 0;
             vx = Math.abs(vx) * 0.92; vy += (ballY - canvas.height / 2) * 0.022;
             ballX = leftX + paddleW + BALL_R + 2;
@@ -11344,9 +11407,10 @@ function injectGameById(gameId, options = {}) {
       if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) && e.key !== "Escape") return;
 
       if ((e.key === "q" || e.key === "Q") && currentScreen === "game") {
+        // The old public debug key (max Heat + summon the Eye) is now an admin
+        // cheat: it does nothing unless admin mode is on (see glitchpong-admin.js).
         e.preventDefault();
-        heat = HEAT_MAX;
-        if (!bossModeActive && !bossTriggeredThisRally && !preBossActive) triggerPreBoss();
+        if (adminCheats()) adminHooks.spawnEye();
         return;
       }
       if (e.key === "Escape") {
