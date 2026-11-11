@@ -1,6 +1,6 @@
 # Achievements
 
-The game has 23 achievements. Players see them from the **ACHIEVEMENTS** button on the Glitch Pong main menu. An unlock shows a pop-up in the game. Prize-counter unlocks also show a pop-up in the 3D arcade.
+The game has 27 achievements. Players see them from the **ACHIEVEMENTS** button on the Glitch Pong main menu. An unlock shows a pop-up in the game. Prize-counter unlocks also show a pop-up in the 3D arcade.
 
 Achievements progress only in matches that also earn XP. Custom Match and AI vs AI don't count, so they can't be farmed with first-to-3 games.
 
@@ -28,7 +28,8 @@ All achievements live in one list near the top of `glitchpong-site.js`: search f
 - **From the player's profile:** `wins`, `matchesPlayed`, `bestWinStreak`, `longestRally`, `clutchWins`, `bossSurvivals`, `dashUses`, `level`
 - **Arenas:** `arenasWon` (how many of the four arenas the player has won in)
 - **From the Glitchcade:** `coinsEarned`, `prizes`
-- **Achievement counters:** `shutoutWins`, `comebackWins`, `hardWins`, `criticalHeat`, `powerups`
+- **From the Store:** `cosmeticsMastered` (items with a gold trim; see [cosmetics.md](cosmetics.md))
+- **Achievement counters:** `shutoutWins`, `comebackWins`, `hardWins`, `criticalHeat`, `powerups`, `onlineWins`, `setWins`
 
 ### Tracking something new
 

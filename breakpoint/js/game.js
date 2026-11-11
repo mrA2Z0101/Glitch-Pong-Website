@@ -1012,6 +1012,7 @@ const game = {
     if (this.attract || this.mode === 'ai' || this.sectorAssisted) return 0;
     const n = this.boss ? COINS.boss : COINS.sector;
     Wallet.award(n);
+    SectorLog.add();
     this.runCoins += n;
     return n;
   },

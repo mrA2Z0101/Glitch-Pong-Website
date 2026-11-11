@@ -178,3 +178,15 @@ test('tokens are url-safe and long enough to be unguessable', () => {
   for (const t of [host.resumeToken, ticket]) assert.match(t, /^[A-Za-z0-9_-]{43}$/);
   assert.notEqual(host.resumeToken, ticket);
 });
+
+test('a player card carries only well-formed title and nameplate ids', () => {
+  const { host } = setup();
+  const created = host.api.create('Host', { title: 'netrunner', plate: 'gold', nickname: 'ignored', extra: { deep: true } });
+  const joined = host.api.join(created.joinCode, 'Guest', '10.0.0.1', { title: '<script>alert(1)</script>', plate: 'x'.repeat(200) });
+  const [hostPlayer, guestPlayer] = joined.lobbyState.players;
+  assert.deepEqual(hostPlayer.card, { title: 'netrunner', plate: 'gold' });
+  assert.deepEqual(guestPlayer.card, { title: 'default', plate: 'default' }, 'anything that is not a short id falls back to the default');
+  // No card at all (an older client) is fine too.
+  const plain = host.api.create('Solo');
+  assert.deepEqual(plain.lobbyState.players[0].card, { title: 'default', plate: 'default' });
+});

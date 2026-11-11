@@ -464,6 +464,11 @@ const GlitchAchievements = (function() {
     { id: "level_25",     name: "GLITCH MASTER",    desc: "Reach level 25.",                                stat: "level",           goal: 25 },
     { id: "coins_100",    name: "HIGH SCORE",       desc: "Earn 100 Glitchcade coins.",                     stat: "coinsEarned",     goal: 100 },
     { id: "prizes_3",     name: "COLLECTOR",        desc: "Redeem 3 prizes at the Glitchcade prize counter.", stat: "prizes",        goal: 3 },
+    { id: "online_win",   name: "HANDSHAKE",        desc: "Win an online match.",                           stat: "onlineWins",      goal: 1 },
+    { id: "mastery_1",    name: "TRUE COLOURS",     desc: "Master a cosmetic: win 25 matches with it equipped.", stat: "cosmeticsMastered", goal: 1 },
+    // These two each come with a secret cosmetic (see glitchpong-cosmetics.js).
+    { id: "full_set",     name: "MATCHING OUTFIT",  desc: "Win a match wearing a complete cosmetic set.",   stat: "setWins",         goal: 1, secret: true },
+    { id: "boss_10",      name: "STARING CONTEST",  desc: "Survive the Eye 10 times.",                      stat: "bossSurvivals",   goal: 10, secret: true },
     // goal = the number of prizes on the counter (PRIZES in glitchcade.js: 12 today).
     // tests/achievements-prizes.test.mjs fails if the two drift apart.
     { id: "prizes_all",   name: "SOLD OUT",         desc: "Redeem every prize at the Glitchcade prize counter.", stat: "prizes",     goal: 12, secret: true }
@@ -521,7 +526,8 @@ const GlitchAchievements = (function() {
       level: p.level || 1,
       arenasWon: Object.keys(arenas).filter((id) => arenas[id] && arenas[id].wins > 0).length,
       coinsEarned: w.earned || 0,
-      prizes: (w.prizes || []).length
+      prizes: (w.prizes || []).length,
+      cosmeticsMastered: typeof GlitchCosmetics !== "undefined" && GlitchCosmetics.masteredCount ? GlitchCosmetics.masteredCount() : 0
     });
   }
 
@@ -570,10 +576,36 @@ const GlitchAchievements = (function() {
     check, count, list, sanitize,
     onUnlock(fn) { listeners.push(fn); return () => { const i = listeners.indexOf(fn); if (i >= 0) listeners.splice(i, 1); }; },
     reload() { store = read(); },
-    get unlockedCount() { return ACHIEVEMENTS.filter((a) => store.unlocked[a.id]).length; }
+    get unlockedCount() { return ACHIEVEMENTS.filter((a) => store.unlocked[a.id]).length; },
+    // For the cosmetics module: which achievements are in, and the raw counters.
+    get unlocked() { return Object.assign({}, store.unlocked); },
+    get counters() { return Object.assign({}, store.counters); }
   };
 })();
 window.GlitchAchievements = GlitchAchievements;
+
+// Break Point keeps its own count of sectors cleared by hand (breakpoint/js/wallet.js).
+function glitchBreakpointSectors() {
+  try {
+    const d = JSON.parse(localStorage.getItem("glitchcade_breakpoint_v1") || "null");
+    return Math.max(0, Math.floor(Number(d && d.sectors) || 0));
+  } catch (e) { return 0; }
+}
+
+// Some cosmetics unlock from things the cosmetics module can't see for itself:
+// achievements, online wins, coins earned in the arcade, sectors in Break Point.
+if (typeof GlitchCosmetics !== "undefined" && GlitchCosmetics.setContext) {
+  GlitchCosmetics.setContext(() => {
+    const w = GlitchcadeWallet.get();
+    return {
+      stats: Object.assign(GlitchAchievements.counters, { coinsEarned: w.earned || 0, breakpointSectors: glitchBreakpointSectors() }),
+      achievements: GlitchAchievements.unlocked,
+      coins: w.coins || 0
+    };
+  });
+  try { window.addEventListener("glitchcade:wallet", () => GlitchCosmetics.refreshContext()); } catch (e) {}
+  try { window.addEventListener("glitchpong:achievement", () => GlitchCosmetics.refreshContext()); } catch (e) {}
+}
 
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -598,7 +630,7 @@ const GlitchSave = (function() {
         if (!ID_RE.test(k)) return;
         const val = v[k];
         if (typeof val === "number") { const n = num(val); if (n !== null) out[k] = Math.floor(n); }
-        else if (Array.isArray(val)) out[k] = val.filter((x) => typeof x === "string" && ID_RE.test(x)).slice(0, 100);
+        else if (Array.isArray(val)) out[k] = val.filter((x) => typeof x === "string" && ID_RE.test(x)).slice(0, 400);
         else if (k === "arenaStats" && val && typeof val === "object") {
           out.arenaStats = {};
           Object.keys(val).slice(0, 20).forEach((id) => {
@@ -642,18 +674,13 @@ const GlitchSave = (function() {
       ["p1Up", "p1Down", "p1Dash", "p2Up", "p2Down", "p2Dash"].forEach((k) => { if (typeof v[k] === "string" && KEYCODE_RE.test(v[k])) out[k] = v[k]; });
       return out;
     },
+    // Equipped items, coin purchases, mastery wins and shuffle switches.
+    // glitchpong-cosmetics.js owns the shape, so it does the cleaning.
     glitchPong_cosmetics_v1: (v) => {
-      if (!v || typeof v !== "object") return null;
-      const equipped = {};
-      const slots = ["paddle", "trail", "ball", "hit", "score", "dash", "teleport"];
-      ["blue", "red"].forEach((owner) => {
-        const side = v.equipped && v.equipped[owner];
-        equipped[owner] = {};
-        slots.forEach((slot) => { equipped[owner][slot] = side && ID_RE.test(side[slot] || "") ? side[slot] : "default"; });
-      });
-      const seen = Array.isArray(v.seen) ? v.seen.filter((x) => typeof x === "string" && ID_RE.test(x)).slice(0, 100) : [];
-      return { equipped, seen };
+      if (!v || typeof v !== "object" || typeof GlitchCosmetics === "undefined" || !GlitchCosmetics.sanitize) return null;
+      return GlitchCosmetics.sanitize(v);
     },
+    glitchcade_breakpoint_v1: (v) => (v && typeof v === "object" ? { sectors: Math.floor(num(v.sectors) || 0) } : null),
     glitchPongPaddleColors: (v) => (v && ID_RE.test(v.blue || "") && ID_RE.test(v.red || "") ? { blue: v.blue, red: v.red } : null),
     glitchPongPerformance: (v) => (v && typeof v === "object" ? { batterySaver: !!v.batterySaver } : null),
     // The arcade floor's own record (repairs, high scores, daily challenge...).
@@ -2498,7 +2525,11 @@ function injectGameById(gameId, options = {}) {
     // effects, when each paddle last returned the ball, and last frame's state.
     const cosmeticFx = typeof GlitchCosmetics !== "undefined" ? GlitchCosmetics.createFX() : null;
     const cosmeticHitAt = { blue: -1e9, red: -1e9 };
-    const cosmeticWatch = { owner: null, left: null, right: null, x: 0, y: 0, last: 0 };
+    const cosmeticWatch = { owner: null, left: null, right: null, x: 0, y: 0, last: 0,
+      hits: { blue: 0, red: 0 },                 // returns by each paddle this match (Bad ROM, Brickwork)
+      face: 0, rally: 0,                         // changes on every hit (D20); hits since the last point
+      scoredAt: { blue: -1e9, red: -1e9 },       // when each side last scored, for the score displays
+      introAt: -1e9 };                           // when the match started, for the name cards
 
     // Powerup system: only one arena pickup exists at a time. The ball color tracks
     // ownership, and whichever paddle owns the ball when it collects the pickup gets
@@ -3043,6 +3074,48 @@ function injectGameById(gameId, options = {}) {
         ].forEach(prewarmFile);
       }
 
+      // Sound packs (glitchpong-cosmetics.js) are synthesised, so they need an
+      // AudioContext on every device, not only the phones that already use one.
+      let synthContext = null;
+      let packHitCount = 0;
+      const packHitAt = { blue: -1e9, red: -1e9 };
+      function getSynthContext() {
+        try {
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          if (!AudioCtx) return null;
+          const shared = window.__glitchPongAudioContext;
+          if (shared && shared.state !== "closed") synthContext = shared;
+          else if (!synthContext || synthContext.state === "closed") {
+            synthContext = new AudioCtx();
+            window.__glitchPongAudioContext = synthContext;
+          }
+          if (synthContext.state === "suspended") synthContext.resume().catch(() => {});
+          return synthContext;
+        } catch (error) {
+          return null;
+        }
+      }
+
+      // Plays `owner`'s equipped sound pack in place of a recording. Returns
+      // true when it did, so the caller can skip the recording.
+      function playPackSound(owner, kind, options) {
+        if ((owner !== "blue" && owner !== "red") || typeof GlitchCosmetics === "undefined") return false;
+        const pack = GlitchCosmetics.getEquipped(owner, "sound", GlitchProgression.data);
+        if (pack === "default") return false;
+        if (!sfxEnabled || visibilitySuspended) return true;       // muted: the recording stays quiet too
+        const ac = getSynthContext();
+        if (!ac || ac.state !== "running") return false;
+        if (kind === "hit") {
+          // One return can ask for its hit sound twice in the same frame.
+          const now = performance.now();
+          if (now - packHitAt[owner] < 40) return true;
+          packHitAt[owner] = now;
+        }
+        const played = GlitchCosmetics.playSound(ac, pack, kind, Object.assign({ n: packHitCount++ }, options));
+        if (played) duckMusic(kind === "score" ? 0.55 : 0.12, kind === "score" ? 800 : 120);
+        return played;
+      }
+
       function playOneShot(key, { volume = 0.45, playbackRate = 1, duck = 0, duckDuration = 0 } = {}) {
         const file = SOUND_FILES[key];
         if (!file || !sfxEnabled) return;
@@ -3302,14 +3375,30 @@ function injectGameById(gameId, options = {}) {
         },
         buttonHover() { playOneShot("buttonHover", { volume: 0.22, playbackRate: 0.98 + Math.random() * 0.04 }); },
         gameStart() { playOneShot("gameStart", { volume: 0.4, duck: 0.45, duckDuration: 900 }); },
-        paddleHit() { playOneShot("paddleHit", { volume: 0.42, playbackRate: 0.96 + Math.random() * 0.1, duck: 0.12, duckDuration: 120 }); },
-        paddleHitCharged(charge) {
+        // `owner` ("blue" | "red") is the side whose sound pack should play.
+        // Without one, or with the standard pack, the recording plays.
+        paddleHit(owner) {
+          if (playPackSound(owner, "hit", { charge: 1 })) return;
+          playOneShot("paddleHit", { volume: 0.42, playbackRate: 0.96 + Math.random() * 0.1, duck: 0.12, duckDuration: 120 });
+        },
+        paddleHitCharged(charge, owner) {
+          if (playPackSound(owner, "hit", { charge })) return;
           const rate = (0.96 + Math.random() * 0.1) * (1 + (charge - 1) * 0.07);
           const vol  = Math.min(0.75, 0.42 + (charge - 1) * 0.06);
           playOneShot("paddleHit", { volume: vol, playbackRate: rate, duck: 0.12, duckDuration: 120 });
         },
         wallBounce() { playOneShot("wallBounce", { volume: 0.24, playbackRate: 0.98 + Math.random() * 0.05 }); },
-        score() { playOneShot("score", { volume: 0.46, duck: 0.55, duckDuration: 800 }); },
+        score(owner) {
+          if (playPackSound(owner, "score", {})) return;
+          playOneShot("score", { volume: 0.46, duck: 0.55, duckDuration: 800 });
+        },
+        // For the Store: hear a pack without equipping it. Returns false when
+        // sound is off or the browser has no Web Audio.
+        previewPack(packId, kind) {
+          if (!sfxEnabled || typeof GlitchCosmetics === "undefined") return false;
+          const ac = getSynthContext();
+          return !!ac && GlitchCosmetics.playSound(ac, packId, kind, { charge: 1 + (packHitCount % 4), n: packHitCount++ });
+        },
         glitch() { playOneShot("glitchPulse", { volume: 0.2, playbackRate: 0.97 + Math.random() * 0.06, duck: 0.18, duckDuration: 220 }); },
         dash() { playOneShot("dashActivation", { volume: 0.28, playbackRate: 0.98 + Math.random() * 0.06, duck: 0.14, duckDuration: 160 }); },
         dashReady() { playOneShot("dashReady", { volume: 0.16 }); },
@@ -3546,6 +3635,7 @@ function injectGameById(gameId, options = {}) {
       pongAudio.stopMenuMusic();
       pongAudio.startMusic();
       GlitchProgression.beginMatch();
+      beginCosmeticMatch();
       matchMaxDeficit = 0;
       matchStartLevel = GlitchProgression.level;
       syncUiForScreen();
@@ -3577,6 +3667,10 @@ function injectGameById(gameId, options = {}) {
       const playerScore = side === "left" ? snapshot.scores.left : snapshot.scores.right;
       const opponentScore = side === "left" ? snapshot.scores.right : snapshot.scores.left;
       GlitchProgression.endMatch(snapshot.winner === side, false, { arenaId: currentArenaId, playerScore, opponentScore });
+      if (snapshot.winner === side) {
+        GlitchAchievements.count("onlineWins");
+        creditCosmeticWin(side === "left" ? "blue" : "red");
+      }
       GlitchAchievements.check();
       syncCosmeticUnlocks(); // new items show a NEW badge in the Store
       if (snapshot.winner === side && onlineWinPays()) showCoinReward(GlitchcadeWallet.awardWin());
@@ -4205,7 +4299,7 @@ function injectGameById(gameId, options = {}) {
       cameraZoom = 1.035;
       cameraTargetZoom = 1.055;
       impactFreezeFrames = 2;
-      pongAudio.score();
+      pongAudio.score(dir > 0 ? "red" : "blue");     // dir points at the side that conceded
       pongAudio.glitch();
     }
 
@@ -4238,7 +4332,20 @@ function injectGameById(gameId, options = {}) {
       cameraKickY = -4;
       cameraZoom = 1.05;
       cameraTargetZoom = 1.12;
-      pongAudio.score();
+      // The winner's victory effect plays over the final point, which is held
+      // a little longer so there is time to see it.
+      const victor = side === "LEFT" ? "blue" : "red";
+      const victoryId = equippedCosmetic(victor, "victory");
+      if (cosmeticFx && victoryId !== "default") {
+        const spawned = cosmeticFx.spawn("victory", victoryId,
+          (side === "LEFT" ? leftX : rightX) + paddleW / 2, (side === "LEFT" ? leftY : rightY) + paddleH / 2, {
+            rgb: ownerRgb(victor), rgb2: ownerRgb(side === "LEFT" ? "red" : "blue"),
+            w: canvas.width, h: canvas.height, ph: paddleH, dir: side === "LEFT" ? 1 : -1,
+            gilded: cosmeticGilded(victor, "victory")
+          });
+        if (spawned) finalScoreCinematicTimer = 140;
+      }
+      pongAudio.score(victor);
       pongAudio.critical();
       pongAudio.stopMenuMusic();
     }
@@ -5099,6 +5206,12 @@ function injectGameById(gameId, options = {}) {
       return GlitchCosmetics.getEquipped(owner, slot, GlitchProgression.data);
     }
 
+    // Whether to draw the gold mastery trim on what this side wears in `slot`.
+    function cosmeticGilded(owner, slot) {
+      if (typeof GlitchCosmetics === "undefined" || (owner !== "blue" && owner !== "red")) return false;
+      return GlitchCosmetics.isGilded(owner, slot, GlitchProgression.data);
+    }
+
     function drawPaddle(x, y, img, isReady, glowColor, fillColor, owner) {
       const skinId = owner ? equippedCosmetic(owner, "paddle") : "default";
       if (typeof GlitchCosmetics !== "undefined") {
@@ -5112,7 +5225,10 @@ function injectGameById(gameId, options = {}) {
           img,
           imgReady: isReady,
           ballY,
-          hitFlash: owner ? Math.max(0, 1 - (performance.now() - cosmeticHitAt[owner]) / 350) : 0
+          hitFlash: owner ? Math.max(0, 1 - (performance.now() - cosmeticHitAt[owner]) / 350) : 0,
+          hits: owner ? cosmeticWatch.hits[owner] : 0,
+          cracks: owner === "blue" ? rightScore : owner === "red" ? leftScore : 0,
+          gilded: cosmeticGilded(owner, "paddle")
         });
         return;
       }
@@ -5157,7 +5273,10 @@ function injectGameById(gameId, options = {}) {
           rgb,
           charge: colorCharge,
           t: performance.now() / 1000,
-          quality: getVisualQualityScale()
+          quality: getVisualQualityScale(),
+          speed: Math.hypot(vx, vy),
+          rally: Math.max(rallyHits, cosmeticWatch.rally),
+          gilded: cosmeticGilded(ballOwner, "trail")
         });
         return;
       }
@@ -5191,7 +5310,8 @@ function injectGameById(gameId, options = {}) {
       const skin = ballOwner === "neutral" ? "default" : equippedCosmetic(ballOwner, "ball");
       GlitchCosmetics.drawBallSkin(ctx, skin, x, y, r, {
         rgb: ownerRgb(ballOwner), hex: ownerHex(ballOwner), glowBlur, glowAlpha,
-        t: performance.now() / 1000, vx, vy, quality: getVisualQualityScale()
+        t: performance.now() / 1000, vx, vy, quality: getVisualQualityScale(),
+        heat: getHeatRatio(), face: cosmeticWatch.face, gilded: cosmeticGilded(ballOwner, "ball")
       });
     }
 
@@ -5199,7 +5319,115 @@ function injectGameById(gameId, options = {}) {
       if (!cosmeticFx || owner === "neutral" || !owner) return;
       const id = equippedCosmetic(owner, slot);
       if (id === "default") return;
-      cosmeticFx.spawn(slot, id, x, y, Object.assign({ rgb: ownerRgb(owner), r: BALL_R, w: canvas.width, h: canvas.height }, extra));
+      cosmeticFx.spawn(slot, id, x, y, Object.assign({
+        rgb: ownerRgb(owner), r: BALL_R, w: canvas.width, h: canvas.height,
+        rally: Math.max(rallyHits, cosmeticWatch.rally), gilded: cosmeticGilded(owner, slot)
+      }, extra));
+    }
+
+    // Start of a match: roll Shuffle Loadout, clear last match's effects and
+    // counters, and start the clock for the name cards.
+    function beginCosmeticMatch() {
+      if (typeof GlitchCosmetics !== "undefined") GlitchCosmetics.rollShuffle(GlitchProgression.data);
+      if (cosmeticFx) cosmeticFx.clear();
+      cosmeticWatch.hits.blue = 0;
+      cosmeticWatch.hits.red = 0;
+      cosmeticWatch.rally = 0;
+      cosmeticWatch.left = null;
+      cosmeticWatch.scoredAt.blue = cosmeticWatch.scoredAt.red = -1e9;
+      cosmeticWatch.introAt = performance.now();
+    }
+
+    // A win that counts: one step toward the gold trim on everything the winner
+    // wore, and the set achievement if they wore a full set. Returns the items
+    // that just reached mastery, for the match summary.
+    function creditCosmeticWin(owner) {
+      if (typeof GlitchCosmetics === "undefined") return [];
+      const data = GlitchProgression.data;
+      if (GlitchCosmetics.activeSet(owner, data)) GlitchAchievements.count("setWins");
+      const mastered = GlitchCosmetics.recordWin(owner, data).map(c => Object.assign({ mastered: true }, c));
+      GlitchAchievements.check();
+      return mastered;
+    }
+
+    // The net, the score displays and any set bonus sit behind the ball, in
+    // world space. Returns true when an equipped net replaced the arena's own
+    // centre line.
+    function drawCourtCosmetics(heatRatio) {
+      if (typeof GlitchCosmetics === "undefined") return false;
+      const t = performance.now() / 1000;
+      const quality = getVisualQualityScale();
+      const data = GlitchProgression.data;
+      const netDrawn = GlitchCosmetics.drawNet(ctx, equippedCosmetic("blue", "net"), {
+        x: canvas.width / 2, h: canvas.height, t, heat: heatRatio,
+        rgbL: ownerRgb("blue"), rgbR: ownerRgb("red"), quality, gilded: cosmeticGilded("blue", "net")
+      });
+      const now = performance.now();
+      const size = Math.min(canvas.height * 0.2, canvas.width * 0.11);
+      [["blue", leftScore, 0.28], ["red", rightScore, 0.72]].forEach(([owner, value, fx]) => {
+        const set = GlitchCosmetics.activeSet(owner, data);
+        if (set) {
+          GlitchCosmetics.drawSetBonus(ctx, set.id, {
+            side: owner === "blue" ? -1 : 1, w: canvas.width, h: canvas.height, t,
+            rgb: ownerRgb(owner), ballX, ballY, quality
+          });
+        }
+        // Score displays are for matches only: not the menu demo, not the boss.
+        if (!modeSelected || bossModeActive || preBossActive) return;
+        GlitchCosmetics.drawScoreboard(ctx, equippedCosmetic(owner, "board"), value, {
+          x: canvas.width * fx, y: canvas.height * 0.21, size, rgb: ownerRgb(owner), t, quality,
+          flash: 1 - (now - cosmeticWatch.scoredAt[owner]) / 900, alpha: 0.42,
+          gilded: cosmeticGilded(owner, "board")
+        });
+      });
+      return netDrawn;
+    }
+
+    // An equipped countdown replaces the 3-2-1-GO artwork. Returns false for
+    // the default, so the caller draws the original images.
+    function drawCountdownCosmetic(key, progress) {
+      if (typeof GlitchCosmetics === "undefined") return false;
+      return GlitchCosmetics.drawCountdown(ctx, equippedCosmetic("blue", "countdown"), key, progress, {
+        w: canvas.width, h: canvas.height, t: performance.now() / 1000,
+        rgbL: ownerRgb("blue"), rgbR: ownerRgb("red"), quality: getVisualQualityScale()
+      });
+    }
+
+    // Who is on each side, and the title and nameplate they wear. Online, each
+    // player's card arrives as item ids and is looked up in our own catalog.
+    function matchCards() {
+      const data = GlitchProgression.data;
+      if (onlineState.active && onlineState.session) {
+        const players = (onlineState.session.lobbyState && onlineState.session.lobbyState.players) || [];
+        const pick = (side) => {
+          const player = players.find(item => item && item.side === side);
+          return Object.assign({ name: (player && player.nickname) || (side === "left" ? "LEFT" : "RIGHT") }, GlitchCosmetics.cleanCard(player && player.card));
+        };
+        return { blue: pick("left"), red: pick("right") };
+      }
+      const blue = Object.assign({ name: aiVsAiMode ? "CPU 1" : "PLAYER 1" }, GlitchCosmetics.card("blue", data));
+      const red = Object.assign({ name: aiVsAiMode ? "CPU 2" : twoPlayerMode ? "PLAYER 2" : "CPU" }, GlitchCosmetics.card("red", data));
+      // Nothing to show off: skip the cards entirely.
+      if ([blue, red].every(c => c.title === "default" && c.plate === "default")) return null;
+      return { blue, red };
+    }
+
+    // Name cards for the first few seconds of a match.
+    function drawMatchCards() {
+      if (typeof GlitchCosmetics === "undefined" || currentScreen !== "game" || !modeSelected || gameOver) return;
+      const age = (performance.now() - cosmeticWatch.introAt) / 1000;
+      if (age < 0 || age > 4.6) return;
+      const cards = matchCards();
+      if (!cards) return;
+      const alpha = Math.min(1, age / 0.3) * Math.min(1, (4.6 - age) / 0.7);
+      const y = Math.max(58, canvas.height * 0.1);
+      [["blue", leftX + paddleW + 20, "left"], ["red", rightX - 20, "right"]].forEach(([owner, x, align]) => {
+        const c = cards[owner];
+        GlitchCosmetics.drawNameplate(ctx, c.plate, x, y, {
+          name: c.name, title: GlitchCosmetics.titleText(c.title), rgb: ownerRgb(owner), align,
+          t: performance.now() / 1000, alpha
+        });
+      });
     }
 
     // Watches the match state each frame, so hit and score effects fire the
@@ -5209,10 +5437,13 @@ function injectGameById(gameId, options = {}) {
       if (w.left === null) { w.owner = ballOwner; w.left = leftScore; w.right = rightScore; }
       if (ballOwner !== w.owner && (ballOwner === "blue" || ballOwner === "red")) {
         cosmeticHitAt[ballOwner] = performance.now();
+        w.hits[ballOwner] += 1;
+        w.face += 1;
+        w.rally += 1;
         spawnCosmeticFx(ballOwner, "hit", ballX, ballY, { dir: ballOwner === "blue" ? 1 : -1 });
       }
-      if (leftScore > w.left) spawnCosmeticFx("blue", "score", canvas.width, w.y, { dir: -1 });
-      if (rightScore > w.right) spawnCosmeticFx("red", "score", 0, w.y, { dir: 1 });
+      if (leftScore > w.left) { w.scoredAt.blue = performance.now(); w.rally = 0; spawnCosmeticFx("blue", "score", canvas.width, w.y, { dir: -1 }); }
+      if (rightScore > w.right) { w.scoredAt.red = performance.now(); w.rally = 0; spawnCosmeticFx("red", "score", 0, w.y, { dir: 1 }); }
       w.owner = ballOwner; w.left = leftScore; w.right = rightScore;
       w.x = ballX; w.y = ballY;
     }
@@ -5240,7 +5471,8 @@ function injectGameById(gameId, options = {}) {
       }
       GlitchCosmetics.drawDash(ctx, equippedCosmetic(owner, "dash"), trail, {
         w: paddleW, h: paddleH, rgb: ownerRgb(owner), legacyRgb, heat,
-        t: performance.now() / 1000, curY, quality: getVisualQualityScale()
+        t: performance.now() / 1000, curY, quality: getVisualQualityScale(),
+        gilded: cosmeticGilded(owner, "dash")
       });
     }
 
@@ -5603,7 +5835,11 @@ function injectGameById(gameId, options = {}) {
         drawSystemBackdrop(alpha);
       }
 
-      if (currentArenaId === "construct") {
+      // Matrix paints its own backdrop later, so it draws these itself.
+      const customNet = currentArenaId !== "matrix" && drawCourtCosmetics(heatRatio);
+      if (customNet) {
+        // the equipped net stands in for the arena's own centre line
+      } else if (currentArenaId === "construct") {
         drawConstructCenterConduit(heatRatio);
       } else if (currentArenaId === "blackhole") {
         ctx.strokeStyle = `rgba(177,0,211,${0.18 + heatRatio * 0.16})`;
@@ -6424,7 +6660,7 @@ function injectGameById(gameId, options = {}) {
         const cosY = afterTable + (d.levelBefore !== d.levelAfter ? 64 : 22);
         const names = newCosmetics.length > 3
           ? `${newCosmetics.length} NEW COSMETICS`
-          : newCosmetics.map(c => `${c.item.name} ${GlitchCosmetics.SLOT_INFO[c.slot].noun}`).join("  ·  ");
+          : newCosmetics.map(c => `${c.item.name} ${GlitchCosmetics.SLOT_INFO[c.slot].noun}${c.mastered ? " GOLD TRIM" : ""}`).join("  ·  ");
         ctx.textAlign = "center";
         ctx.shadowColor = "rgba(255,79,216,0.9)";
         ctx.shadowBlur = 10 * ca;
@@ -7700,6 +7936,9 @@ function injectGameById(gameId, options = {}) {
         ctx.beginPath(); ctx.moveTo(x, y + sy * bLen); ctx.lineTo(x, y); ctx.lineTo(x + sx * bLen, y); ctx.stroke();
       });
 
+      // Equipped net, score displays and set bonuses, behind the ball
+      drawCourtCosmetics(hr);
+
       // ── Ball + trail + powerup in Matrix world-space ──────────────────────
       // Skip during boss/pre-boss — those phases own ball rendering themselves
       if (!bossModeActive && !preBossActive) {
@@ -7955,15 +8194,19 @@ function injectGameById(gameId, options = {}) {
         const w = Math.min(canvas.width * 0.78, (countdownImage.naturalWidth || 900) * scale);
         const aspect = (countdownImage.naturalWidth && countdownImage.naturalHeight) ? (countdownImage.naturalHeight / countdownImage.naturalWidth) : 0.6;
         const h = w * aspect;
-        ctx.save();
-        ctx.globalAlpha = Math.max(0, alpha);
-        ctx.shadowColor = phase.key === "GO" ? "rgba(255,209,102,0.9)" : "rgba(255,79,216,0.9)";
-        ctx.shadowBlur = phase.key === "GO" ? 36 : 24;
-        if (countdownImage.complete && countdownImage.naturalWidth) {
-          ctx.drawImage(countdownImage, canvas.width / 2 - w / 2, canvas.height / 2 - h / 2, w, h);
+        if (!drawCountdownCosmetic(phase.key, phaseProgress)) {
+          ctx.save();
+          ctx.globalAlpha = Math.max(0, alpha);
+          ctx.shadowColor = phase.key === "GO" ? "rgba(255,209,102,0.9)" : "rgba(255,79,216,0.9)";
+          ctx.shadowBlur = phase.key === "GO" ? 36 : 24;
+          if (countdownImage.complete && countdownImage.naturalWidth) {
+            ctx.drawImage(countdownImage, canvas.width / 2 - w / 2, canvas.height / 2 - h / 2, w, h);
+          }
+          ctx.restore();
         }
-        ctx.restore();
       }
+
+      drawMatchCards();
 
       if (finalScoreCinematic) {
         const cinematicColor = finalScoreSide === "LEFT" ? "#67efff" : "#ff8fab";
@@ -7985,10 +8228,26 @@ function injectGameById(gameId, options = {}) {
         }
 
         if (finalScoreBallSnapshot) {
-          ctx.shadowColor = cinematicColor;
-          ctx.shadowBlur = 26;
-          ctx.fillStyle = cinematicColor;
-          ctx.fillRect(finalScoreBallSnapshot.x - 11, finalScoreBallSnapshot.y - 11, 22, 22);
+          const snapOwner = finalScoreBallSnapshot.owner;
+          const snapSkin = snapOwner === "blue" || snapOwner === "red" ? equippedCosmetic(snapOwner, "ball") : "default";
+          if (snapSkin !== "default" && typeof GlitchCosmetics !== "undefined") {
+            // The winning ball in its own skin, held just inside the goal it
+            // went through (the D20 always shows a 20 here).
+            const snapR = BALL_R * 1.7;
+            GlitchCosmetics.drawBallSkin(ctx, snapSkin,
+              Math.max(snapR + 10, Math.min(canvas.width - snapR - 10, finalScoreBallSnapshot.x)),
+              Math.max(snapR + 10, Math.min(canvas.height - snapR - 10, finalScoreBallSnapshot.y)), snapR, {
+                rgb: ownerRgb(snapOwner), hex: ownerHex(snapOwner), glowBlur: 26, glowAlpha: 0.9,
+                t: performance.now() / 1000, vx: finalScoreBallSnapshot.vx, vy: finalScoreBallSnapshot.vy,
+                quality: getVisualQualityScale(), face: cosmeticWatch.face, final: true,
+                gilded: cosmeticGilded(snapOwner, "ball")
+              });
+          } else {
+            ctx.shadowColor = cinematicColor;
+            ctx.shadowBlur = 26;
+            ctx.fillStyle = cinematicColor;
+            ctx.fillRect(finalScoreBallSnapshot.x - 11, finalScoreBallSnapshot.y - 11, 22, 22);
+          }
         }
 
         const flashAlpha = Math.max(0, Math.min(1, finalScoreCinematicTimer / 58));
@@ -8167,10 +8426,19 @@ function injectGameById(gameId, options = {}) {
       hit: "Plays where the ball meets your paddle.",
       score: "Plays at the goal when you score.",
       dash: "Replaces the afterimages your paddle leaves when you dash.",
-      teleport: "Plays when a ball you hit glitch-teleports across the arena."
+      teleport: "Plays when a ball you hit glitch-teleports across the arena.",
+      net: "One net for the whole court, so both sides share it. It replaces the arena's own centre line.",
+      board: "Big digits behind the play, over your half. The HUD line stays where it is.",
+      countdown: "The 3-2-1-GO before every serve. Both sides share it.",
+      victory: "Plays over the match-winning point when you are the one who wins it.",
+      sound: "Replaces your paddle-hit and score sounds. Tap a card to hear it.",
+      title: "Shown under your name on the match intro card and in online lobbies. Online, your opponent sees your Player 1 title.",
+      plate: "The frame around your name on the match intro card and in online lobbies. Online, your opponent sees your Player 1 nameplate."
     };
     let storeSide = "blue";      // which paddle the locker is editing
-    let storeSlot = "paddle";    // "paddle" | "trail"
+    let storeSlot = "paddle";    // one of GlitchCosmetics.SLOTS
+    let storeConfirm = null;     // id of the coin item waiting for a second click
+    let storeSetsOpen = false;
     let storePreviewRaf = 0;
     const storePreviewTrails = new WeakMap();
 
@@ -8186,38 +8454,59 @@ function injectGameById(gameId, options = {}) {
         return;
       }
       const data = GlitchProgression.data;
+      const info = GlitchCosmetics.SLOT_INFO[storeSlot];
       const items = GlitchCosmetics.CATALOG[storeSlot];
-      const equipped = GlitchCosmetics.getEquipped(storeSide, storeSlot, data);
+      const equipped = GlitchCosmetics.getSaved(storeSide, storeSlot, data);
       const sideColor = getPaddleColor(storeSide);
+      const coins = GlitchcadeWallet.get().coins;
+      const shuffling = GlitchCosmetics.getShuffle(info.shared ? "blue" : storeSide) && info.shuffle !== false;
       const allItems = GlitchCosmetics.SLOTS.reduce((n, slot) => n + GlitchCosmetics.CATALOG[slot].length, 0);
       const unlockedCount = GlitchCosmetics.SLOTS.reduce((n, slot) =>
         n + GlitchCosmetics.CATALOG[slot].filter(item => GlitchCosmetics.progressFor(item, data).unlocked).length, 0);
       const newIn = slot => GlitchCosmetics.CATALOG[slot].filter(item => GlitchCosmetics.isNew(slot, item.id, data)).length;
 
       storePanel.querySelector("#gp-store-sub").textContent =
-        `COSMETIC LOCKER // LEVEL ${GlitchProgression.level} // ${unlockedCount}/${allItems} UNLOCKED`;
+        `COSMETIC LOCKER // LEVEL ${GlitchProgression.level} // ${unlockedCount}/${allItems} UNLOCKED // ◎ ${coins} COINS`;
 
       const sideBtn = (owner, label) => {
         const c = getPaddleColor(owner);
         const on = owner === storeSide;
-        return `<button type="button" data-store-side="${owner}" aria-pressed="${on}" style="flex:1;padding:9px 0;border-radius:10px;cursor:pointer;font:bold 12px monospace;letter-spacing:.08em;color:${on ? c.hex : "rgba(235,245,255,.5)"};border:1px solid ${on ? c.hex : "rgba(255,255,255,.14)"};background:${on ? `${c.hex}1f` : "rgba(255,255,255,.03)"};box-shadow:${on ? `0 0 12px ${c.hex}55` : "none"};">${label}</button>`;
+        return `<button type="button" data-store-side="${owner}" aria-pressed="${on}" style="flex:1 1 150px;padding:9px 0;border-radius:10px;cursor:pointer;font:bold 12px monospace;letter-spacing:.08em;color:${on ? c.hex : "rgba(235,245,255,.5)"};border:1px solid ${on ? c.hex : "rgba(255,255,255,.14)"};background:${on ? `${c.hex}1f` : "rgba(255,255,255,.03)"};box-shadow:${on ? `0 0 12px ${c.hex}55` : "none"};">${label}</button>`;
       };
+      const shuffleOn = GlitchCosmetics.getShuffle(storeSide);
+      const shuffleBtn = `<button type="button" data-store-shuffle aria-pressed="${shuffleOn}" title="Wear a random unlocked item in every slot, re-rolled each match" style="flex:0 1 150px;padding:9px 10px;border-radius:10px;cursor:pointer;font:bold 11px monospace;letter-spacing:.08em;color:${shuffleOn ? "#8ff5b1" : "rgba(235,245,255,.5)"};border:1px solid ${shuffleOn ? "rgba(143,245,177,.7)" : "rgba(255,255,255,.14)"};background:${shuffleOn ? "rgba(143,245,177,.10)" : "rgba(255,255,255,.03)"};">SHUFFLE: ${shuffleOn ? "ON" : "OFF"}</button>`;
       const slotBtn = (slot, label) => {
         const on = slot === storeSlot;
         const n = newIn(slot);
         return `<button type="button" data-store-slot="${slot}" aria-pressed="${on}" style="padding:8px 4px;border-radius:10px;cursor:pointer;font:bold 10px/1.3 monospace;letter-spacing:.08em;color:${on ? "#ffd166" : "rgba(255,209,102,.55)"};border:1px solid ${on ? "rgba(255,209,102,.6)" : "rgba(255,209,102,.18)"};background:${on ? "rgba(255,209,102,.12)" : "rgba(255,209,102,.03)"};">${label}${n ? `<br><span style="color:#ff8fab;">● ${n} NEW</span>` : ""}</button>`;
       };
+      const plainBtn = "width:100%;padding:8px 0;border-radius:9px;cursor:pointer;font:bold 11px monospace;letter-spacing:.1em;";
 
       const cards = items.map(item => {
         const prog = GlitchCosmetics.progressFor(item, data);
         const rarity = GlitchCosmetics.RARITY[item.rarity] || GlitchCosmetics.RARITY.common;
         const isOn = item.id === equipped;
         const fresh = GlitchCosmetics.isNew(storeSlot, item.id, data);
+        const hidden = !!item.secret && !prog.unlocked;     // a secret keeps its name and look until earned
         let action;
-        if (!prog.unlocked) {
+        if (!prog.unlocked && item.unlock.type === "coins") {
+          const cost = item.unlock.cost;
+          if (storeConfirm === item.id) {
+            action = `<div style="display:flex;gap:6px;">
+              <button type="button" data-store-buy="${item.id}" style="${plainBtn}flex:2;color:#1a1200;border:1px solid #ffd166;background:#ffd166;">PAY ◎ ${cost}</button>
+              <button type="button" data-store-cancel style="${plainBtn}flex:1;color:#eafcff;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.05);">NO</button>
+            </div>`;
+          } else if (coins >= cost) {
+            action = `<button type="button" data-store-ask="${item.id}" style="${plainBtn}color:#ffe1a0;border:1px solid rgba(255,209,102,.6);background:rgba(255,209,102,.10);">BUY ◎ ${cost}</button>`;
+          } else {
+            action = `
+              <div style="font:bold 10px/1.45 monospace;letter-spacing:.04em;color:rgba(255,225,160,.8);">◎ ${cost} COINS · YOU NEED ${cost - coins} MORE</div>
+              <div style="height:4px;margin-top:6px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden;"><div style="height:100%;width:${Math.max(3, Math.round((coins / cost) * 100))}%;background:rgba(255,209,102,.75);"></div></div>`;
+          }
+        } else if (!prog.unlocked) {
           const pct = Math.round((prog.current / Math.max(1, prog.target)) * 100);
           action = `
-            <div style="font:bold 10px/1.45 monospace;letter-spacing:.04em;color:rgba(255,190,200,.8);">🔒 ${escapeStoreText(prog.label)}</div>
+            <div style="font:bold 10px/1.45 monospace;letter-spacing:.04em;color:rgba(255,190,200,.8);">🔒 ${hidden ? "A SECRET ACHIEVEMENT" : escapeStoreText(prog.label)}</div>
             <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
               <div style="flex:1;height:4px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden;"><div style="height:100%;width:${Math.max(3, pct)}%;background:rgba(255,143,171,.75);"></div></div>
               <span style="font:10px monospace;color:rgba(235,245,255,.5);">${prog.current}/${prog.target}</span>
@@ -8225,44 +8514,119 @@ function injectGameById(gameId, options = {}) {
         } else if (isOn) {
           action = `<div style="padding:8px 0;border-radius:9px;text-align:center;font:bold 11px monospace;letter-spacing:.1em;color:${sideColor.hex};border:1px solid ${sideColor.hex};background:${sideColor.hex}1a;">✓ EQUIPPED</div>`;
         } else {
-          action = `<button type="button" data-store-equip="${item.id}" style="width:100%;padding:8px 0;border-radius:9px;cursor:pointer;font:bold 11px monospace;letter-spacing:.1em;color:#eafcff;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.05);">EQUIP</button>`;
+          action = `<button type="button" data-store-equip="${item.id}" style="${plainBtn}color:#eafcff;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.05);">EQUIP</button>`;
+        }
+        // Mastery: a gold trim after 25 wins with the item equipped.
+        let mastery = "";
+        if (prog.unlocked && item.id !== "default" && info.mastery !== false) {
+          const m = GlitchCosmetics.masteryFor(storeSlot, item.id);
+          mastery = m.mastered
+            ? `<button type="button" data-store-trim="${item.id}" aria-pressed="${m.trim}" style="padding:5px 0;border-radius:8px;cursor:pointer;font:bold 9px monospace;letter-spacing:.1em;color:${m.trim ? "#1a1200" : "#ffd166"};border:1px solid #ffd166;background:${m.trim ? "#ffd166" : "transparent"};">★ GOLD TRIM: ${m.trim ? "ON" : "OFF"}</button>`
+            : `<div style="display:flex;align-items:center;gap:8px;" title="Win ${m.target} matches with this equipped to earn its gold trim">
+                 <span style="font:9px monospace;letter-spacing:.08em;color:rgba(255,209,102,.6);">MASTERY</span>
+                 <div style="flex:1;height:3px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden;"><div style="height:100%;width:${Math.round((m.wins / m.target) * 100)}%;background:rgba(255,209,102,.8);"></div></div>
+                 <span style="font:9px monospace;color:rgba(235,245,255,.5);">${m.wins}/${m.target}</span>
+               </div>`;
         }
         return `
           <div style="position:relative;display:flex;flex-direction:column;gap:8px;padding:10px;border-radius:14px;border:1px solid ${isOn ? sideColor.hex : prog.unlocked ? "rgba(255,255,255,.14)" : "rgba(255,255,255,.07)"};background:${isOn ? `${sideColor.hex}10` : "rgba(255,255,255,.025)"};${isOn ? `box-shadow:0 0 16px ${sideColor.hex}33;` : ""}">
             ${fresh ? `<span style="position:absolute;top:8px;right:8px;z-index:1;padding:2px 6px;border-radius:6px;background:#ff4fd8;color:#fff;font:bold 9px monospace;letter-spacing:.08em;">NEW</span>` : ""}
-            <canvas data-store-preview="${item.id}" data-locked="${prog.unlocked ? 0 : 1}" style="display:block;width:100%;height:112px;border-radius:10px;background:#050811;"></canvas>
+            <canvas data-store-preview="${item.id}" data-locked="${prog.unlocked ? 0 : 1}" data-hidden="${hidden ? 1 : 0}" data-lock-label="${item.unlock.type === "coins" ? "FOR SALE" : "LOCKED"}" style="display:block;width:100%;height:112px;border-radius:10px;background:#050811;${storeSlot === "sound" ? "cursor:pointer;" : ""}"></canvas>
             <div style="display:flex;align-items:baseline;justify-content:space-between;gap:6px;">
-              <span style="font:bold 13px monospace;letter-spacing:.06em;color:${prog.unlocked ? "#eafcff" : "rgba(235,245,255,.55)"};">${escapeStoreText(item.name)}</span>
+              <span style="font:bold 13px monospace;letter-spacing:.06em;color:${prog.unlocked ? "#eafcff" : "rgba(235,245,255,.55)"};">${hidden ? "? ? ?" : escapeStoreText(item.name)}</span>
               <span style="font:bold 9px monospace;letter-spacing:.08em;color:${rarity.color};">${rarity.label}</span>
             </div>
-            <div style="flex:1;font:10px/1.5 monospace;color:rgba(225,238,255,.58);">${escapeStoreText(item.desc)}</div>
+            <div style="flex:1;font:10px/1.5 monospace;color:rgba(225,238,255,.58);">${hidden ? "A secret. Something out there in the Glitchcade unlocks it." : escapeStoreText(item.desc)}</div>
             ${action}
+            ${mastery}
           </div>`;
       }).join("");
 
+      // Matching sets: every piece on one side earns that side a bonus effect.
+      const sets = GlitchCosmetics.setStatus(storeSide, data);
+      const setsActive = sets.filter(st => st.active).length;
+      const setRows = !storeSetsOpen ? "" : sets.map(st => `
+        <div style="padding:10px 12px;border-radius:10px;border:1px solid ${st.active ? sideColor.hex : "rgba(255,255,255,.10)"};background:${st.active ? `${sideColor.hex}10` : "rgba(255,255,255,.02)"};">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+            <span style="font:bold 12px monospace;letter-spacing:.08em;color:#eafcff;">${escapeStoreText(st.set.name)}</span>
+            ${st.active
+              ? `<span style="font:bold 9px monospace;letter-spacing:.1em;color:${sideColor.hex};">✓ BONUS ACTIVE</span>`
+              : st.ready
+                ? `<button type="button" data-store-set="${st.set.id}" style="padding:5px 10px;border-radius:8px;cursor:pointer;font:bold 10px monospace;letter-spacing:.08em;color:#eafcff;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.05);">EQUIP SET</button>`
+                : `<span style="font:bold 9px monospace;letter-spacing:.1em;color:rgba(255,190,200,.7);">${st.pieces.filter(pc => pc.unlocked).length}/${st.pieces.length} UNLOCKED</span>`}
+          </div>
+          <div style="margin:4px 0 7px;font:10px/1.5 monospace;color:rgba(225,238,255,.58);">BONUS: ${escapeStoreText(st.set.bonus)}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:5px;">${st.pieces.map(pc => {
+            const secret = !!pc.item.secret && !pc.unlocked;
+            return `<span style="padding:3px 7px;border-radius:6px;font:9px monospace;letter-spacing:.04em;color:${pc.equipped ? sideColor.hex : pc.unlocked ? "rgba(235,245,255,.75)" : "rgba(235,245,255,.38)"};border:1px solid ${pc.equipped ? sideColor.hex : "rgba(255,255,255,.12)"};">${pc.equipped ? "✓" : pc.unlocked ? "○" : "🔒"} ${secret ? "? ? ?" : escapeStoreText(pc.item.name)} · ${GlitchCosmetics.SLOT_INFO[pc.slot].noun}</span>`;
+          }).join("")}</div>
+        </div>`).join("");
+
       body.innerHTML = `
-        <div style="display:flex;gap:8px;margin-bottom:8px;">${sideBtn("blue", "PLAYER 1 // LEFT")}${sideBtn("red", "PLAYER 2 // RIGHT")}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;">${sideBtn("blue", "PLAYER 1 // LEFT")}${sideBtn("red", "PLAYER 2 // RIGHT")}${shuffleBtn}</div>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:6px;margin-bottom:12px;">${GlitchCosmetics.SLOTS.map(slot => slotBtn(slot, GlitchCosmetics.SLOT_INFO[slot].label)).join("")}</div>
-        <div style="padding:9px 12px;margin-bottom:12px;border-left:2px solid ${sideColor.hex};background:rgba(255,255,255,.03);font:10px/1.6 monospace;color:rgba(235,245,255,.62);">
+        <div style="padding:9px 12px;margin-bottom:10px;border-left:2px solid ${sideColor.hex};background:rgba(255,255,255,.03);font:10px/1.6 monospace;color:rgba(235,245,255,.62);">
           ${STORE_SLOT_NOTES[storeSlot] || ""}
           Everything here is cosmetic only. Colours are set in Settings → Appearance.
+          ${shuffling ? `<div style="margin-top:4px;color:#8ff5b1;">SHUFFLE IS ON: each match picks a random unlocked item for this slot. What you equip here comes back when you turn it off.</div>` : ""}
+        </div>
+        <div style="margin-bottom:12px;">
+          <button type="button" data-store-sets aria-expanded="${storeSetsOpen}" style="width:100%;padding:8px 12px;border-radius:10px;cursor:pointer;text-align:left;font:bold 11px monospace;letter-spacing:.1em;color:#c7a6ff;border:1px solid rgba(199,166,255,.3);background:rgba(199,166,255,.05);">${storeSetsOpen ? "▾" : "▸"} MATCHING SETS // ${setsActive ? `${setsActive} ACTIVE ON THIS SIDE` : `${sets.length} TO COLLECT`}</button>
+          ${storeSetsOpen ? `<div style="display:grid;gap:8px;margin-top:8px;">${setRows}</div>` : ""}
         </div>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;">${cards}</div>`;
 
-      body.querySelectorAll("[data-store-side]").forEach(btn => btn.addEventListener("click", () => {
-        storeSide = btn.getAttribute("data-store-side");
+      const on = (selector, handler) => body.querySelectorAll(selector).forEach(btn => btn.addEventListener("click", () => handler(btn)));
+      on("[data-store-side]", btn => { storeSide = btn.getAttribute("data-store-side"); storeConfirm = null; buildStorePane(); });
+      on("[data-store-slot]", btn => { storeSlot = btn.getAttribute("data-store-slot"); storeConfirm = null; buildStorePane(); });
+      on("[data-store-shuffle]", () => {
+        GlitchCosmetics.setShuffle(storeSide, !GlitchCosmetics.getShuffle(storeSide));
+        triggerMenuGlitch();
         buildStorePane();
-      }));
-      body.querySelectorAll("[data-store-slot]").forEach(btn => btn.addEventListener("click", () => {
-        storeSlot = btn.getAttribute("data-store-slot");
-        buildStorePane();
-      }));
-      body.querySelectorAll("[data-store-equip]").forEach(btn => btn.addEventListener("click", () => {
+      });
+      on("[data-store-sets]", () => { storeSetsOpen = !storeSetsOpen; buildStorePane(); });
+      on("[data-store-set]", btn => {
+        if (GlitchCosmetics.equipSet(storeSide, btn.getAttribute("data-store-set"), GlitchProgression.data)) {
+          triggerMenuGlitch();
+          buildStorePane();
+        }
+      });
+      on("[data-store-equip]", btn => {
         if (GlitchCosmetics.equip(storeSide, storeSlot, btn.getAttribute("data-store-equip"), GlitchProgression.data)) {
           triggerMenuGlitch();
           buildStorePane();
         }
-      }));
+      });
+      on("[data-store-trim]", btn => {
+        const id = btn.getAttribute("data-store-trim");
+        GlitchCosmetics.setTrim(storeSlot, id, !GlitchCosmetics.masteryFor(storeSlot, id).trim);
+        buildStorePane();
+      });
+      // Buying takes two clicks, so a stray tap never spends coins.
+      on("[data-store-ask]", btn => { storeConfirm = btn.getAttribute("data-store-ask"); buildStorePane(); });
+      on("[data-store-cancel]", () => { storeConfirm = null; buildStorePane(); });
+      on("[data-store-buy]", btn => {
+        const result = GlitchCosmetics.buy(storeSlot, btn.getAttribute("data-store-buy"), GlitchcadeWallet, GlitchProgression.data);
+        storeConfirm = null;
+        if (result === "ok") {
+          GlitchProgression.save();
+          pongAudio.achievement();
+          triggerMenuGlitch();
+        }
+        buildStorePane();
+      });
+      if (storeSlot === "sound") {
+        // Tap a sound pack's card to hear it: a hit, then a score, and so on.
+        body.querySelectorAll("canvas[data-store-preview]").forEach(el => el.addEventListener("click", () => {
+          const id = el.getAttribute("data-store-preview");
+          const sim = storePreviewTrails.get(el);
+          const kind = sim && sim.plays % 3 === 2 ? "score" : "hit";
+          if (sim) { sim.plays += 1; sim.timer = 0; sim.kind = kind; }
+          pongAudio.primeFromGesture();
+          if (id === "default") { if (kind === "score") pongAudio.score(); else pongAudio.paddleHit(); }
+          else pongAudio.previewPack(id, kind);
+        }));
+      }
 
       // Badges show once: anything unlocked in the tab being viewed is now seen.
       GlitchCosmetics.markSeen(storeSlot, data);
@@ -8294,7 +8658,19 @@ function injectGameById(gameId, options = {}) {
       const id = canvasEl.getAttribute("data-store-preview");
       const locked = canvasEl.getAttribute("data-locked") === "1";
       const color = getPaddleColor(storeSide);
+      const otherColor = getPaddleColor(storeSide === "blue" ? "red" : "blue");
       const heat = 0.5 + Math.sin(t * 0.7) * 0.5;   // sweeps so heat-reactive items show it
+      if (canvasEl.getAttribute("data-hidden") === "1") {
+        // A secret item gives nothing away until it is earned.
+        pctx.font = "bold 44px monospace";
+        pctx.textAlign = "center";
+        pctx.textBaseline = "middle";
+        pctx.fillStyle = `rgba(255,209,102,${0.35 + 0.2 * Math.sin(t * 2)})`;
+        pctx.fillText("?", cw / 2, ch / 2 + 2);
+        return;
+      }
+      // The gold trim shows on the card once the item has been mastered.
+      const gilded = id !== "default" && GlitchCosmetics.masteryFor(storeSlot, id).trim;
       pctx.save();
       if (locked) pctx.globalAlpha = 0.45;
 
@@ -8303,17 +8679,83 @@ function injectGameById(gameId, options = {}) {
         const h = Math.min(86, ch - 22);
         const x = cw / 2 - w / 2;
         const y = ch / 2 - h / 2 + Math.sin(t * 1.4) * 5;
+        const beat = (t * 0.8) % 1;                 // a pretend return every so often
         GlitchCosmetics.drawPaddleSkin(pctx, id, x, y, w, h, {
           rgb: color.rgb, hex: color.hex, t, heat, pulse: 0, quality: 1,
           img: storeSide === "blue" ? bluePaddleImage : redPaddleImage,
-          imgReady: storeSide === "blue" ? leftImageReady : rightImageReady
+          imgReady: storeSide === "blue" ? leftImageReady : rightImageReady,
+          hitFlash: Math.max(0, 1 - beat / 0.45), ballY: y + h * (0.2 + 0.6 * ((Math.floor(t * 0.8) * 0.37) % 1)),
+          hits: Math.floor(t * 0.8) % 36, cracks: Math.floor(t * 0.6) % 8, gilded
         });
+      } else if (storeSlot === "net") {
+        GlitchCosmetics.drawNet(pctx, id, { x: cw / 2, h: ch, t, heat, rgbL: color.rgb, rgbR: otherColor.rgb, quality: 1, gilded });
+        if (id === "default") {
+          pctx.strokeStyle = "rgba(86,224,255,0.3)";
+          pctx.setLineDash([8, 8]);
+          pctx.beginPath(); pctx.moveTo(cw / 2, 0); pctx.lineTo(cw / 2, ch); pctx.stroke();
+          pctx.setLineDash([]);
+        }
+        const bx = cw / 2 + Math.sin(t * 1.5) * (cw * 0.36);
+        GlitchCosmetics.drawBallSkin(pctx, "default", bx, ch / 2 + Math.sin(t * 2.3) * ch * 0.25, 6,
+          { rgb: bx < cw / 2 ? color.rgb : otherColor.rgb, hex: bx < cw / 2 ? color.hex : otherColor.hex, glowBlur: 12, t });
+      } else if (storeSlot === "board") {
+        const beat = t / 1.3;
+        const drawn = GlitchCosmetics.drawScoreboard(pctx, id, Math.floor(beat) % 8, {
+          x: cw / 2, y: ch / 2, size: Math.min(64, ch * 0.56), rgb: color.rgb, t, quality: 1,
+          flash: 1 - (beat % 1) / 0.6, alpha: 0.95, gilded
+        });
+        if (!drawn) {
+          pctx.font = "bold 11px monospace";
+          pctx.textAlign = "center";
+          pctx.fillStyle = "rgba(235,245,255,0.55)";
+          pctx.fillText(`LEFT: ${Math.floor(beat) % 8} // RIGHT: 0`, cw / 2, ch / 2 + 4);
+        }
+      } else if (storeSlot === "countdown") {
+        const beat = (t / 0.85) % 4;
+        const key = ["3", "2", "1", "GO"][Math.floor(beat)];
+        const drawn = GlitchCosmetics.drawCountdown(pctx, id, key, beat % 1, { w: cw, h: ch, t, rgbL: color.rgb, rgbR: otherColor.rgb, quality: 1 });
+        if (!drawn) {
+          const img = getCountdownImage(key);
+          ensureCountdownAssets();
+          if (img.complete && img.naturalWidth) {
+            const ih = ch * 0.8, iw = ih * (img.naturalWidth / img.naturalHeight);
+            pctx.globalAlpha *= 1 - Math.max(0, ((beat % 1) - 0.7) / 0.3);
+            pctx.drawImage(img, cw / 2 - iw / 2, ch / 2 - ih / 2, iw, ih);
+          }
+        }
+      } else if (storeSlot === "title" || storeSlot === "plate") {
+        const data = GlitchProgression.data;
+        const plate = storeSlot === "plate" ? id : GlitchCosmetics.getSaved(storeSide, "plate", data);
+        const title = GlitchCosmetics.titleText(storeSlot === "title" ? id : GlitchCosmetics.getSaved(storeSide, "title", data));
+        GlitchCosmetics.drawNameplate(pctx, plate, cw / 2, ch / 2 - (title ? 20 : 14), {
+          name: storeSide === "blue" ? "PLAYER 1" : "PLAYER 2", title, rgb: color.rgb, align: "center", t
+        });
+      } else if (storeSlot === "sound") {
+        let sim = storePreviewTrails.get(canvasEl);
+        if (!sim) { sim = { timer: 9, last: t, plays: 0, kind: "hit" }; storePreviewTrails.set(canvasEl, sim); }
+        sim.timer += Math.min(0.05, Math.max(0, t - sim.last));
+        sim.last = t;
+        // a row of level meters that jump when the card is tapped
+        const ring = Math.max(0, 1 - sim.timer / (sim.kind === "score" ? 0.9 : 0.35));
+        const bars = 11, bw = 8, gap = 4;
+        const x0 = cw / 2 - (bars * (bw + gap) - gap) / 2;
+        for (let i = 0; i < bars; i++) {
+          const idle = 0.12 + 0.06 * Math.sin(t * 3 + i * 0.9);
+          const lvl = Math.min(1, idle + ring * (0.35 + 0.65 * Math.abs(Math.sin(i * 1.7 + sim.plays * 2.3))));
+          const bh = lvl * (ch - 46);
+          pctx.fillStyle = `rgba(${color.rgb},${0.35 + lvl * 0.6})`;
+          pctx.fillRect(x0 + i * (bw + gap), ch / 2 + 16 - bh, bw, bh);
+        }
+        pctx.font = "bold 10px monospace";
+        pctx.textAlign = "center";
+        pctx.fillStyle = "rgba(235,245,255,0.6)";
+        pctx.fillText(ring > 0 ? (sim.kind === "score" ? "♪ SCORE" : "♪ HIT") : "TAP TO HEAR", cw / 2, ch - 12);
       } else {
         // A tiny Pong scene per card, driven by its own little simulation.
         let sim = storePreviewTrails.get(canvasEl);
         if (!sim) {
           sim = { x: cw * 0.3, y: ch * 0.4, vx: 4.4, vy: 2.6, trail: [], fx: GlitchCosmetics.createFX(), last: t, timer: 0,
-                  padY: ch / 2 - 22, dash: [], dashDir: 1 };
+                  padY: ch / 2 - 22, dash: [], dashDir: 1, hits: 0 };
           storePreviewTrails.set(canvasEl, sim);
         }
         const dt = Math.min(0.05, Math.max(0, t - sim.last));
@@ -8322,11 +8764,12 @@ function injectGameById(gameId, options = {}) {
         const data = GlitchProgression.data;
         const r = storeSlot === "ball" ? 10 : 7;
         const padW = 10, padH = 44;
-        const fxOpts = (extra) => Object.assign({ rgb: color.rgb, r, w: cw, h: ch }, extra);
+        const fxOpts = (extra) => Object.assign({ rgb: color.rgb, rgb2: otherColor.rgb, r, w: cw, h: ch, gilded, rally: sim.hits }, extra);
         const ballSkin = storeSlot === "ball" ? id : GlitchCosmetics.getEquipped(storeSide, "ball", data);
         const paddleSkin = GlitchCosmetics.getEquipped(storeSide, "paddle", data);
         const drawPreviewBall = () => GlitchCosmetics.drawBallSkin(pctx, ballSkin, sim.x, sim.y, r,
-          { rgb: color.rgb, hex: color.hex, glowBlur: 16, glowAlpha: 0.85, t, vx: sim.vx, vy: sim.vy, quality: 1 });
+          { rgb: color.rgb, hex: color.hex, glowBlur: 16, glowAlpha: 0.85, t, vx: sim.vx, vy: sim.vy, quality: 1,
+            heat, face: sim.hits, gilded: storeSlot === "ball" && gilded });
         const drawPreviewPaddle = (x, y) => GlitchCosmetics.drawPaddleSkin(pctx, paddleSkin, x, y, padW, padH,
           { rgb: color.rgb, hex: color.hex, t, heat, quality: 1, ballY: sim.y, hitFlash: Math.max(0, 1 - sim.timer * 3) });
         const bounceY = () => { if (sim.y < r || sim.y > ch - r) { sim.vy *= -1; sim.y = Math.max(r, Math.min(ch - r, sim.y)); } };
@@ -8334,10 +8777,11 @@ function injectGameById(gameId, options = {}) {
 
         if (storeSlot === "trail" || storeSlot === "ball") {
           sim.x += sim.vx; sim.y += sim.vy;
-          if (sim.x < r || sim.x > cw - r) { sim.vx *= -1; sim.x = Math.max(r, Math.min(cw - r, sim.x)); }
+          if (sim.x < r || sim.x > cw - r) { sim.vx *= -1; sim.x = Math.max(r, Math.min(cw - r, sim.x)); sim.hits = (sim.hits + 1) % 30; }
           bounceY();
           pushTrail();
-          GlitchCosmetics.drawBallTrail(pctx, storeSlot === "trail" ? id : "default", sim.trail, { r, heat, rgb: color.rgb, charge: 2.2, t, quality: 1 });
+          GlitchCosmetics.drawBallTrail(pctx, storeSlot === "trail" ? id : "default", sim.trail, { r, heat, rgb: color.rgb, charge: 2.2, t, quality: 1,
+            speed: 4 + heat * 8, rally: sim.hits, gilded: storeSlot === "trail" && gilded });
           drawPreviewBall();
         } else if (storeSlot === "hit") {
           // the ball keeps coming back to the paddle on the left
@@ -8349,6 +8793,7 @@ function injectGameById(gameId, options = {}) {
             sim.vx = Math.abs(sim.vx);
             sim.x = face + r;
             sim.timer = 0;
+            sim.hits = (sim.hits % 30) + 1;
             sim.fx.spawn("hit", id, sim.x - r * 0.6, sim.y, fxOpts({ dir: 1 }));
           }
           sim.padY += ((sim.y - padH / 2) - sim.padY) * 0.25;
@@ -8388,7 +8833,7 @@ function injectGameById(gameId, options = {}) {
           sim.dash.forEach((d) => { d.life -= dt * 60; });
           sim.dash = sim.dash.filter((d) => d.life > 0);
           GlitchCosmetics.drawDash(pctx, id, sim.dash, { w: padW, h: padH, rgb: color.rgb,
-            legacyRgb: storeSide === "blue" ? "103,239,255" : "255,79,216", heat, t, curY: sim.padY, quality: 1 });
+            legacyRgb: storeSide === "blue" ? "103,239,255" : "255,79,216", heat, t, curY: sim.padY, quality: 1, gilded });
           drawPreviewPaddle(cw / 2 - padW / 2, sim.padY);
         } else if (storeSlot === "teleport") {
           // the ball blinks to a new spot every second or so
@@ -8405,6 +8850,17 @@ function injectGameById(gameId, options = {}) {
           GlitchCosmetics.drawBallTrail(pctx, "default", sim.trail, { r, heat: 0.2, rgb: color.rgb, charge: 2, t, quality: 1 });
           drawPreviewBall();
           sim.fx.draw(pctx, dt);
+        } else if (storeSlot === "victory") {
+          // the paddle on the left wins the match every few seconds
+          const padX = 16, padY = ch / 2 - padH / 2;
+          if (sim.timer > 3 || !sim.started) {
+            sim.started = true;
+            sim.timer = 0;
+            sim.fx.clear();
+            sim.fx.spawn("victory", id, padX + padW / 2, ch / 2, fxOpts({ dir: 1, ph: padH }));
+          }
+          drawPreviewPaddle(padX, padY);
+          sim.fx.draw(pctx, dt);
         }
       }
       pctx.restore();
@@ -8414,8 +8870,9 @@ function injectGameById(gameId, options = {}) {
         pctx.fillRect(0, 0, cw, ch);
         pctx.font = "bold 10px monospace";
         pctx.textAlign = "left";
-        pctx.fillStyle = "rgba(255,190,200,0.8)";
-        pctx.fillText("LOCKED", 8, 16);
+        const forSale = canvasEl.getAttribute("data-lock-label") === "FOR SALE";
+        pctx.fillStyle = forSale ? "rgba(255,225,160,0.9)" : "rgba(255,190,200,0.8)";
+        pctx.fillText(forSale ? "FOR SALE" : "LOCKED", 8, 16);
       }
     }
 
@@ -9327,6 +9784,35 @@ function injectGameById(gameId, options = {}) {
       const status = onlineLobbyPanel.querySelector("#gp-lobby-status"); if (status) status.textContent = text;
     }
 
+    // Your title and nameplate, as shown to an online opponent. They come from
+    // the Player 1 locker whichever side of the court you end up on.
+    function myOnlineCard() {
+      return typeof GlitchCosmetics !== "undefined" ? GlitchCosmetics.card("blue", GlitchProgression.data) : undefined;
+    }
+
+    // Draws each lobby player's nameplate and title into their box.
+    function drawLobbyPlates(lobby) {
+      if (typeof GlitchCosmetics === "undefined") return;
+      onlineLobbyPanel.querySelectorAll("canvas[data-lobby-plate]").forEach(el => {
+        const side = el.getAttribute("data-lobby-plate");
+        const player = lobby.players.find(item => item.side === side);
+        if (!player) return;
+        const card = GlitchCosmetics.cleanCard(player.card);
+        const dpr = Math.min(2, window.devicePixelRatio || 1);
+        const cw = el.clientWidth || 200, ch = el.clientHeight || 46;
+        el.width = Math.round(cw * dpr);
+        el.height = Math.round(ch * dpr);
+        const pctx = el.getContext("2d");
+        pctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        pctx.clearRect(0, 0, cw, ch);
+        const title = GlitchCosmetics.titleText(card.title);
+        GlitchCosmetics.drawNameplate(pctx, card.plate, cw / 2, title ? 3 : 9, {
+          name: player.nickname, title, rgb: ownerRgb(side === "left" ? "blue" : "red"),
+          align: "center", t: performance.now() / 1000
+        });
+      });
+    }
+
     function refreshOnlineLobby(lobby) {
       const rules = window.GlitchP2P && window.GlitchP2P.clean;
       lobby = rules ? rules.lobby(lobby) : lobby;
@@ -9339,10 +9825,11 @@ function injectGameById(gameId, options = {}) {
         <div style="margin:18px auto;padding:12px;border:1px solid rgba(255,209,102,.52);border-radius:12px;background:rgba(255,209,102,.07);text-align:center;">
           <div style="font:10px monospace;color:#d4b96d;letter-spacing:.12em;">JOIN CODE</div><div style="font:bold 34px monospace;letter-spacing:.20em;color:#ffe39a;text-shadow:0 0 18px rgba(255,209,102,.45);">${escapeHtml(lobby.code)}</div>
         </div>
-        <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;">${["left","right"].map(side => { const player = lobby.players.find(item => item.side === side); const color = side === "left" ? "#71efff" : "#ff8fab"; return `<div style="padding:12px;border:1px solid ${color}55;border-radius:11px;background:${color}12;text-align:center;"><div style="font:10px monospace;color:${color};">${side.toUpperCase()} PLAYER</div><div style="margin-top:5px;font:bold 14px monospace;color:#eafcff;">${player ? escapeHtml(player.nickname) : "WAITING..."}</div><div style="margin-top:3px;font:9px monospace;color:${player && player.connected ? "#8ff5b1" : "#ffb0ba"};">${player && player.connected ? "CONNECTED" : "OFFLINE"}</div></div>`; }).join("")}</div>
+        <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;">${["left","right"].map(side => { const player = lobby.players.find(item => item.side === side); const color = side === "left" ? "#71efff" : "#ff8fab"; return `<div style="padding:12px;border:1px solid ${color}55;border-radius:11px;background:${color}12;text-align:center;"><div style="font:10px monospace;color:${color};">${side.toUpperCase()} PLAYER</div>${player ? `<canvas data-lobby-plate="${side}" role="img" aria-label="${escapeHtml(player.nickname)}" style="display:block;width:100%;height:46px;margin-top:5px;"></canvas>` : `<div style="margin-top:5px;font:bold 14px monospace;color:#eafcff;">WAITING...</div>`}<div style="margin-top:3px;font:9px monospace;color:${player && player.connected ? "#8ff5b1" : "#ffb0ba"};">${player && player.connected ? "CONNECTED" : "OFFLINE"}</div></div>`; }).join("")}</div>
         <div id="gp-lobby-status" style="min-height:18px;margin:13px 0 4px;text-align:center;color:#ffb1c5;font:10px monospace;">${hasOpponent ? "OPPONENT CONNECTED // HOST MAY START" : "WAITING FOR OPPONENT..."}</div>
         ${host && onlineState.session.p2p ? `<div style="margin:0 0 6px;text-align:center;color:#8aa9bd;font:10px monospace;letter-spacing:.04em;">YOUR BROWSER IS RUNNING THIS GAME // KEEP THIS TAB OPEN AND IN FRONT</div>` : ""}
         <div class="gp-online-button-row" style="display:flex;gap:9px;margin-top:10px;">${host ? `<button data-lobby-start ${hasOpponent ? "" : "disabled"} style="flex:1;padding:12px;border:1px solid rgba(103,239,255,.50);border-radius:10px;background:rgba(103,239,255,.10);color:#8ff5ff;font:bold 12px monospace;cursor:${hasOpponent ? "pointer" : "not-allowed"};opacity:${hasOpponent ? 1 : .4};">START MATCH</button><button data-lobby-lock style="padding:12px;border:1px solid rgba(255,209,102,.42);border-radius:10px;background:rgba(255,209,102,.07);color:#ffe1a0;font:bold 11px monospace;cursor:pointer;">LOCK</button>` : ""}<button data-lobby-back style="padding:12px 17px;border:1px solid rgba(255,255,255,.14);border-radius:10px;background:rgba(255,255,255,.03);color:#9ab2c4;font:bold 11px monospace;cursor:pointer;">BACK</button></div>`;
+      drawLobbyPlates(lobby);
       const start = onlineLobbyPanel.querySelector("[data-lobby-start]"); if (start) start.addEventListener("click", () => onlineState.socket.emit("host:start"));
       const lock = onlineLobbyPanel.querySelector("[data-lobby-lock]"); if (lock) lock.addEventListener("click", () => onlineState.socket.emit("host:lock"));
       onlineLobbyPanel.querySelector("[data-lobby-back]").addEventListener("click", () => { disconnectOnline(); showModeMenu(); });
@@ -9362,12 +9849,12 @@ function injectGameById(gameId, options = {}) {
           showOnlineError("RESTORING SESSION...");
           const response = await onlineApi("/api/rejoin", saved); connectOnline(response); showOnlineLobby(response.lobbyState); return;
         }
-        showOnlineError("CREATING LOBBY..."); const response = await onlineApi("/api/sessions", { nickname: multiplayerPanel.querySelector("#gp-host-name").value }); connectOnline(response); showOnlineLobby(response.lobbyState);
+        showOnlineError("CREATING LOBBY..."); const response = await onlineApi("/api/sessions", { nickname: multiplayerPanel.querySelector("#gp-host-name").value, card: myOnlineCard() }); connectOnline(response); showOnlineLobby(response.lobbyState);
       } catch (error) { showOnlineError(error.message); }
     }));
     joinPanel.querySelector("[data-join-back]").addEventListener("click", () => { currentScreen = "multiplayer"; syncUiForScreen(); });
     joinPanel.querySelector("[data-join-submit]").addEventListener("click", async () => {
-      try { const response = await onlineApi("/api/join", { code: joinPanel.querySelector("#gp-join-code").value.trim(), nickname: joinPanel.querySelector("#gp-join-name").value }); connectOnline(response); showOnlineLobby(response.lobbyState); } catch (error) { showOnlineError(error.message); }
+      try { const response = await onlineApi("/api/join", { code: joinPanel.querySelector("#gp-join-code").value.trim(), nickname: joinPanel.querySelector("#gp-join-name").value, card: myOnlineCard() }); connectOnline(response); showOnlineLobby(response.lobbyState); } catch (error) { showOnlineError(error.message); }
     });
 
     // ── CUSTOM MATCH PANEL ──────────────────────────────────────────────────
@@ -9931,6 +10418,7 @@ function injectGameById(gameId, options = {}) {
       startRoundCountdown();
       // Reset per-match progression tracking
       GlitchProgression.beginMatch();
+      beginCosmeticMatch();
       matchMaxDeficit = 0;
       matchStartLevel  = GlitchProgression.level;
       matchRallyHits = 0;
@@ -10361,7 +10849,10 @@ function injectGameById(gameId, options = {}) {
             if (playerWon && !twoPlayerMode && aiDifficulty === "hard") GlitchAchievements.count("hardWins");
             GlitchAchievements.check();
           }
-          const newCosmetics = (aiVsAiMode || customMatch) ? [] : syncCosmeticUnlocks();
+          // In local 2P either side can earn mastery; against the AI only you can.
+          const masteredNow = (!aiVsAiMode && !customMatch && (twoPlayerMode || playerWon))
+            ? creditCosmeticWin(matchWinner === "left" ? "blue" : "red") : [];
+          const newCosmetics = (aiVsAiMode || customMatch) ? [] : masteredNow.concat(syncCosmeticUnlocks());
           progSummaryData = {
             totalXP:     summaryResult.totalXP    || 0,
             breakdown:   summaryResult.breakdown  || {},
@@ -10683,7 +11174,7 @@ function injectGameById(gameId, options = {}) {
           if (!aiVsAiMode) GlitchProgression.trackRally(matchRallyHits);
           if (!aiVsAiMode) GlitchRallyTape.hit(matchRallyHits, "left", ballY / canvas.height);
           if (matchRallyHits % 5 === 0 && achievementsCount()) GlitchAchievements.check();
-          updateColorCharge("left"); pongAudio.paddleHitCharged(colorCharge);
+          updateColorCharge("left"); pongAudio.paddleHitCharged(colorCharge, "blue");
           glitchPulse = Math.max(glitchPulse, 8 + Math.min(10, Math.floor(returnHeat * 10)));
           triggerCameraKick(10 + returnHeat * 10, (Math.random() - 0.5) * (6 + returnHeat * 6), 0.008 + returnHeat * 0.012);
           impactFreezeFrames = Math.max(impactFreezeFrames, 1);
@@ -10711,11 +11202,11 @@ function injectGameById(gameId, options = {}) {
           if (!aiVsAiMode) GlitchProgression.trackRally(matchRallyHits);
           if (!aiVsAiMode) GlitchRallyTape.hit(matchRallyHits, "right", ballY / canvas.height);
           if (matchRallyHits % 5 === 0 && achievementsCount()) GlitchAchievements.check();
-          updateColorCharge("right"); pongAudio.paddleHitCharged(colorCharge);
+          updateColorCharge("right"); pongAudio.paddleHitCharged(colorCharge, "red");
           glitchPulse = Math.max(glitchPulse, 8 + Math.min(10, Math.floor(returnHeat * 10)));
           triggerCameraKick(-(10 + returnHeat * 10), (Math.random() - 0.5) * (6 + returnHeat * 6), 0.008 + returnHeat * 0.012);
           impactFreezeFrames = Math.max(impactFreezeFrames, 1);
-          pongAudio.paddleHit();
+          pongAudio.paddleHit("red");
           if (rightState.powerStrikeReady) {
             rightState.powerStrikeReady = false;
             glitchPulse = Math.max(glitchPulse, 18);

@@ -78,6 +78,12 @@
   }
   function inRange(value, min, max) { return typeof value === "number" && Number.isFinite(value) && value >= min && value <= max ? value : null; }
 
+  // A player's title and nameplate travel as catalog ids, never as text to show.
+  function cleanCard(card) {
+    const pick = (value) => (typeof value === "string" && /^[a-z0-9_-]{1,24}$/i.test(value) ? value : "default");
+    return { title: pick(card && card.title), plate: pick(card && card.plate) };
+  }
+
   function cleanLobby(lobby) {
     if (!lobby || typeof lobby !== "object" || !Array.isArray(lobby.players)) return null;
     return {
@@ -88,6 +94,7 @@
       players: lobby.players.slice(0, 2).filter((p) => p && typeof p === "object").map((p) => ({
         playerId: cleanText(p.playerId, 64),
         nickname: cleanText(p.nickname, 20, "Player"),
+        card: cleanCard(p.card),
         side: p.side === "right" ? "right" : "left",
         host: p.host === true, connected: p.connected === true, ready: p.ready === true
       }))
@@ -126,7 +133,7 @@
     return Object.values(out).some((v) => v === null) ? null : out;
   }
 
-  const clean = { escapeHtml, text: cleanText, lobby: cleanLobby, snapshot: cleanSnapshot, session: cleanSession, SERVER_EVENTS };
+  const clean = { escapeHtml, text: cleanText, card: cleanCard, lobby: cleanLobby, snapshot: cleanSnapshot, session: cleanSession, SERVER_EVENTS };
 
   // Wait for `check` events and a timeout; always resolves or rejects exactly once.
   function waitFor(env, timeoutMs, timeoutType, attach) {
@@ -231,10 +238,10 @@
 
       // Create the lobby and register its code with the broker. A six-digit code can
       // collide with another room on the shared broker, so try again with a new one.
-      async open(nickname) {
+      async open(nickname, card) {
         let lastError = null;
         for (let attempt = 0; attempt < MAX_ID_TRIES; attempt++) {
-          const response = core.api.create(nickname);
+          const response = core.api.create(nickname, card);
           try {
             peer = await openPeer(env, libs.Peer, ID_PREFIX + response.joinCode);
           } catch (error) {
@@ -322,7 +329,7 @@
           const body = message.b && typeof message.b === "object" ? message.b : {};
           try {
             const data = message.m === "join"
-              ? core.api.join(body.code, body.nickname, peerKey)
+              ? core.api.join(body.code, body.nickname, peerKey, body.card)
               : core.api.rejoin(body.code, body.resumeToken);
             send({ t: "res", id, ok: true, d: data });
           } catch (error) {
@@ -436,7 +443,7 @@
           closeGuest();
           const r = createRoom(env, libs);
           r.onClose = () => { if (room === r) room = null; };
-          const response = await r.open(body.nickname);
+          const response = await r.open(body.nickname, body.card);
           room = r;
           localTickets.add(response.joinTicket);
           return tag(response);
@@ -451,7 +458,7 @@
           }
           const g = await dial(code);
           try {
-            const reply = await rpc(g, path === "/api/join" ? "join" : "rejoin", path === "/api/join" ? { code, nickname: body.nickname } : { code, resumeToken: body.resumeToken });
+            const reply = await rpc(g, path === "/api/join" ? "join" : "rejoin", path === "/api/join" ? { code, nickname: body.nickname, card: cleanCard(body.card) } : { code, resumeToken: body.resumeToken });
             const response = cleanSession(reply);
             if (!response) throw new Error("That host sent something unexpected. Try another game.");
             return tag(response);

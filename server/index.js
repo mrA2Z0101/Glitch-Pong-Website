@@ -21,10 +21,10 @@ function clientIp(req) { return String(req.headers["x-forwarded-for"] || req.soc
 function apiError(res, error) { res.status(400).json({ error: error.message || "Request failed." }); }
 
 app.post("/api/sessions", (req, res) => {
-  try { res.status(201).json(host.api.create(req.body && req.body.nickname)); } catch (error) { apiError(res, error); }
+  try { res.status(201).json(host.api.create(req.body && req.body.nickname, req.body && req.body.card)); } catch (error) { apiError(res, error); }
 });
 app.post("/api/join", (req, res) => {
-  try { res.json(host.api.join(req.body && req.body.code, req.body && req.body.nickname, clientIp(req))); } catch (error) { apiError(res, error); }
+  try { res.json(host.api.join(req.body && req.body.code, req.body && req.body.nickname, clientIp(req), req.body && req.body.card)); } catch (error) { apiError(res, error); }
 });
 app.post("/api/rejoin", (req, res) => {
   try { res.json(host.api.rejoin(req.body && req.body.code, req.body && req.body.resumeToken)); } catch (error) { apiError(res, error); }
