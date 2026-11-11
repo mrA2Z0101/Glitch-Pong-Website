@@ -557,6 +557,20 @@ const GlitchCosmetics = (function () {
     return Object.keys(state.mastery).filter(k => state.mastery[k] >= MASTERY_WINS).length;
   }
 
+  // Admin only (glitchpong-admin.js): own every coin-priced item and gild every
+  // item that can be mastered. Returns how many of each were added.
+  function grantAll() {
+    let owned = 0, gilded = 0;
+    SLOTS.forEach(slot => CATALOG[slot].forEach(it => {
+      const k = key(slot, it.id);
+      if (it.unlock.type === "coins" && !state.owned.includes(k)) { state.owned.push(k); owned++; }
+      if (canMaster(slot, it.id) && (state.mastery[k] || 0) < MASTERY_WINS) { state.mastery[k] = MASTERY_WINS; gilded++; }
+    }));
+    save();
+    refreshContext();
+    return { owned, gilded };
+  }
+
   // ─── Sets ─────────────────────────────────────────────────────────────────
   // The set this side is wearing in full, or null.
   function activeSet(owner, data) {
@@ -4203,7 +4217,7 @@ const GlitchCosmetics = (function () {
     getEquipped, getSaved, equip, isNew, markSeen, countNew,
     setContext, refreshContext,
     coinItems, buy,
-    masteryFor, isGilded, setTrim, recordWin, masteredCount,
+    masteryFor, isGilded, setTrim, recordWin, masteredCount, grantAll,
     activeSet, setStatus, equipSet,
     getShuffle, setShuffle, rollShuffle,
     card, cleanCard, titleText,
