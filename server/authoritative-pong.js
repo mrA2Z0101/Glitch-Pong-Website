@@ -2,6 +2,14 @@
 
 // Isolated server simulation. Clients only submit up/down/stop intent; this
 // module owns all positions, collisions, points, resets, and win conditions.
+//
+// Runs unchanged in Node (the socket.io server) and in a browser (the player who
+// hosts a peer-to-peer game runs it as window.GlitchPongSim).
+(function (root, factory) {
+  const api = factory();
+  if (typeof module === "object" && module.exports) module.exports = api;
+  else root.GlitchPongSim = api;
+})(typeof self !== "undefined" ? self : this, function () {
 const WIDTH = 960;
 const HEIGHT = 540;
 const PADDLE_W = 16;
@@ -89,4 +97,5 @@ function snapshot(state) {
   return JSON.parse(JSON.stringify(state));
 }
 
-module.exports = { initialState, resetBall, step, snapshot, WIDTH, HEIGHT };
+return { initialState, resetBall, step, snapshot, WIDTH, HEIGHT };
+});

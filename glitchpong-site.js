@@ -3407,7 +3407,36 @@ function injectGameById(gameId, options = {}) {
       return `rgba(${ownerRgb(owner)},${alpha})`;
     }
 
+    // Online play has two transports behind the same two calls. With a socket.io server
+    // running (npm start) the client uses it as before. Without one, for instance on
+    // GitHub Pages, it plays peer-to-peer: the host's browser runs the game and the
+    // guest dials it by code (glitchpong-p2p.js, docs/multiplayer.md).
+    // ?net=p2p forces peer-to-peer; ?net=server forces the server.
+    function usePeerToPeer() {
+      if (!window.GlitchP2P) return false;
+      if (/[?&]net=server\b/.test(location.search)) return false;
+      if (/[?&]net=p2p\b/.test(location.search)) return true;
+      return typeof window.io !== "function";
+    }
+
+    // Anything that arrives over the network is checked before it touches the game or
+    // the page. In a peer-to-peer game the other end is a stranger's browser, so this
+    // matters: see "Everything a host sends a guest is untrusted" in glitchpong-p2p.js.
+    const escapeHtml = value => String(value).replace(/[&<>"'`]/g, ch => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;", "`":"&#96;" }[ch]));
+    const vettedSnapshots = new WeakSet();
+    function vetSnapshot(snapshot) {
+      if (!snapshot || typeof snapshot !== "object") return null;
+      if (vettedSnapshots.has(snapshot)) return snapshot;
+      const rules = window.GlitchP2P && window.GlitchP2P.clean;
+      // Without the validators (glitchpong-p2p.js didn't load) only a socket.io server can be
+      // on the other end, and that one is ours: trust it. A peer-to-peer game always has them.
+      const vetted = rules ? rules.snapshot(snapshot) : (onlineState.session && onlineState.session.p2p ? null : snapshot);
+      if (vetted) vettedSnapshots.add(vetted);
+      return vetted;
+    }
+
     async function onlineApi(path, body) {
+      if (usePeerToPeer()) return window.GlitchP2P.api(path, body);
       const response = await fetch(path, { method:"POST", headers:{ "Content-Type":"application/json" }, body:JSON.stringify(body || {}) });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error || "Unable to reach the multiplayer server.");
@@ -3415,7 +3444,8 @@ function injectGameById(gameId, options = {}) {
     }
 
     function applyOnlineSnapshot(snapshot) {
-      if (!snapshot || !snapshot.ball || !canvas.width || !canvas.height) return;
+      snapshot = vetSnapshot(snapshot);
+      if (!snapshot || !canvas.width || !canvas.height) return;
       onlineState.snapshot = snapshot;
       const scaleX = canvas.width / snapshot.width;
       const scaleY = canvas.height / snapshot.height;
@@ -3452,11 +3482,14 @@ function injectGameById(gameId, options = {}) {
     }
 
     function connectOnline(response) {
-      if (!window.io) throw new Error("Multiplayer server is unavailable. Start the game with npm start.");
+      const p2p = Boolean((response && response.p2p) || usePeerToPeer());
+      if (!p2p && !window.io) throw new Error("Online play isn't available in this browser.");
       if (onlineState.socket) onlineState.socket.disconnect();
       onlineState.session = response;
       try { localStorage.setItem("glitchPongResume", JSON.stringify({ code:response.joinCode, resumeToken:response.resumeToken })); } catch (error) {}
-      const socket = window.io({ auth:{ joinTicket:response.joinTicket }, transports:["websocket", "polling"], reconnection:false });
+      const socket = p2p
+        ? window.GlitchP2P.io({ auth:{ joinTicket:response.joinTicket } })
+        : window.io({ auth:{ joinTicket:response.joinTicket }, transports:["websocket", "polling"], reconnection:false });
       onlineState.socket = socket;
       socket.on("connect_error", error => showOnlineError(error.message || "Connection failed."));
       socket.on("error:message", message => showOnlineError(message));
@@ -3464,8 +3497,13 @@ function injectGameById(gameId, options = {}) {
       socket.on("lobby:player_list", lobby => { onlineState.session.lobbyState = lobby; refreshOnlineLobby(lobby); });
       socket.on("lobby:locked", lobby => { onlineState.session.lobbyState = lobby; refreshOnlineLobby(lobby); });
       socket.on("state:snapshot", applyOnlineSnapshot);
-      socket.on("match:start", payload => beginOnlineMatch(payload.state));
-      socket.on("match:end", payload => { applyOnlineSnapshot(payload.state); recordOnlineMatchStats(payload.state); onlineState.ended = true; showOnlineError(`${payload.winner === "left" ? "LEFT" : "RIGHT"} PLAYER WINS`); });
+      socket.on("match:start", payload => beginOnlineMatch(payload && payload.state));
+      socket.on("match:end", payload => {
+        const state = vetSnapshot(payload && payload.state);
+        if (!state) return;
+        applyOnlineSnapshot(state); recordOnlineMatchStats(state); onlineState.ended = true;
+        showOnlineError(`${state.winner === "left" ? "LEFT" : "RIGHT"} PLAYER WINS`);
+      });
       socket.on("player:disconnected", () => showOnlineError("Opponent disconnected. Waiting for reconnection..."));
       socket.on("player:reconnected", () => showOnlineError("Opponent reconnected."));
       socket.on("disconnect", async reason => {
@@ -3484,6 +3522,8 @@ function injectGameById(gameId, options = {}) {
     }
 
     function beginOnlineMatch(snapshot) {
+      snapshot = vetSnapshot(snapshot);
+      if (!snapshot) return;
       ensureCountdownAssets();
       onlineState.active = true;
       onlineState.ended = false;
@@ -3510,7 +3550,27 @@ function injectGameById(gameId, options = {}) {
       syncUiForScreen();
     }
 
+    // In a peer-to-peer game the host's own browser referees, and one browser can be
+    // both players, so wins there pay coins only for the first few a day. Wins in a
+    // game on the socket.io server pay as before.
+    const P2P_PAID_WINS_PER_DAY = 3;
+    function onlineWinPays() {
+      if (!(onlineState.session && onlineState.session.p2p)) return true;
+      const d = new Date();
+      const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      let record = { date: today, paid: 0 };
+      try {
+        const saved = JSON.parse(localStorage.getItem("glitchPong_p2pCoins_v1") || "null");
+        if (saved && saved.date === today && Number.isFinite(saved.paid)) record = { date: today, paid: Math.max(0, Math.floor(saved.paid)) };
+      } catch (error) {}
+      if (record.paid >= P2P_PAID_WINS_PER_DAY) return false;
+      record.paid += 1;
+      try { localStorage.setItem("glitchPong_p2pCoins_v1", JSON.stringify(record)); } catch (error) {}
+      return true;
+    }
+
     function recordOnlineMatchStats(snapshot) {
+      snapshot = vetSnapshot(snapshot);
       if (onlineState.statsRecorded || !onlineState.session || !snapshot || !snapshot.scores) return;
       const side = onlineState.session.side;
       const playerScore = side === "left" ? snapshot.scores.left : snapshot.scores.right;
@@ -3518,7 +3578,7 @@ function injectGameById(gameId, options = {}) {
       GlitchProgression.endMatch(snapshot.winner === side, false, { arenaId: currentArenaId, playerScore, opponentScore });
       GlitchAchievements.check();
       syncCosmeticUnlocks(); // new items show a NEW badge in the Store
-      if (snapshot.winner === side) showCoinReward(GlitchcadeWallet.awardWin());
+      if (snapshot.winner === side && onlineWinPays()) showCoinReward(GlitchcadeWallet.awardWin());
       onlineState.statsRecorded = true;
     }
 
@@ -9267,17 +9327,20 @@ function injectGameById(gameId, options = {}) {
     }
 
     function refreshOnlineLobby(lobby) {
-      if (!lobby) return;
+      const rules = window.GlitchP2P && window.GlitchP2P.clean;
+      lobby = rules ? rules.lobby(lobby) : lobby;
+      if (!lobby || !Array.isArray(lobby.players)) return;
       const host = onlineState.session && onlineState.session.side === "left";
       const hasOpponent = lobby.players.length === 2 && lobby.players.every(player => player.connected);
       onlineLobbyPanel.querySelector("#gp-lobby-content").innerHTML = `
         <div style="text-align:center;font:bold 23px monospace;letter-spacing:.12em;color:#71efff;">ONLINE LOBBY</div>
         <div style="text-align:center;margin:6px 0;font:10px monospace;color:#8aa9bd;">${lobby.joinLocked ? "LOBBY LOCKED" : "WAITING FOR OPPONENT"}</div>
         <div style="margin:18px auto;padding:12px;border:1px solid rgba(255,209,102,.52);border-radius:12px;background:rgba(255,209,102,.07);text-align:center;">
-          <div style="font:10px monospace;color:#d4b96d;letter-spacing:.12em;">JOIN CODE</div><div style="font:bold 34px monospace;letter-spacing:.20em;color:#ffe39a;text-shadow:0 0 18px rgba(255,209,102,.45);">${lobby.code}</div>
+          <div style="font:10px monospace;color:#d4b96d;letter-spacing:.12em;">JOIN CODE</div><div style="font:bold 34px monospace;letter-spacing:.20em;color:#ffe39a;text-shadow:0 0 18px rgba(255,209,102,.45);">${escapeHtml(lobby.code)}</div>
         </div>
-        <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;">${["left","right"].map(side => { const player = lobby.players.find(item => item.side === side); const color = side === "left" ? "#71efff" : "#ff8fab"; return `<div style="padding:12px;border:1px solid ${color}55;border-radius:11px;background:${color}12;text-align:center;"><div style="font:10px monospace;color:${color};">${side.toUpperCase()} PLAYER</div><div style="margin-top:5px;font:bold 14px monospace;color:#eafcff;">${player ? player.nickname : "WAITING..."}</div><div style="margin-top:3px;font:9px monospace;color:${player && player.connected ? "#8ff5b1" : "#ffb0ba"};">${player && player.connected ? "CONNECTED" : "OFFLINE"}</div></div>`; }).join("")}</div>
+        <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;">${["left","right"].map(side => { const player = lobby.players.find(item => item.side === side); const color = side === "left" ? "#71efff" : "#ff8fab"; return `<div style="padding:12px;border:1px solid ${color}55;border-radius:11px;background:${color}12;text-align:center;"><div style="font:10px monospace;color:${color};">${side.toUpperCase()} PLAYER</div><div style="margin-top:5px;font:bold 14px monospace;color:#eafcff;">${player ? escapeHtml(player.nickname) : "WAITING..."}</div><div style="margin-top:3px;font:9px monospace;color:${player && player.connected ? "#8ff5b1" : "#ffb0ba"};">${player && player.connected ? "CONNECTED" : "OFFLINE"}</div></div>`; }).join("")}</div>
         <div id="gp-lobby-status" style="min-height:18px;margin:13px 0 4px;text-align:center;color:#ffb1c5;font:10px monospace;">${hasOpponent ? "OPPONENT CONNECTED // HOST MAY START" : "WAITING FOR OPPONENT..."}</div>
+        ${host && onlineState.session.p2p ? `<div style="margin:0 0 6px;text-align:center;color:#8aa9bd;font:10px monospace;letter-spacing:.04em;">YOUR BROWSER IS RUNNING THIS GAME // KEEP THIS TAB OPEN AND IN FRONT</div>` : ""}
         <div class="gp-online-button-row" style="display:flex;gap:9px;margin-top:10px;">${host ? `<button data-lobby-start ${hasOpponent ? "" : "disabled"} style="flex:1;padding:12px;border:1px solid rgba(103,239,255,.50);border-radius:10px;background:rgba(103,239,255,.10);color:#8ff5ff;font:bold 12px monospace;cursor:${hasOpponent ? "pointer" : "not-allowed"};opacity:${hasOpponent ? 1 : .4};">START MATCH</button><button data-lobby-lock style="padding:12px;border:1px solid rgba(255,209,102,.42);border-radius:10px;background:rgba(255,209,102,.07);color:#ffe1a0;font:bold 11px monospace;cursor:pointer;">LOCK</button>` : ""}<button data-lobby-back style="padding:12px 17px;border:1px solid rgba(255,255,255,.14);border-radius:10px;background:rgba(255,255,255,.03);color:#9ab2c4;font:bold 11px monospace;cursor:pointer;">BACK</button></div>`;
       const start = onlineLobbyPanel.querySelector("[data-lobby-start]"); if (start) start.addEventListener("click", () => onlineState.socket.emit("host:start"));
       const lock = onlineLobbyPanel.querySelector("[data-lobby-lock]"); if (lock) lock.addEventListener("click", () => onlineState.socket.emit("host:lock"));
