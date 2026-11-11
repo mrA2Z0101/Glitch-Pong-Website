@@ -2,7 +2,7 @@
   "name": "glitch-pong",
   "version": "1.0.0",
   "private": true,
-  "description": "Glitch Pong with local and server-authoritative online multiplayer.",
+  "description": "Glitch Pong with local play, server-authoritative online multiplayer, and serverless peer-to-peer multiplayer.",
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",

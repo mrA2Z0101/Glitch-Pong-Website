@@ -1,14 +1,34 @@
 "use strict";
 
-const crypto = require("crypto");
-const { initialState, resetBall, step, snapshot } = require("./authoritative-pong");
+// Lobbies, join codes, tickets and the match loop. Runs unchanged in Node (the
+// socket.io server) and in a browser (the player hosting a peer-to-peer game runs
+// it as window.GlitchSessions), so it only uses Web Crypto.
+(function (root, factory) {
+  if (typeof module === "object" && module.exports) module.exports = factory(require("./authoritative-pong"), require("crypto").webcrypto);
+  else root.GlitchSessions = factory(root.GlitchPongSim, root.crypto);
+})(typeof self !== "undefined" ? self : this, function (sim, cryptoApi) {
+const { initialState, resetBall, step, snapshot } = sim;
 
 const LOBBY_TTL_MS = 15 * 60 * 1000;
 const TICKET_TTL_MS = 60 * 1000;
 const RECONNECT_GRACE_MS = 45 * 1000;
 
-function id() { return crypto.randomUUID(); }
-function token() { return crypto.randomBytes(32).toString("base64url"); }
+function randomBytes(n) { const bytes = new Uint8Array(n); cryptoApi.getRandomValues(bytes); return bytes; }
+function toBase64Url(bytes) {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  const b64 = typeof btoa === "function" ? btoa(binary) : Buffer.from(binary, "binary").toString("base64");
+  return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function id() { return cryptoApi.randomUUID(); }
+function token() { return toBase64Url(randomBytes(32)); }
+// A uniformly random six-digit code (rejection sampling, so no digit is favoured).
+function randomCode() {
+  const limit = 4294967296 - (4294967296 % 1000000);
+  const word = new Uint32Array(1);
+  do { cryptoApi.getRandomValues(word); } while (word[0] >= limit);
+  return String(word[0] % 1000000).padStart(6, "0");
+}
 
 class SessionManager {
   constructor() {
@@ -20,7 +40,7 @@ class SessionManager {
   create(hostName = "Host") {
     const sessionId = id();
     let joinCode;
-    do { joinCode = String(crypto.randomInt(0, 1000000)).padStart(6, "0"); } while (this.codes.has(joinCode));
+    do { joinCode = randomCode(); } while (this.codes.has(joinCode));
     const host = this.makePlayer(hostName, "left", true);
     const session = {
       sessionId, joinCode, status: "lobby", joinLocked: false, maxPlayers: 2,
@@ -105,12 +125,15 @@ class SessionManager {
     session.gameState.paddles[player.side].direction = direction;
   }
 
-  tick(io) {
+  // Advance every live match by `steps` sixtieths of a second and send one snapshot.
+  // The socket.io server calls it once per 1/60 s; a browser host that fell behind
+  // passes more than one to catch up without flooding its opponent.
+  tick(io, steps = 1) {
     const now = Date.now();
-    for (const session of this.sessions.values()) {
+    for (const session of Array.from(this.sessions.values())) {
       if (session.expiresAt < now && session.status === "lobby") { this.destroy(session); continue; }
       if (session.status === "playing") {
-        step(session.gameState, 1 / 60, now);
+        for (let i = 0; i < steps && session.gameState.status === "playing"; i++) step(session.gameState, 1 / 60, now);
         io.to(session.sessionId).emit("state:snapshot", snapshot(session.gameState));
         if (session.gameState.status === "ended") {
           session.status = "ended";
@@ -126,4 +149,5 @@ class SessionManager {
   }
 }
 
-module.exports = { SessionManager };
+return { SessionManager };
+});
