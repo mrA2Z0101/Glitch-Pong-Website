@@ -2382,6 +2382,8 @@ function buildJukebox() {
 // Cheap prizes sit on the bottom shelves, the big-ticket ones up top.
 // Two rows of six: the first six fill the lower shelf. Break Point's prizes are
 // mixed in by price.
+// The secret achievement `prizes_all` (glitchpong-site.js) has goal = PRIZES.length;
+// adding or removing a prize means updating it (tests/achievements-prizes.test.mjs checks).
 const PRIZES = [
   { id: 'paddle-keychain', name: 'PIXEL PADDLE KEYCHAIN', cost: 10 },
   { id: 'pixel-brick', name: 'PIXEL BRICK STACK', cost: 15 },

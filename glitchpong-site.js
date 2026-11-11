@@ -464,8 +464,9 @@ const GlitchAchievements = (function() {
     { id: "level_25",     name: "GLITCH MASTER",    desc: "Reach level 25.",                                stat: "level",           goal: 25 },
     { id: "coins_100",    name: "HIGH SCORE",       desc: "Earn 100 Glitchcade coins.",                     stat: "coinsEarned",     goal: 100 },
     { id: "prizes_3",     name: "COLLECTOR",        desc: "Redeem 3 prizes at the Glitchcade prize counter.", stat: "prizes",        goal: 3 },
-    // 8 = every prize currently on the counter (see PRIZES in glitchcade.js).
-    { id: "prizes_all",   name: "SOLD OUT",         desc: "Redeem every prize at the Glitchcade prize counter.", stat: "prizes",     goal: 8, secret: true }
+    // goal = the number of prizes on the counter (PRIZES in glitchcade.js: 12 today).
+    // tests/achievements-prizes.test.mjs fails if the two drift apart.
+    { id: "prizes_all",   name: "SOLD OUT",         desc: "Redeem every prize at the Glitchcade prize counter.", stat: "prizes",     goal: 12, secret: true }
   ];
 
   const ID_RE = /^[a-z0-9_-]{1,40}$/i;
