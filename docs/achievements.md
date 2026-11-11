@@ -35,4 +35,4 @@ All achievements live in one list near the top of `glitchpong-site.js`: search f
 1. Where it happens in the game, call `GlitchAchievements.count("myCounter")`. Guard it with `if (achievementsCount())` so Custom Match and AI vs AI don't count.
 2. Use `stat: "myCounter"` in your achievement.
 
-The prize achievement `prizes_all` uses `goal: 8` because the prize counter has 8 prizes (`PRIZES` in `glitchcade.js`). If you add prizes, raise that goal.
+The prize achievement `prizes_all` uses `goal: 12` because the prize counter has 12 prizes (`PRIZES` in `glitchcade.js`). If you add or remove prizes, change that goal to match; `tests/achievements-prizes.test.mjs` fails if they differ. Unlocks are permanent, so players who already unlocked it keep it, even if the goal later goes up.
