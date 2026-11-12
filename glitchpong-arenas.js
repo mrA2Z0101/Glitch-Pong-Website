@@ -1,11 +1,18 @@
 "use strict";
 
-// Rules for the Glitch Pong maps that change the court itself:
+// Rules for the Glitch Pong maps that change how a rally plays.
 //
+// Four change the court:
 //   penalty   PENALTY BOX     only the middle of each end wall is a goal
 //   overflow  STACK OVERFLOW  the top and bottom walls wrap instead of bounce
 //   leak      MEMORY LEAK     the court narrows with every return
 //   defrag    DEFRAG          the top and bottom walls are jagged and rearrange
+//
+// Four change the ball, or the paddles that meet it:
+//   freefall  FREEFALL        the ball has gravity, which flips at Critical Heat
+//   coolant   COOLANT LEAK    paddles slide on ice until Heat melts it
+//   rooftop   ROOFTOP         wind pushes the ball along the court
+//   beat      BEAT DROP       a return hit on the beat comes off faster
 //
 // Nothing here touches the page or the canvas: glitchpong-site.js owns the
 // drawing and calls in with a description of the court. That keeps the rules
@@ -20,7 +27,7 @@
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.GlitchArenas = api;
 })(typeof self !== "undefined" ? self : this, function () {
-  const IDS = ["penalty", "overflow", "leak", "defrag"];
+  const IDS = ["penalty", "overflow", "leak", "defrag", "freefall", "coolant", "rooftop", "beat"];
 
   const TUNING = {
     vyMax: 9,                 // the same cap a paddle hit puts on vertical speed
@@ -50,7 +57,31 @@
     shiftHeat: 0.5,           // Heat ratio where a wall starts shifting mid-rally
     shiftEvery: [300, 150],   // frames between shifts at 50% and at 100% Heat
     shiftWarn: 40,            // frames the new shape is outlined before the wall moves
-    awaySpeed: 0.8            // slowest a ball leaves a block face
+    awaySpeed: 0.8,           // slowest a ball leaves a block face
+
+    // FREEFALL
+    gravity: 0.00017,         // pull on the ball each frame, per pixel of court height
+    fallMax: 10,              // fastest the ball falls
+    hop: 0.18,                // a bounce off the floor always rises at least this share of the height
+    flipFrames: 36,           // how long gravity takes to turn over
+
+    // COOLANT LEAK
+    gripCold: 0.1,            // share of the asked-for speed a paddle picks up each frame on solid ice
+    gripHeat: 0.8,            // Heat ratio where the ice is gone and paddles move as normal
+    gripCurve: 1.5,           // above 1, grip comes back slowly at first
+    rebound: 0.35,            // share of its speed a sliding paddle keeps when it hits the edge
+
+    // ROOFTOP
+    windCalm: 1.4,            // strongest gust at no Heat, in the ball's horizontal speed units
+    windHeat: 1.8,            // extra gust strength at full Heat
+    windShare: 0.45,          // wind never moves the ball by more than this share of its own speed
+    gustEvery: [150, 360],    // frames between changes of wind
+    strikeEvery: [150, 250],  // frames between lightning strikes at Critical Heat
+
+    // BEAT DROP
+    bpm: [104, 160],          // tempo at no Heat and at full Heat
+    beatWindow: 5,            // a return this many frames either side of a beat is on it
+    beatBoost: 0.14           // extra speed on an on-beat return (a Power Strike is 0.22)
   };
 
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -62,7 +93,11 @@
       penalty: { amount: 0, phase: 0, flash: { left: 0, right: 0 } },
       overflow: { amount: 0, phase: 0, shift: 0, flash: 0 },
       leak: { returns: 0, inset: 0, snap: 0 },
-      defrag: { top: [], bottom: [], topTarget: [], bottomTarget: [], rate: 1, timer: 0, warn: 0, pending: null, next: "top", moved: 0 }
+      defrag: { top: [], bottom: [], topTarget: [], bottomTarget: [], rate: 1, timer: 0, warn: 0, pending: null, next: "top", moved: 0 },
+      freefall: { dir: 1, want: 1, flip: 0 },
+      coolant: { grip: TUNING.gripCold, v: { left: 0, right: 0 } },
+      rooftop: { wind: 0, gust: 0, timer: 0, strikeIn: 0, flash: 0, struck: false, bolt: 0 },
+      beat: { phase: 0, step: 0, ticked: false, bpm: TUNING.bpm[0], hit: 0, hitSide: null }
     };
   }
 
@@ -179,6 +214,71 @@
     return Math.round(TUNING.shiftEvery[0] + (TUNING.shiftEvery[1] - TUNING.shiftEvery[0]) * t);
   }
 
+  // ── FREEFALL ─────────────────────────────────────────────────────────────
+  // The pull on the ball this frame: positive is down the screen, negative up.
+  function gravity(s, c) {
+    return s.id === "freefall" ? TUNING.gravity * c.height * s.freefall.dir : 0;
+  }
+
+  // Vertical speed after a frame of gravity.
+  function fall(s, c, vy) {
+    if (s.id !== "freefall") return vy;
+    return clamp(vy + gravity(s, c), -TUNING.fallMax, TUNING.fallMax);
+  }
+
+  // Slowest the ball leaves the surface gravity is pulling it onto, so it
+  // never ends up rolling along the floor.
+  function hopSpeed(s, c) {
+    return Math.sqrt(2 * Math.abs(gravity(s, c)) * TUNING.hop * c.height);
+  }
+
+  // ── COOLANT LEAK ─────────────────────────────────────────────────────────
+  // Where a paddle ends up this frame. `fromY` is where it was, `wantY` where
+  // its player or the AI put it, and `jump` how much of that move was a dash
+  // (a dash is a blink and does not slide). The rest is what was asked for; on
+  // ice the paddle only picks up part of it, and keeps moving after the input
+  // stops. With full grip this returns wantY unchanged.
+  function slide(s, side, fromY, wantY, jump, lo, hi) {
+    if (s.id !== "coolant") return wantY;
+    const st = s.coolant;
+    let v = st.v[side];
+    v += (wantY - fromY - jump - v) * st.grip;
+    let y = fromY + jump + v;
+    if (y < lo) { y = lo; v = Math.abs(v) * TUNING.rebound; }
+    else if (y > hi) { y = hi; v = -Math.abs(v) * TUNING.rebound; }
+    st.v[side] = v;
+    return y;
+  }
+
+  // ── ROOFTOP ──────────────────────────────────────────────────────────────
+  // How far the wind carries a ball moving at `vx` this frame, in the same
+  // units as vx. Positive is towards the right paddle. It is added to the
+  // ball's movement, never to its speed, and never enough to stop the ball.
+  function drift(s, vx) {
+    if (s.id !== "rooftop") return 0;
+    const most = Math.abs(vx) * TUNING.windShare;
+    return clamp(s.rooftop.wind, -most, most);
+  }
+
+  // ── BEAT DROP ────────────────────────────────────────────────────────────
+  // How many frames the clock is from the nearest beat.
+  function beatDistance(s) {
+    const part = s.beat.phase - Math.floor(s.beat.phase);
+    return Math.min(part, 1 - part) * (3600 / s.beat.bpm);
+  }
+
+  function onBeat(s) {
+    return s.id === "beat" && beatDistance(s) <= TUNING.beatWindow;
+  }
+
+  // Extra speed for a return made now. Call it once, when a paddle hits.
+  function returnBoost(s, side) {
+    if (!onBeat(s)) return 0;
+    s.beat.hit = 1;
+    s.beat.hitSide = side;
+    return TUNING.beatBoost;
+  }
+
   // ── Lifecycle ────────────────────────────────────────────────────────────
   // Begin a match on `id`. Anything that isn't one of the four maps (another
   // arena, an online match, the menu) switches every rule off.
@@ -208,6 +308,10 @@
       s.defrag.warn = 0;
       s.defrag.timer = TUNING.shiftEvery[0];
       s.defrag.moved = 1;
+    } else if (s.id === "rooftop") {
+      s.rooftop.gust = 0;                                // every serve starts in a lull
+      s.rooftop.timer = 90;
+      s.rooftop.strikeIn = 0;
     }
   }
 
@@ -271,6 +375,49 @@
         }
       }
       d.moved = Math.max(0, d.moved - 0.04);
+    } else if (s.id === "freefall") {
+      const f = s.freefall, want = critical && live ? -1 : 1;
+      if (want !== f.want) { f.want = want; f.flip = 1; }
+      f.dir += clamp(want - f.dir, -2 / TUNING.flipFrames, 2 / TUNING.flipFrames);
+      f.flip = Math.max(0, f.flip - 0.012);
+    } else if (s.id === "coolant") {
+      const melt = clamp(heatRatio / TUNING.gripHeat, 0, 1);
+      s.coolant.grip = TUNING.gripCold + (1 - TUNING.gripCold) * Math.pow(melt, TUNING.gripCurve);
+    } else if (s.id === "rooftop") {
+      const r = s.rooftop, strongest = TUNING.windCalm + TUNING.windHeat * heatRatio;
+      const between = (range) => range[0] + rand() * (range[1] - range[0]);
+      r.struck = false;
+      if (!live) {
+        r.gust = 0;
+      } else {
+        if (--r.timer <= 0) {
+          // one gust in five is a lull; the rest blow one way or the other
+          r.gust = rand() < 0.2 ? 0 : (rand() < 0.5 ? -1 : 1) * (0.45 + rand() * 0.55);
+          r.timer = Math.round(between(TUNING.gustEvery));
+        }
+        if (critical && --r.strikeIn <= 0) {
+          // Lightning: the wind turns round at full strength.
+          r.gust = r.gust > 0 || (r.gust === 0 && rand() < 0.5) ? -1 : 1;
+          r.timer = Math.round(between(TUNING.gustEvery));
+          r.strikeIn = Math.round(between(TUNING.strikeEvery));
+          r.flash = 1;
+          r.struck = true;
+          r.bolt = rand();
+        }
+        if (!critical) r.strikeIn = Math.min(r.strikeIn, 20);     // the first strike comes soon after Critical Heat
+      }
+      r.wind += (r.gust * strongest - r.wind) * (r.flash > 0.5 ? 0.12 : 0.03);
+      if (Math.abs(r.wind) < 0.001 && r.gust === 0) r.wind = 0;
+      r.flash = Math.max(0, r.flash - 0.045);
+    } else if (s.id === "beat") {
+      // The beat runs whenever the match does, so the music never stops between points.
+      const b = s.beat;
+      b.bpm = TUNING.bpm[0] + (TUNING.bpm[1] - TUNING.bpm[0]) * clamp(heatRatio, 0, 1);
+      b.phase += b.bpm / 3600;
+      const step = Math.floor(b.phase * 2);              // eighth notes
+      b.ticked = step !== b.step;
+      b.step = step;
+      b.hit = Math.max(0, b.hit - 0.05);
     }
   }
 
@@ -313,6 +460,20 @@
     return y;
   }
 
+  // Where a ball at y, moving at vy, will be in `frames` frames. Paddle AI
+  // uses it, so it reads a falling ball as an arc and a wrapping one as a wrap.
+  function aimY(s, c, y, vy, frames) {
+    if (s.id !== "freefall") return predictY(s, c, y + vy * frames);
+    const g = gravity(s, c), top = c.ballR, bottom = c.height - c.ballR;
+    for (let i = 0; i < frames; i++) {
+      vy = clamp(vy + g, -TUNING.fallMax, TUNING.fallMax);
+      y += vy;
+      if (y > bottom) { y = bottom; vy = -Math.abs(vy); }
+      else if (y < top) { y = top; vy = Math.abs(vy); }
+    }
+    return y;
+  }
+
   // ── The top and bottom walls ─────────────────────────────────────────────
   // Moves the ball out of a wall and turns it round, or wraps it. Returns
   // null, { type: "bounce", wall } or { type: "wrap", dir, fromX, toX } where
@@ -339,12 +500,14 @@
       ball.y = top;
       if (ball.vy > 0) return null;                      // the wall caught up with a ball already moving away
       ball.vy = -ball.vy;
+      if (s.id === "freefall" && s.freefall.dir < 0) ball.vy = Math.max(ball.vy, hopSpeed(s, c));
       return { type: "bounce", wall: "top" };
     }
     if (ball.y >= bottom) {
       ball.y = bottom;
       if (ball.vy < 0) return null;
       ball.vy = -ball.vy;
+      if (s.id === "freefall" && s.freefall.dir > 0) ball.vy = Math.min(ball.vy, -hopSpeed(s, c));
       return { type: "bounce", wall: "bottom" };
     }
     return null;
@@ -352,7 +515,8 @@
 
   return {
     IDS, TUNING, createState, start, roundReset, onReturn, openCourt, update,
-    mouth, posts, walls, topAt, bottomAt, band, paddleBand, predictY,
-    makeProfile, profileAt, leakMaxInset
+    mouth, posts, walls, topAt, bottomAt, band, paddleBand, predictY, aimY,
+    makeProfile, profileAt, leakMaxInset,
+    gravity, fall, hopSpeed, slide, drift, beatDistance, onBeat, returnBoost
   };
 });

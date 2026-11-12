@@ -3,9 +3,11 @@ import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 
-// The rules for PENALTY BOX, STACK OVERFLOW, MEMORY LEAK and DEFRAG. The file
-// is a plain script that also exports under Node; the drawing lives in
-// glitchpong-site.js and is not covered here.
+// The rules for the eight maps that change how a rally plays: PENALTY BOX,
+// STACK OVERFLOW, MEMORY LEAK and DEFRAG (the court), and FREEFALL, COOLANT
+// LEAK, ROOFTOP and BEAT DROP (the ball and paddles). The file is a plain
+// script that also exports under Node; the drawing lives in glitchpong-site.js
+// and is not covered here.
 const A = createRequire(import.meta.url)('../glitchpong-arenas.js');
 const T = A.TUNING;
 
@@ -25,7 +27,7 @@ function seeded(seed) {
 const begin = (id, c = court(), rand = seeded(7)) => { const s = A.createState(); A.start(s, id, c, rand); return s; };
 const frames = (s, c, n, heat, critical = false, live = true, rand = seeded(11)) => { for (let i = 0; i < n; i++) A.update(s, c, heat, critical, live, rand); };
 
-test('only the four court maps switch rules on', () => {
+test('only the eight rule maps switch rules on', () => {
   for (const id of A.IDS) assert.equal(begin(id).id, id);
   for (const id of ['classic', 'matrix', 'construct', 'blackhole', null, undefined, 'nope']) {
     const s = begin(id), c = court();
@@ -35,6 +37,11 @@ test('only the four court maps switch rules on', () => {
     assert.deepEqual(A.paddleBand(s, c), { top: 0, bottom: c.height });
     assert.deepEqual(A.mouth(s, c, 'left'), { top: 0, bottom: c.height });
     assert.equal(A.posts(s, c, { x: 20, y: 5, vx: -8, vy: 0, px: 40 }), null);
+    assert.equal(A.fall(s, c, 3), 3);
+    assert.equal(A.drift(s, 8), 0);
+    assert.equal(A.slide(s, 'left', 100, 108, 0, 0, 580), 108);
+    assert.equal(A.returnBoost(s, 'left'), 0);
+    assert.equal(A.aimY(s, c, 300, 4, 10), 340);
   }
 });
 
@@ -394,9 +401,285 @@ test('DEFRAG: nothing is placed where a wall is, or is about to be', () => {
   assert.ok(band.bottom - band.top > c.height * 0.7, 'most of the court stays open');
 });
 
+// ── FREEFALL ────────────────────────────────────────────────────────────────
+
+test('FREEFALL: the ball falls, faster each frame, up to a top speed', () => {
+  for (const c of [court(), phone()]) {
+    const s = begin('freefall', c);
+    assert.ok(A.gravity(s, c) > 0, 'down the screen');
+    assert.ok(Math.abs(A.gravity(s, c) - T.gravity * c.height) < 1e-12, 'scaled to the court, so arcs look the same on a phone');
+    let vy = 0, last = 0;
+    for (let i = 0; i < 400; i++) {
+      vy = A.fall(s, c, vy);
+      assert.ok(vy >= last);
+      assert.ok(vy <= T.fallMax);
+      last = vy;
+    }
+    assert.equal(vy, T.fallMax);
+  }
+});
+
+test('FREEFALL: a ball on the floor always hops, however gently it landed', () => {
+  for (const c of [court(), phone()]) {
+    const s = begin('freefall', c), floor = c.height - c.ballR;
+    const ball = { x: 600, y: floor - 1, vx: 6, vy: 0.2 };
+    let highest = floor, bounces = 0;
+    for (let f = 0; f < 1200; f++) {
+      ball.vy = A.fall(s, c, ball.vy);
+      ball.y += ball.vy;
+      const hit = A.walls(s, c, ball);
+      if (hit) { assert.equal(hit.wall, 'bottom'); bounces++; }
+      if (bounces) highest = Math.min(highest, ball.y);
+    }
+    assert.ok(bounces >= 5, `it keeps bouncing (${bounces})`);
+    assert.ok(floor - highest >= c.height * T.hop * 0.9, `each hop clears ${T.hop * 100}% of the height (rose ${Math.round(floor - highest)}px)`);
+  }
+});
+
+test('FREEFALL: gravity flips at Critical Heat and comes back afterwards', () => {
+  const c = court(), s = begin('freefall', c);
+  frames(s, c, 200, 0.79, false);
+  assert.equal(s.freefall.dir, 1, 'below Critical Heat gravity points down');
+
+  frames(s, c, 1, 0.85, true);
+  assert.ok(s.freefall.flip > 0.95, 'the flip is announced the frame it starts');
+  assert.ok(s.freefall.dir < 1 && s.freefall.dir > 0.8, 'and turns over gradually, not in one frame');
+  frames(s, c, T.flipFrames, 0.85, true);
+  assert.equal(s.freefall.dir, -1);
+  assert.ok(A.gravity(s, c) < 0, 'up the screen');
+
+  // upside down, the ceiling is the floor: the ball hops off it
+  const ball = { x: 600, y: c.ballR + 0.1, vx: 6, vy: -0.2 };
+  ball.vy = A.fall(s, c, ball.vy);
+  ball.y += ball.vy;
+  assert.deepEqual(A.walls(s, c, ball), { type: 'bounce', wall: 'top' });
+  assert.ok(ball.vy >= A.hopSpeed(s, c) - 1e-9);
+
+  frames(s, c, T.flipFrames + 2, 0, false, false);   // a point is scored
+  assert.equal(s.freefall.dir, 1, 'the next serve falls the normal way');
+});
+
+test('FREEFALL: the AI reads the arc the ball will actually take', () => {
+  for (const c of [court(), phone()]) {
+    const s = begin('freefall', c), rand = seeded(5);
+    for (let trial = 0; trial < 200; trial++) {
+      const ball = { x: 600, y: c.ballR + rand() * (c.height - 2 * c.ballR), vx: 8, vy: (rand() * 2 - 1) * 8 };
+      const ahead = 1 + Math.floor(rand() * 22);
+      const read = A.aimY(s, c, ball.y, ball.vy, ahead);
+      for (let i = 0; i < ahead; i++) { ball.vy = A.fall(s, c, ball.vy); ball.y += ball.vy; A.walls(s, c, ball); }
+      // The read ignores the minimum hop, so allow a little slack after a bounce.
+      assert.ok(Math.abs(read - ball.y) < c.height * 0.12, `read ${Math.round(read)}, ball went to ${Math.round(ball.y)}`);
+    }
+    // and it is not the straight line a bouncing-wall map would give
+    assert.ok(A.aimY(s, c, c.height / 2, 0, 20) > c.height / 2 + 10);
+  }
+});
+
+// ── COOLANT LEAK ────────────────────────────────────────────────────────────
+
+test('COOLANT LEAK: grip is lowest with no Heat and complete once the ice has melted', () => {
+  const c = court(), s = begin('coolant', c);
+  let last = 0;
+  for (let heat = 0; heat <= 1.0001; heat += 0.05) {
+    frames(s, c, 1, heat);
+    assert.ok(s.coolant.grip >= last - 1e-12, 'more Heat never means less grip');
+    last = s.coolant.grip;
+    if (heat === 0) assert.equal(s.coolant.grip, T.gripCold);
+    if (heat >= T.gripHeat) assert.equal(s.coolant.grip, 1);
+  }
+});
+
+test('COOLANT LEAK: with full grip a paddle goes exactly where it is put', () => {
+  const c = court(), s = begin('coolant', c);
+  frames(s, c, 1, 1);
+  let y = 200;
+  for (const move of [8, 8, -8, 0, 3, -8, 0, 0]) {
+    const next = A.slide(s, 'left', y, y + move, 0, 0, c.height - c.paddleH);
+    assert.equal(next, y + move);
+    y = next;
+  }
+});
+
+test('COOLANT LEAK: on ice a paddle is slow to start and keeps going after you let go', () => {
+  const c = court(), s = begin('coolant', c), hi = c.height - c.paddleH;
+  frames(s, c, 1, 0);
+  let y = 100;
+  // hold "down" for 12 frames: a normal paddle would have moved 96px
+  for (let i = 0; i < 12; i++) y = A.slide(s, 'left', y, y + 8, 0, 0, hi);
+  assert.ok(y - 100 < 96 * 0.6, `slow off the mark (moved ${Math.round(y - 100)}px of 96)`);
+  assert.ok(y - 100 > 96 * 0.2, 'but it does move');
+  assert.ok(s.coolant.v.left > 0 && s.coolant.v.left < 8, 'still building speed');
+
+  // let go: it carries on, slower each frame, and comes to rest
+  const letGoAt = y;
+  let last = s.coolant.v.left;
+  for (let i = 0; i < 120; i++) {
+    y = A.slide(s, 'left', y, y, 0, 0, hi);
+    assert.ok(s.coolant.v.left <= last + 1e-12);
+    last = s.coolant.v.left;
+  }
+  assert.ok(y - letGoAt > 25, `slid on after release (${Math.round(y - letGoAt)}px)`);
+  assert.ok(Math.abs(s.coolant.v.left) < 0.01, 'and stopped in the end');
+  assert.equal(s.coolant.v.right, 0, 'the other paddle is untouched');
+});
+
+test('COOLANT LEAK: a dash is a blink, not a slide', () => {
+  const c = court(), s = begin('coolant', c);
+  frames(s, c, 1, 0);
+  const y = A.slide(s, 'right', 300, 376, 76, 0, c.height - c.paddleH);   // the AI dashed 76px this frame
+  assert.equal(y, 376);
+  assert.equal(s.coolant.v.right, 0, 'and it leaves no momentum behind');
+});
+
+test('COOLANT LEAK: a sliding paddle stays on the court and rebounds off the edge', () => {
+  const c = court(), s = begin('coolant', c), hi = c.height - c.paddleH;
+  frames(s, c, 1, 0);
+  let y = hi - 30, hitEdge = false;
+  for (let i = 0; i < 60; i++) {
+    y = A.slide(s, 'left', y, y + 8, 0, 0, hi);
+    assert.ok(y >= 0 && y <= hi);
+    if (y === hi && !hitEdge) {
+      hitEdge = true;
+      assert.ok(s.coolant.v.left < 0, 'thrown back off the edge');
+      assert.ok(Math.abs(s.coolant.v.left) < 8 * T.rebound + 1e-9, 'with only part of its speed');
+    }
+  }
+  assert.ok(hitEdge);
+});
+
+// ── ROOFTOP ─────────────────────────────────────────────────────────────────
+
+test('ROOFTOP: the wind gusts both ways, with lulls, and is stronger at high Heat', () => {
+  const c = court();
+  const gusts = (heat) => {
+    const s = begin('rooftop', c), rand = seeded(21);
+    let left = 0, right = 0, calm = 0, strongest = 0;
+    for (let f = 0; f < 20000; f++) {
+      A.update(s, c, heat, false, true, rand);
+      const w = s.rooftop.wind;
+      strongest = Math.max(strongest, Math.abs(w));
+      assert.ok(Math.abs(w) <= T.windCalm + T.windHeat * heat + 1e-9);
+      if (w > 0.3) right++; else if (w < -0.3) left++; else calm++;
+    }
+    return { left, right, calm, strongest };
+  };
+  const cool = gusts(0), hot = gusts(0.7);
+  for (const g of [cool, hot]) {
+    assert.ok(g.left > 2000 && g.right > 2000, `blows both ways (${g.left} left, ${g.right} right)`);
+    assert.ok(g.calm > 1000, `and drops (${g.calm} calm frames)`);
+  }
+  assert.ok(hot.strongest > cool.strongest + 0.8, 'Heat makes the gusts stronger');
+});
+
+test('ROOFTOP: wind carries the ball but never stops it or turns it round', () => {
+  const c = court(), s = begin('rooftop', c);
+  s.rooftop.wind = 3;
+  assert.equal(A.drift(s, 20), 3, 'a fast ball takes the whole gust');
+  assert.equal(A.drift(s, -20), 3, 'whichever way it is travelling');
+  assert.equal(A.drift(s, 4), 4 * T.windShare, 'a slow ball only part of it');
+  assert.equal(A.drift(s, -4), 4 * T.windShare);
+  s.rooftop.wind = -3;
+  assert.equal(A.drift(s, 4), -4 * T.windShare);
+  for (const vx of [4, 6, 12, 24, -4, -6, -12, -24]) {
+    const moved = vx + A.drift(s, vx);
+    assert.ok(Math.sign(moved) === Math.sign(vx) && Math.abs(moved) >= Math.abs(vx) * (1 - T.windShare) - 1e-9);
+  }
+});
+
+test('ROOFTOP: every serve starts in a lull, and the air is still between points', () => {
+  const c = court(), s = begin('rooftop', c), rand = seeded(8);
+  frames(s, c, 2000, 0.6, false, true, rand);
+  A.roundReset(s, c);
+  assert.equal(s.rooftop.gust, 0);
+  frames(s, c, 200, 0, false, false, rand);
+  assert.ok(Math.abs(s.rooftop.wind) < 0.05, 'the wind dies while nobody is playing');
+  frames(s, c, 60, 0, false, true, rand);
+  assert.ok(Math.abs(s.rooftop.wind) < 0.05, 'and the first second of the rally is calm');
+});
+
+test('ROOFTOP: lightning only strikes at Critical Heat, and each strike turns the wind round', () => {
+  const c = court(), s = begin('rooftop', c), rand = seeded(13);
+  for (let f = 0; f < 3000; f++) {
+    A.update(s, c, 0.79, false, true, rand);
+    assert.equal(s.rooftop.struck, false);
+    assert.equal(s.rooftop.flash, 0);
+  }
+  let strikes = 0, lastAt = -Infinity, gustBefore = s.rooftop.gust, first = null;
+  for (let f = 0; f < 3000; f++) {
+    A.update(s, c, 0.9, true, true, rand);
+    if (s.rooftop.struck) {
+      if (first === null) first = f;
+      assert.ok(f - lastAt >= T.strikeEvery[0], 'never two flashes close together');
+      assert.equal(Math.abs(s.rooftop.gust), 1, 'full strength');
+      if (gustBefore !== 0) assert.equal(Math.sign(s.rooftop.gust), -Math.sign(gustBefore), 'the other way');
+      assert.equal(s.rooftop.flash > 0.9, true);
+      strikes++;
+      lastAt = f;
+    }
+    gustBefore = s.rooftop.gust;
+  }
+  assert.ok(first !== null && first <= 20, `the first strike comes with Critical Heat (frame ${first})`);
+  assert.ok(strikes >= 10 && strikes <= 21, `a strike every few seconds (${strikes} in 50s)`);
+});
+
+// ── BEAT DROP ───────────────────────────────────────────────────────────────
+
+test('BEAT DROP: Heat raises the tempo', () => {
+  const c = court(), s = begin('beat', c);
+  frames(s, c, 3600, 0);
+  assert.ok(Math.abs(s.beat.phase - T.bpm[0]) < 1e-6, `${T.bpm[0]} beats in a minute at no Heat`);
+  const before = s.beat.phase;
+  frames(s, c, 3600, 1);
+  assert.ok(Math.abs(s.beat.phase - before - T.bpm[1]) < 1e-6, `${T.bpm[1]} at full Heat`);
+  frames(s, c, 1, 0.5);
+  assert.equal(s.beat.bpm, (T.bpm[0] + T.bpm[1]) / 2);
+});
+
+test('BEAT DROP: the music gets one step for every eighth note, and never stops between points', () => {
+  const c = court(), s = begin('beat', c);
+  let steps = 0, lastStep = s.beat.step;
+  for (let f = 0; f < 3600; f++) {
+    A.update(s, c, 0.3, false, f % 400 < 300);      // in and out of play
+    if (s.beat.ticked) { steps++; assert.equal(s.beat.step, lastStep + 1, 'no step skipped or repeated'); lastStep = s.beat.step; }
+  }
+  assert.equal(steps, Math.floor(s.beat.phase * 2));
+  assert.ok(steps > 200);
+});
+
+test('BEAT DROP: a return is on the beat only within a few frames of it', () => {
+  const c = court(), s = begin('beat', c);
+  let on = 0, total = 0;
+  for (let f = 0; f < 7200; f++) {
+    A.update(s, c, 0, false, true);
+    const part = s.beat.phase - Math.floor(s.beat.phase);
+    const framesAway = Math.min(part, 1 - part) * (3600 / s.beat.bpm);
+    assert.ok(Math.abs(A.beatDistance(s) - framesAway) < 1e-9);
+    assert.equal(A.onBeat(s), framesAway <= T.beatWindow);
+    if (A.onBeat(s)) on++;
+    total++;
+  }
+  const expected = (2 * T.beatWindow) / (3600 / T.bpm[0]);
+  assert.ok(Math.abs(on / total - expected) < 0.05, `about ${Math.round(expected * 100)}% of frames are on the beat (${Math.round(100 * on / total)}%)`);
+});
+
+test('BEAT DROP: only an on-beat return gets the extra speed', () => {
+  const c = court(), s = begin('beat', c);
+  s.beat.phase = 12.02;                              // just after a beat
+  assert.equal(A.returnBoost(s, 'right'), T.beatBoost);
+  assert.equal(s.beat.hit, 1);
+  assert.equal(s.beat.hitSide, 'right');
+  s.beat.hit = 0;
+  s.beat.phase = 12.5;                               // half way to the next
+  assert.equal(A.returnBoost(s, 'left'), 0);
+  assert.equal(s.beat.hit, 0);
+  s.beat.phase = 12.98;                              // just before the next
+  assert.equal(A.returnBoost(s, 'left'), T.beatBoost);
+  assert.ok(T.beatBoost < 0.22, 'smaller than a Power Strike');
+});
+
 // ── A whole rally on every map ──────────────────────────────────────────────
 
-test('a long rally on any court map keeps the ball on the court', () => {
+test('a long rally on any rule map keeps the ball on the court', () => {
   for (const id of A.IDS) {
     for (const c of [court(), phone()]) {
       const rand = seeded(id.length * 31 + c.width), s = begin(id, c, rand);
@@ -405,7 +688,10 @@ test('a long rally on any court map keeps the ball on the court', () => {
         const heat = Math.min(1, f / 3000);
         A.update(s, c, heat, heat >= 0.8, true, rand);
         ball.px = ball.x;
-        ball.x += ball.vx * c.xScale;
+        ball.vy = A.fall(s, c, ball.vy);
+        const drift = A.drift(s, ball.vx);
+        assert.ok(Math.abs(drift) < Math.abs(ball.vx), `${id}: frame ${f} the wind never stops the ball`);
+        ball.x += (ball.vx + drift) * c.xScale;
         ball.y += ball.vy;
         A.walls(s, c, ball);
         assert.ok(Number.isFinite(ball.x) && Number.isFinite(ball.y) && Number.isFinite(ball.vy), `${id}: frame ${f}`);
