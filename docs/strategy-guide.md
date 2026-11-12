@@ -65,7 +65,7 @@ The arena can't do that to you. When a glitch sends the ball back the way it cam
 - **Glitch walls** appear mid-court from 30% Heat (up to five at 80%+). If your shot hits the side of one, it bounces straight back at you.
 - **Black-Hole Nexus micro-holes** (80%+ Heat) fling the ball off in a random direction.
 
-**The one way an own goal still happens:** your opponent's **Phase Shield** bounces your shot back at you, still in your colour. Miss that and it's 2, or 3 at Critical Heat.
+**The two ways an own goal still happens:** your opponent's **Phase Shield** bounces your shot back at you, still in your colour. So does a **goal post on Penalty Box** (section 7). Miss either and it's 2, or 3 at Critical Heat.
 
 How to use this:
 
@@ -101,6 +101,12 @@ An orb appears in the middle third of the court every 6–13 seconds and lasts a
 
 - **Glitch Arena / Matrix Mainframe / The Construct.** Same rules, different look. The Matrix rain and Construct grid make fast balls harder to read, so stay centred.
 - **Black-Hole Nexus.** The centre pulls the ball in, so shots through the middle curve. Boost and drag anomalies change the ball's speed. Above 80% Heat, micro-holes can fling the ball in a random direction (the ball turns neutral if it comes back at you).
+- **Penalty Box.** Only the middle half of each end wall is a goal. A shot that hits the post comes back in your colour and passes your opponent's paddle untouched, so aim for the mouth, not the corners. A wide angle that would score anywhere else is the riskiest shot here. At Critical Heat the two mouths drift up and down; an arrow by each one shows which way it is moving.
+- **Stack Overflow.** The top and bottom edges wrap: the ball leaves one and comes back through the other. Paddles don't wrap, so a ball that crosses your line right at the seam is a full screen away from a paddle parked at the near edge. Hold the middle. From 50% Heat the ball comes back in offset sideways; the numbered markers on the two edges show where.
+- **Memory Leak.** Every return narrows the court from both sides until it is a corridor about two paddles tall, and it opens again when someone scores. Early in a rally, angles win points. Late in one there is no room for angles, and it comes down to speed, dashes and glitches.
+- **Defrag.** The top and bottom walls are slanted blocks, so a bounce can come off steeper or flatter than it went in. They rearrange between points, and from 50% Heat one wall at a time moves mid-rally (its new shape is outlined first). Read the bounce off the block, not off habit.
+
+How these four are built and tuned: [arenas.md](arenas.md).
 
 ---
 

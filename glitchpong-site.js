@@ -140,7 +140,11 @@ const GlitchProgression = (function() {
         classic:   { matches: 0, wins: 0, losses: 0 },
         matrix:    { matches: 0, wins: 0, losses: 0 },
         construct: { matches: 0, wins: 0, losses: 0 },
-        blackhole: { matches: 0, wins: 0, losses: 0 }
+        blackhole: { matches: 0, wins: 0, losses: 0 },
+        penalty:   { matches: 0, wins: 0, losses: 0 },
+        overflow:  { matches: 0, wins: 0, losses: 0 },
+        leak:      { matches: 0, wins: 0, losses: 0 },
+        defrag:    { matches: 0, wins: 0, losses: 0 }
       }
     };
   }
@@ -454,7 +458,7 @@ const GlitchAchievements = (function() {
     { id: "clutch",       name: "ICE IN THE VEINS", desc: "Win a match that went to Clutch Mode.",          stat: "clutchWins",      goal: 1 },
     { id: "hard_win",     name: "HARD RESET",       desc: "Beat the Hard AI.",                              stat: "hardWins",        goal: 1 },
     { id: "hard_wins_10", name: "OVERCLOCKED",      desc: "Beat the Hard AI 10 times.",                     stat: "hardWins",        goal: 10 },
-    { id: "world_tour",   name: "WORLD TOUR",       desc: "Win a match in all four arenas.",                stat: "arenasWon",       goal: 4 },
+    { id: "world_tour",   name: "WORLD TOUR",       desc: "Win a match in all eight arenas.",               stat: "arenasWon",       goal: 8 },
     { id: "critical",     name: "MELTDOWN",         desc: "Push a rally to Critical Heat (80%+).",          stat: "criticalHeat",    goal: 1 },
     { id: "boss",         name: "EYE CONTACT",      desc: "Survive the Eye.",                               stat: "bossSurvivals",   goal: 1 },
     { id: "boss_5",       name: "EYE OF THE STORM", desc: "Survive the Eye 5 times.",                       stat: "bossSurvivals",   goal: 5 },
@@ -2407,6 +2411,80 @@ function injectGameById(gameId, options = {}) {
     let roundFrozen = true;
     let pendingLaunchDir = 1;
 
+    // ── Maps that change the court ──────────────────────────────────────────
+    // PENALTY BOX, STACK OVERFLOW, MEMORY LEAK and DEFRAG. Their rules live in
+    // glitchpong-arenas.js; this is the glue. `arenaRules.id` is only set while
+    // a local match is on one of those maps, so the menu demo, the other arenas
+    // and online matches (whose host runs plain Pong) all see an ordinary court.
+    const ArenaRules = window.GlitchArenas || null;
+    const arenaRules = ArenaRules ? ArenaRules.createState() : { id: null };
+    const arenaCourt = { width: 0, height: 0, leftFace: 0, rightFace: 0, leftWall: 0, rightWall: 0, ballR: 0, paddleH: 0, xScale: 1 };
+    const arenaBall = { x: 0, y: 0, vx: 0, vy: 0 };
+    function courtNow() {
+      arenaCourt.width = canvas.width;
+      arenaCourt.height = canvas.height;
+      arenaCourt.leftFace = leftX + paddleW;
+      arenaCourt.rightFace = rightX;
+      arenaCourt.leftWall = leftX - 4;                  // the end walls sit just behind the paddles
+      arenaCourt.rightWall = rightX + paddleW + 4;
+      arenaCourt.ballR = BALL_R;
+      arenaCourt.paddleH = paddleH;
+      arenaCourt.xScale = courtSpeedScale();
+      return arenaCourt;
+    }
+    function courtTopAt(x) { return arenaRules.id ? ArenaRules.topAt(arenaRules, courtNow(), x) : 0; }
+    function courtBottomAt(x) { return arenaRules.id ? ArenaRules.bottomAt(arenaRules, courtNow(), x) : canvas.height; }
+    // A band clear of the walls from one paddle to the other, for placing things.
+    function courtBand() { return arenaRules.id ? ArenaRules.band(arenaRules, courtNow()) : { top: 0, bottom: canvas.height }; }
+    function courtYAt(share) { const b = courtBand(); return b.top + (b.bottom - b.top) * share; }
+    function paddleMinY() { return arenaRules.id ? ArenaRules.paddleBand(arenaRules, courtNow()).top : 0; }
+    function paddleMaxY() { return (arenaRules.id ? ArenaRules.paddleBand(arenaRules, courtNow()).bottom : canvas.height) - paddleH; }
+    // PENALTY BOX sets the paddles in from the edge, so there is a goal behind
+    // each one to see. Every other court keeps them where they always were.
+    function placePaddleAnchors() {
+      const gap = paddleEdgeGap + (arenaRules.id === "penalty" ? (isMobileDevice ? 20 : 30) : 0);
+      leftX = gap + safeInsetLeft;
+      rightX = canvas.width - gap - safeInsetRight - paddleW;
+    }
+    function startArenaRules(id) {
+      if (!ArenaRules) return;
+      arenaRules.id = ArenaRules.IDS.includes(id) ? id : null;
+      placePaddleAnchors();
+      ArenaRules.start(arenaRules, id, courtNow());
+    }
+    function arenaRoundReset() { if (arenaRules.id) ArenaRules.roundReset(arenaRules, courtNow()); }
+    // The ball against the map's top and bottom walls. True when it bounced.
+    function arenaWalls() {
+      arenaBall.x = ballX; arenaBall.y = ballY; arenaBall.vx = vx; arenaBall.vy = vy;
+      const hit = ArenaRules.walls(arenaRules, courtNow(), arenaBall);
+      ballX = arenaBall.x; ballY = arenaBall.y; vy = arenaBall.vy;
+      if (!hit) return false;
+      if (hit.type === "wrap") {
+        ballTrail = [];                                 // or the trail would streak the height of the screen
+        wallSweepFromX = null;                          // a wrap is a jump, not a move through a glitch wall
+        if (hit.toX !== hit.fromX) { glitchPulse = Math.max(glitchPulse, 10); pongAudio.teleport(); }
+        return false;
+      }
+      return true;
+    }
+    function updateArenaRules() {
+      if (!arenaRules.id) return;
+      const live = !roundFrozen && !countdownActive && !bossModeActive && !preBossActive && shakeFrames === 0
+        && !gameOver && !finalScoreCinematic && progScreen !== "levelUp" && progScreen !== "perkSelect";
+      ArenaRules.update(arenaRules, courtNow(), getHeatRatio(), criticalHeat, live);
+      // Walls that move take whatever is in their way with them.
+      leftY = clamp(leftY, paddleMinY(), paddleMaxY());
+      rightY = clamp(rightY, paddleMinY(), paddleMaxY());
+      const band = courtBand();
+      if (arenaPowerup) arenaPowerup.y = clamp(arenaPowerup.y, band.top + arenaPowerup.r + 6, band.bottom - arenaPowerup.r - 6);
+      for (const wall of glitchWalls) {
+        if (wall.phase === "dying" || (wall.y >= band.top + 6 && wall.y + wall.h <= band.bottom - 6)) continue;
+        wall.phase = "dying";
+        wall.dyingTimer = wall.dyingMax;
+        wall.fragments = makeWallFragments(wall);
+      }
+    }
+
     // ── Ball Sentience ─────────────────────────────────────────────────────
     // Spite: track score gap so ball develops a subtle bias toward loser
     let spiteBias       = 0;   // -1 = help left, +1 = help right, 0 = neutral
@@ -3688,6 +3766,7 @@ function injectGameById(gameId, options = {}) {
       countdownActive = false;
       roundFrozen = false;
       clearGlitchWalls();
+      startArenaRules(null);   // the online host runs plain Pong, so no court rules here
       applyOnlineSnapshot(snapshot);
       const arena = getArena();
       if (arena.cleanup) arena.cleanup();
@@ -3802,7 +3881,7 @@ function injectGameById(gameId, options = {}) {
       arenaPowerup = {
         type: POWERUP_TYPES[Math.floor(Math.random() * POWERUP_TYPES.length)],
         x: canvas.width * (0.33 + Math.random() * 0.34),
-        y: canvas.height * (0.22 + Math.random() * 0.56),
+        y: courtYAt(0.22 + Math.random() * 0.56),
         r: POWERUP_RADIUS,
         life: 900,
         pulse: Math.random() * Math.PI * 2
@@ -3861,7 +3940,7 @@ function injectGameById(gameId, options = {}) {
 
       // Move the real ball to its chosen lane
       ballX += direction * 10;
-      ballY = clamp(origBallY + real.y, BALL_R + 4, canvas.height - BALL_R - 4);
+      ballY = clamp(origBallY + real.y, courtTopAt(ballX) + BALL_R + 4, courtBottomAt(ballX) - BALL_R - 4);
       vx = Math.cos(baseAngle + real.angle) * speed;
       vy = Math.sin(baseAngle + real.angle) * speed;
 
@@ -3870,7 +3949,7 @@ function injectGameById(gameId, options = {}) {
         if (i === realLane) return;
         decoys.push({
           x: ballX,
-          y: clamp(origBallY + lane.y, BALL_R + 4, canvas.height - BALL_R - 4),
+          y: clamp(origBallY + lane.y, courtTopAt(ballX) + BALL_R + 4, courtBottomAt(ballX) - BALL_R - 4),
           vx: Math.cos(baseAngle + lane.angle) * speed * 0.97,
           vy: Math.sin(baseAngle + lane.angle) * speed * 0.97,
           life: 400,
@@ -3914,6 +3993,7 @@ function injectGameById(gameId, options = {}) {
       bossData = null;
       clearPowerStates();
       resetBlackHoleNexusGameplay();
+      arenaRoundReset();
       Object.values(aiTrackingState).forEach((tracking) => {
         tracking.wasApproaching = false;
         tracking.aimError = 0;
@@ -3948,7 +4028,7 @@ function injectGameById(gameId, options = {}) {
       const trailScale = dashDistance / DASH_DISTANCE;
       if (side === "left") {
         if (leftDashCooldown > 0) return;
-        leftY = clamp(leftY + direction * dashDistance, 0, canvas.height - paddleH);
+        leftY = clamp(leftY + direction * dashDistance, paddleMinY(), paddleMaxY());
         leftDashCooldown = dashCooldown;
         leftDashTrail = [
           { x: leftX, y: leftY - direction * 18 * trailScale, life: 8 },
@@ -3965,7 +4045,7 @@ function injectGameById(gameId, options = {}) {
       }
 
       if (side !== "right" || rightDashCooldown > 0) return;
-      rightY = clamp(rightY + direction * dashDistance, 0, canvas.height - paddleH);
+      rightY = clamp(rightY + direction * dashDistance, paddleMinY(), paddleMaxY());
       rightDashCooldown = dashCooldown;
       rightDashTrail = [
         { x: rightX, y: rightY - direction * 18 * trailScale, life: 8 },
@@ -4052,10 +4132,13 @@ function injectGameById(gameId, options = {}) {
         }
       }
 
+      // On STACK OVERFLOW the real ball wraps, so a read that runs off the top
+      // comes back in at the bottom. The Eye's shots still bounce.
+      const straightY = targetBallY + targetVy * Math.min(predictionFrames, travelFrames);
       const predictedY = clamp(
-        targetBallY + targetVy * Math.min(predictionFrames, travelFrames),
-        paddleH * 0.5,
-        canvas.height - paddleH * 0.5
+        arenaRules.id && typeof options.ballY !== "number" ? ArenaRules.predictY(arenaRules, courtNow(), straightY) : straightY,
+        paddleMinY() + paddleH * 0.5,
+        paddleMaxY() + paddleH * 0.5
       );
       const tracking = aiTrackingState[side];
 
@@ -4286,8 +4369,7 @@ function injectGameById(gameId, options = {}) {
     function onGameResize() {
       // Recalculate both paddle anchors when rotation swaps the notched edge.
       refreshGameplaySafeArea();
-      leftX = paddleEdgeGap + safeInsetLeft;
-      rightX = canvas.width - paddleEdgeGap - safeInsetRight - paddleW;
+      placePaddleAnchors();
 
       // Update mobile paddle height if it's percentage-based
       if (isMobileDevice) {
@@ -4463,6 +4545,7 @@ function injectGameById(gameId, options = {}) {
       if (!modeSelected || gameOver || finalScoreCinematic) return;
       ensureBossAssets();
       bossEncounteredThisMatch = true;
+      if (arenaRules.id) ArenaRules.openCourt(arenaRules);   // MEMORY LEAK: the Eye's shots use the full height
       preBossActive = true;
       preBossTimer  = 0;
       preBossSnapX  = ballX;
@@ -4791,6 +4874,7 @@ function injectGameById(gameId, options = {}) {
         combo = 0;
         comboTimer = 0;
         pongAudio.setIntensity(0);
+        arenaRoundReset();
       };
 
       if (bossOutcome.type === "fail") {
@@ -5893,7 +5977,7 @@ function injectGameById(gameId, options = {}) {
         drawConstructBackdrop(heatRatio);
       } else if (currentArenaId === "blackhole") {
         drawBlackHoleBackdrop(heatRatio);
-      } else {
+      } else if (!drawCourtMapBackdrop(heatRatio)) {
         drawSystemBackdrop(alpha);
       }
 
@@ -5912,7 +5996,7 @@ function injectGameById(gameId, options = {}) {
         ctx.stroke();
         ctx.setLineDash([]);
       } else {
-        ctx.strokeStyle = "rgba(86,224,255,0.18)";
+        ctx.strokeStyle = COURT_MAP_NET[currentArenaId] || "rgba(86,224,255,0.18)";
         ctx.setLineDash([12, 12]);
         ctx.beginPath();
         ctx.moveTo(canvas.width / 2, 0);
@@ -5920,6 +6004,9 @@ function injectGameById(gameId, options = {}) {
         ctx.stroke();
         ctx.setLineDash([]);
       }
+
+      // MEMORY LEAK and DEFRAG walls reach into the court, so they sit under the ball.
+      if (arenaRules.id) drawCourtMapRules(heatRatio);
 
       if (showPaddles) {
         for (const trail of leftDashTrail) {
@@ -6027,6 +6114,12 @@ function injectGameById(gameId, options = {}) {
         const chargeSize  = (colorCharge - 1) * 0.5;
         drawColorChargeFX(ballX, ballY);   // extra effects below/around ball
         drawSkinnedBall(ballX, ballY, BALL_R + heatRatio * 1.2 + chargeSize, 22 + heatRatio * 12 + chargeGlow, 0.75 + heatRatio * 0.2 + (colorCharge - 1) * 0.05);
+        // STACK OVERFLOW: a ball crossing the seam shows on both sides of it.
+        if (arenaRules.id === "overflow" && !roundFrozen) {
+          const seamReach = (BALL_R + 4) * 3;
+          const wrapTo = ballY < seamReach ? 1 : ballY > canvas.height - seamReach ? -1 : 0;
+          if (wrapTo) drawSkinnedBall(ballX - wrapTo * arenaRules.overflow.shift, ballY + wrapTo * canvas.height, BALL_R + heatRatio * 1.2 + chargeSize, 22 + heatRatio * 12 + chargeGlow, 0.75 + heatRatio * 0.2);
+        }
         drawCosmeticFX();
 
         // Drowsy Z particles — float up from the ball during exhaustion
@@ -6866,7 +6959,8 @@ function injectGameById(gameId, options = {}) {
       // Keep away from goal edges
       if (wx < leftX + paddleW + 52) return false;
       if (wx + ww > rightX - 52)     return false;
-      if (wy < 24 || wy + wh > canvas.height - 24) return false;
+      const band = courtBand();
+      if (wy < band.top + 24 || wy + wh > band.bottom - 24) return false;
 
       // Generous padding around each paddle (so they never trap a paddle)
       const PAD = 64;
@@ -6908,8 +7002,8 @@ function injectGameById(gameId, options = {}) {
 
       const safeX1 = leftX + paddleW + 55;
       const safeX2 = rightX - 55;
-      const safeY1 = 28;
-      const safeY2 = canvas.height - 28;
+      const safeY1 = courtBand().top + 28;
+      const safeY2 = courtBand().bottom - 28;
 
       for (let attempt = 0; attempt < 14; attempt++) {
         const horiz = Math.random() < 0.55;
@@ -7188,8 +7282,62 @@ function injectGameById(gameId, options = {}) {
         hasOverlay: true,
         init:     initBlackHoleNexusArena,
         cleanup:  cleanupBlackHoleNexusArena
+      },
+      // The four court maps change the walls. `courtRules` marks an arena whose
+      // rules are in glitchpong-arenas.js; its drawing is under COURT MAPS below.
+      {
+        id:       "penalty",
+        name:     "PENALTY BOX",
+        subtitle: "Goal Mouths // Solid Posts",
+        desc:     "Only the middle of each end wall is a goal. Hit the post and your own shot comes back for you.",
+        tags:     ["Goal Posts", "Own-Goal Risk", "Critical Drift"],
+        accent:   "#ffe066",
+        gradient: "linear-gradient(135deg,rgba(4,18,12,0.96) 0%,rgba(18,40,20,0.8) 100%)",
+        hasOverlay: false,
+        courtRules: true,
+        init:     null,
+        cleanup:  null
+      },
+      {
+        id:       "overflow",
+        name:     "STACK OVERFLOW",
+        subtitle: "No Ceiling // No Floor",
+        desc:     "The top and bottom edges wrap. The ball leaves one and comes back through the other.",
+        tags:     ["Wraparound", "Seam Shift", "Heat Reactive"],
+        accent:   "#ff9d3c",
+        gradient: "linear-gradient(135deg,rgba(20,10,3,0.96) 0%,rgba(48,22,4,0.8) 100%)",
+        hasOverlay: false,
+        courtRules: true,
+        init:     null,
+        cleanup:  null
+      },
+      {
+        id:       "leak",
+        name:     "MEMORY LEAK",
+        subtitle: "Closing Walls // Per Return",
+        desc:     "Every return costs the court a little height. Score and it is all freed at once.",
+        tags:     ["Shrinking Court", "Long Rallies", "Corridor"],
+        accent:   "#ff6b6b",
+        gradient: "linear-gradient(135deg,rgba(11,6,18,0.96) 0%,rgba(46,10,22,0.8) 100%)",
+        hasOverlay: false,
+        courtRules: true,
+        init:     null,
+        cleanup:  null
+      },
+      {
+        id:       "defrag",
+        name:     "DEFRAG",
+        subtitle: "Jagged Walls // Rearranging",
+        desc:     "Slanted blocks line the top and bottom and move between points. No two serves bounce the same.",
+        tags:     ["Slanted Blocks", "New Angles", "Heat Shifts"],
+        accent:   "#5aa9ff",
+        gradient: "linear-gradient(135deg,rgba(3,10,22,0.96) 0%,rgba(6,24,56,0.8) 100%)",
+        hasOverlay: false,
+        courtRules: true,
+        init:     null,
+        cleanup:  null
       }
-    ];
+    ].filter(arena => !arena.courtRules || ArenaRules);   // no rules file, no court maps
 
     let currentArenaId = "classic";
     let pendingTwoPlayer = false;
@@ -8184,6 +8332,408 @@ function injectGameById(gameId, options = {}) {
       ctx.restore();
     }
     // called from render() — dispatches to correct arena overlay
+    // ═══════════════════════════════════════════════════════════════════════
+    // COURT MAPS — PENALTY BOX, STACK OVERFLOW, MEMORY LEAK, DEFRAG
+    // Drawing only. The rules are in glitchpong-arenas.js (docs/arenas.md);
+    // nothing in this section moves the ball or a paddle.
+    // ═══════════════════════════════════════════════════════════════════════
+    const COURT_MAP_NET = {
+      penalty: "rgba(214,255,226,0.20)",
+      overflow: "rgba(255,157,60,0.22)",
+      leak: "rgba(255,107,107,0.20)",
+      defrag: "rgba(90,169,255,0.22)"
+    };
+
+    // Walls are filled with a small repeating tile, painted once, instead of
+    // hundreds of little rectangles a frame.
+    const courtMapPatterns = {};
+    function courtMapPattern(key, size, paint) {
+      if (!courtMapPatterns[key]) {
+        const tile = document.createElement("canvas");
+        tile.width = tile.height = size;
+        paint(tile.getContext("2d"), size);
+        courtMapPatterns[key] = ctx.createPattern(tile, "repeat");
+      }
+      return courtMapPatterns[key];
+    }
+
+    // Labels at the top of the court have to clear the HUD bar.
+    function courtMapLabelY(y) { return Math.max(y, isMobileDevice ? 50 : 84); }
+
+    // A cheap repeatable 0..1 value, so scattered details stay put between frames.
+    function courtMapNoise(i) {
+      const v = Math.sin(i * 127.1 + 311.7) * 43758.5453;
+      return v - Math.floor(v);
+    }
+
+    function courtMapFill(top, bottom) {
+      const bg = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      bg.addColorStop(0, top);
+      bg.addColorStop(1, bottom);
+      ctx.fillStyle = bg;
+      ctx.fillRect(-60, -60, canvas.width + 120, canvas.height + 120);
+    }
+
+    function courtMapFinish() {
+      const W = canvas.width, H = canvas.height;
+      if (!savingPower()) {
+        ctx.fillStyle = "rgba(255,255,255,0.016)";
+        for (let y = 0; y < H; y += 6) ctx.fillRect(0, y, W, 1);
+      }
+      const vignette = ctx.createRadialGradient(W / 2, H / 2, H * 0.2, W / 2, H / 2, W * 0.7);
+      vignette.addColorStop(0, "rgba(0,0,0,0)");
+      vignette.addColorStop(1, "rgba(0,0,0,0.38)");
+      ctx.fillStyle = vignette;
+      ctx.fillRect(-60, -60, W + 120, H + 120);
+    }
+
+    // Returns false when the current arena isn't a court map.
+    function drawCourtMapBackdrop(hr) {
+      const draw = { penalty: drawPenaltyBackdrop, overflow: drawOverflowBackdrop, leak: drawLeakBackdrop, defrag: drawDefragBackdrop }[currentArenaId];
+      if (!draw) return false;
+      ctx.save();
+      draw(hr);
+      courtMapFinish();
+      ctx.restore();
+      return true;
+    }
+
+    // Walls that reach into the court are drawn with it, under the camera, so
+    // they line up with the ball.
+    function drawCourtMapRules(hr) {
+      ctx.save();
+      if (arenaRules.id === "leak") drawLeakWalls(hr);
+      else if (arenaRules.id === "defrag") drawDefragWalls(hr);
+      ctx.restore();
+    }
+
+    // PENALTY BOX's posts and STACK OVERFLOW's seam sit on the screen edge. They
+    // are drawn with the paddles, after the camera: it zooms in as Heat rises
+    // and would push anything out there off the screen just when it matters.
+    function drawCourtMapEdges(hr) {
+      if (arenaRules.id !== "penalty" && arenaRules.id !== "overflow") return;
+      ctx.save();
+      if (arenaRules.id === "penalty") drawPenaltyPosts(hr);
+      else drawOverflowSeam(hr);
+      ctx.restore();
+    }
+
+    // ── PENALTY BOX: a pitch under floodlights ──────────────────────────────
+    function drawPenaltyBackdrop(hr) {
+      const W = canvas.width, H = canvas.height;
+      courtMapFill("#04140d", "#020b07");
+
+      const stripes = 10, stripeW = W / stripes;
+      ctx.fillStyle = "rgba(70,170,100,0.05)";
+      for (let i = 0; i < stripes; i += 2) ctx.fillRect(i * stripeW, -60, stripeW, H + 120);
+
+      [[0, 0], [W, 0]].forEach(([x, y]) => {
+        const lamp = ctx.createRadialGradient(x, y, 10, x, y, W * 0.5);
+        lamp.addColorStop(0, `rgba(255,236,160,${0.10 + hr * 0.05})`);
+        lamp.addColorStop(1, "rgba(255,236,160,0)");
+        ctx.fillStyle = lamp;
+        ctx.fillRect(-60, -60, W + 120, H + 120);
+      });
+
+      const chalk = `rgba(214,255,226,${0.13 + hr * 0.05})`;
+      const wallL = leftX - 4, wallR = rightX + paddleW + 4;
+      ctx.strokeStyle = chalk;
+      ctx.fillStyle = chalk;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(wallL, 8, wallR - wallL, H - 16);
+      const circleR = Math.min(H * 0.2, W * 0.12);
+      ctx.beginPath(); ctx.arc(W / 2, H / 2, circleR, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(W / 2, H / 2, 4, 0, Math.PI * 2); ctx.fill();
+      [[wallL, 1], [wallR, -1]].forEach(([x, dir]) => {
+        const boxW = W * 0.15, boxH = H * 0.74, sixW = W * 0.055, sixH = H * 0.4;
+        ctx.strokeRect(dir > 0 ? x : x - boxW, (H - boxH) / 2, boxW, boxH);
+        ctx.strokeRect(dir > 0 ? x : x - sixW, (H - sixH) / 2, sixW, sixH);
+        const spotX = x + dir * W * 0.105, arcR = circleR * 0.8;
+        ctx.beginPath(); ctx.arc(spotX, H / 2, 3, 0, Math.PI * 2); ctx.fill();
+        const half = Math.acos(Math.min(1, (boxW - W * 0.105) / arcR));
+        ctx.beginPath();
+        ctx.arc(spotX, H / 2, arcR, (dir > 0 ? 0 : Math.PI) - half, (dir > 0 ? 0 : Math.PI) + half);
+        ctx.stroke();
+      });
+    }
+
+    function drawPenaltyPosts(hr) {
+      const W = canvas.width, H = canvas.height, c = courtNow(), state = arenaRules.penalty;
+      const post = courtMapPattern("penaltyPost", 24, (g, n) => {
+        g.fillStyle = "#121a12";
+        g.fillRect(0, 0, n, n);
+        g.strokeStyle = "rgba(255,224,102,0.55)";
+        g.lineWidth = 5;
+        for (let o = -n; o <= n; o += n / 2) { g.beginPath(); g.moveTo(o, n); g.lineTo(o + n, 0); g.stroke(); }
+      });
+      const net = courtMapPattern("penaltyNet", 12, (g, n) => {
+        g.strokeStyle = "rgba(255,255,255,0.30)";
+        g.lineWidth = 1;
+        g.beginPath(); g.moveTo(0, 0); g.lineTo(n, n); g.moveTo(n, 0); g.lineTo(0, n); g.stroke();
+      });
+      [["left", c.leftWall, -1, "103,239,255"], ["right", c.rightWall, 1, "255,79,216"]].forEach(([side, face, dir, rgb]) => {
+        const m = ArenaRules.mouth(arenaRules, c, side), flash = state.flash[side];
+        const x0 = dir < 0 ? -60 : face, w = dir < 0 ? face + 60 : W + 60 - face;
+        const parts = [[-60, m.top + 60], [m.bottom, H + 60 - m.bottom]];
+
+        // the goal: a lit net in the defender's colour
+        ctx.fillStyle = `rgba(${rgb},0.16)`;
+        ctx.fillRect(x0, m.top, w, m.bottom - m.top);
+        ctx.fillStyle = net;
+        ctx.fillRect(x0, m.top, w, m.bottom - m.top);
+        ctx.fillStyle = `rgba(${rgb},0.05)`;
+        ctx.fillRect(dir < 0 ? face : face - 70, m.top, 70, m.bottom - m.top);
+
+        // the posts: everything else on the end wall
+        parts.forEach(([y, h]) => {
+          ctx.fillStyle = post;
+          ctx.fillRect(x0, y, w, h);
+          ctx.fillStyle = "rgba(255,224,102,0.035)";
+          ctx.fillRect(dir < 0 ? face : face - 26, y, 26, h);
+          if (flash > 0) { ctx.fillStyle = `rgba(255,255,255,${flash * 0.55})`; ctx.fillRect(x0, y, w, h); }
+        });
+        ctx.shadowColor = "rgba(255,224,102,0.85)";
+        ctx.shadowBlur = 10 + flash * 16;
+        ctx.fillStyle = `rgba(255,238,160,${0.8 + flash * 0.2})`;
+        parts.forEach(([y, h]) => ctx.fillRect(dir < 0 ? face - 3 : face, y, 3, h));
+        ctx.shadowColor = `rgba(${rgb},0.9)`;
+        ctx.fillStyle = `rgba(${rgb},0.95)`;
+        [m.top - 4, m.bottom].forEach((y) => ctx.fillRect(x0, y, w, 4));
+        ctx.shadowBlur = 0;
+
+        // at Critical Heat the mouths start to move: say which way
+        if (state.amount > 0.02) {
+          const phase = state.phase + (side === "right" ? ArenaRules.TUNING.driftOffset : 0);
+          const up = Math.cos(phase) < 0, ax = face - dir * 20;
+          const ay = up ? m.top + 16 : m.bottom - 16, s = up ? -1 : 1;
+          ctx.fillStyle = `rgba(${rgb},${0.35 + state.amount * 0.55})`;
+          ctx.beginPath();
+          ctx.moveTo(ax, ay + s * 9); ctx.lineTo(ax - 7, ay - s * 4); ctx.lineTo(ax + 7, ay - s * 4);
+          ctx.closePath(); ctx.fill();
+        }
+      });
+    }
+
+    // ── STACK OVERFLOW: stack frames that scroll for ever ───────────────────
+    function drawOverflowBackdrop(hr) {
+      const W = canvas.width, H = canvas.height, t = performance.now() * 0.001;
+      courtMapFill("#150b03", "#0a0502");
+
+      // Everything drifts up and comes back in at the bottom, like the ball will.
+      const rowH = 56, travel = t * (16 + hr * 30), scroll = travel % rowH, first = Math.floor(travel / rowH);
+      ctx.font = "10px monospace";
+      ctx.textBaseline = "middle";
+      ctx.textAlign = "center";
+      for (let y = -scroll, i = 0; y < H + rowH; y += rowH, i++) {
+        ctx.fillStyle = "rgba(255,157,60,0.08)";
+        ctx.fillRect(-60, y, W + 120, 1);
+        if ((first + i) % 2 === 0) { ctx.fillStyle = "rgba(255,157,60,0.02)"; ctx.fillRect(-60, y, W + 120, rowH); }
+        if (!savingPower()) {
+          const address = "0x" + ((0x7ff0 - (first + i) * 0x10) & 0xffff).toString(16).toUpperCase().padStart(4, "0");
+          ctx.fillStyle = "rgba(255,180,100,0.16)";
+          ctx.fillText(address, W * 0.27, y + rowH / 2);
+          ctx.fillText(address, W * 0.73, y + rowH / 2);
+        }
+      }
+      ctx.fillStyle = "rgba(255,157,60,0.035)";
+      for (let i = 1; i < 8; i++) ctx.fillRect(W * i / 8, -60, 1, H + 120);
+    }
+
+    function drawOverflowSeam(hr) {
+      const W = canvas.width, H = canvas.height, c = courtNow(), state = arenaRules.overflow;
+      const glow = 0.16 + hr * 0.08 + state.flash * 0.3;
+      [[0, 1], [H, -1]].forEach(([y, dir]) => {
+        const fade = ctx.createLinearGradient(0, y, 0, y + dir * 34);
+        fade.addColorStop(0, `rgba(255,157,60,${glow})`);
+        fade.addColorStop(1, "rgba(255,157,60,0)");
+        ctx.fillStyle = fade;
+        ctx.fillRect(0, dir > 0 ? 0 : H - 34, W, 34);
+      });
+      ctx.strokeStyle = `rgba(255,200,130,${0.65 + state.flash * 0.35})`;
+      ctx.lineWidth = 3;
+      ctx.setLineDash([14, 10]);
+      ctx.lineDashOffset = -performance.now() * 0.03;
+      ctx.beginPath();
+      ctx.moveTo(0, 1.5); ctx.lineTo(W, 1.5);
+      ctx.moveTo(0, H - 1.5); ctx.lineTo(W, H - 1.5);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Matching markers on both edges: leave through one and you come back at
+      // its twin. When the seam shifts, the top row slides against the bottom.
+      const marks = 8, span = c.rightFace - c.leftFace;
+      ctx.font = "bold 11px monospace";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      for (let k = 0; k < marks; k++) {
+        const bottomX = c.leftFace + span * (k + 0.5) / marks;
+        const topX = clamp(bottomX + state.shift, c.leftFace + 8, c.rightFace - 8);
+        const tint = k % 2 ? "255,157,60" : "255,224,150";
+        [[topX, 1], [bottomX, -1]].forEach(([x, dir]) => {
+          const y = dir > 0 ? 4 : H - 4;
+          ctx.fillStyle = `rgba(${tint},0.85)`;
+          ctx.beginPath();
+          ctx.moveTo(x - 7, y); ctx.lineTo(x + 7, y); ctx.lineTo(x, y + dir * 9);
+          ctx.closePath(); ctx.fill();
+          ctx.fillStyle = `rgba(${tint},0.7)`;
+          ctx.fillText(k.toString(16).toUpperCase(), x, y + dir * 18);
+        });
+      }
+
+      if (state.amount > 0.02) {
+        const offset = Math.round(Math.abs(state.shift));
+        ctx.fillStyle = `rgba(255,200,130,${0.35 + state.amount * 0.6})`;
+        ctx.fillText(`SEAM SHIFT ${state.shift < 0 ? "<<" : ">>"} 0x${offset.toString(16).toUpperCase().padStart(2, "0")}`, W / 2, courtMapLabelY(0));
+      }
+    }
+
+    // ── MEMORY LEAK: a heap that fills from both ends ───────────────────────
+    function drawLeakBackdrop(hr) {
+      const W = canvas.width, H = canvas.height, t = performance.now() * 0.001;
+      courtMapFill("#0c0613", "#07040c");
+      const cell = 34;
+      ctx.fillStyle = "rgba(255,107,107,0.04)";
+      for (let x = 0; x < W; x += cell) ctx.fillRect(x, -60, 1, H + 120);
+      for (let y = 0; y < H; y += cell) ctx.fillRect(-60, y, W + 120, 1);
+
+      // Allocated blocks that nobody freed. More of them as the court fills.
+      const used = arenaRules.id === "leak" ? arenaRules.leak.inset / Math.max(1, ArenaRules.leakMaxInset(courtNow())) : 0;
+      const blocks = Math.round((14 + used * 40 + hr * 14) * (savingPower() ? 0.5 : 1));
+      const cols = Math.ceil(W / cell), rows = Math.ceil(H / cell);
+      for (let i = 0; i < blocks; i++) {
+        const x = Math.floor(courtMapNoise(i) * cols) * cell, y = Math.floor(courtMapNoise(i + 400) * rows) * cell;
+        const alpha = 0.05 + 0.07 * (0.5 + 0.5 * Math.sin(t * 1.3 + i * 1.7));
+        ctx.fillStyle = i % 5 === 0 ? `rgba(180,130,255,${alpha})` : `rgba(255,107,107,${alpha})`;
+        ctx.fillRect(x + 2, y + 2, cell - 3, cell - 3);
+      }
+    }
+
+    function drawLeakWalls(hr) {
+      const W = canvas.width, H = canvas.height, state = arenaRules.leak, inset = state.inset;
+      const t = performance.now() * 0.001;
+      const heap = courtMapPattern("leakHeap", 34, (g, n) => {
+        g.fillStyle = "#1d0812";
+        g.fillRect(0, 0, n, n);
+        g.fillStyle = "rgba(255,107,107,0.34)";
+        g.fillRect(2, 2, n - 3, n - 3);
+        g.fillStyle = "rgba(29,8,18,0.55)";
+        g.fillRect(7, 7, n - 13, n - 13);
+      });
+      const edge = 0.55 + hr * 0.3 + state.snap * 0.4;
+      [[-60, inset + 60, inset - 3, 1], [H - inset, inset + 60, H - inset, -1]].forEach(([y, h, lineY, dir]) => {
+        if (inset > 0.5) {
+          ctx.fillStyle = heap;
+          ctx.fillRect(-60, y, W + 120, h);
+          // drips reaching into the court
+          ctx.fillStyle = "rgba(255,107,107,0.5)";
+          for (let i = 0; i < 9; i++) {
+            const x = courtMapNoise(i + (dir > 0 ? 0 : 50)) * W;
+            const len = 5 + 9 * (0.5 + 0.5 * Math.sin(t * 2.1 + i * 2.3));
+            ctx.fillRect(x, dir > 0 ? inset : H - inset - len, 3, len);
+          }
+        }
+        ctx.shadowColor = "rgba(255,107,107,0.9)";
+        ctx.shadowBlur = 12;
+        ctx.fillStyle = `rgba(255,${Math.round(140 + state.snap * 115)},${Math.round(140 + state.snap * 115)},${Math.min(1, edge)})`;
+        ctx.fillRect(-60, lineY, W + 120, 3);
+        ctx.shadowBlur = 0;
+      });
+
+      ctx.font = "bold 11px monospace";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      const used = Math.round(100 * inset / Math.max(1, ArenaRules.leakMaxInset(courtNow())));
+      if (state.snap > 0.05) {
+        ctx.fillStyle = `rgba(255,235,235,${state.snap})`;
+        ctx.fillText("MEMORY FREED", W / 2, courtMapLabelY(inset + 22));
+      } else if (used > 0) {
+        ctx.fillStyle = `rgba(255,150,150,${0.45 + (used / 100) * 0.45})`;
+        ctx.fillText(`LEAKED ${used}%`, W / 2, courtMapLabelY(inset + 22));
+      }
+    }
+
+    // ── DEFRAG: a disk map mid-defragment ───────────────────────────────────
+    const DEFRAG_COLORS = ["47,107,255", "77,226,255", "255,79,109", "240,246,255"];
+    function drawDefragBackdrop(hr) {
+      const W = canvas.width, H = canvas.height, t = performance.now() * 0.001;
+      courtMapFill("#030b18", "#02060e");
+      const cell = 44;
+      ctx.fillStyle = "rgba(90,169,255,0.04)";
+      for (let x = 0; x < W; x += cell) ctx.fillRect(x, -60, 1, H + 120);
+      for (let y = 0; y < H; y += cell) ctx.fillRect(-60, y, W + 120, 1);
+
+      // Loose clusters waiting to be moved, and the read head working along them.
+      const clusters = savingPower() ? 18 : 40, cols = Math.ceil(W / 22), rows = Math.ceil(H / 22);
+      const head = Math.floor(t * (5 + hr * 8)) % clusters;
+      for (let i = 0; i < clusters; i++) {
+        const x = Math.floor(courtMapNoise(i + 90) * cols) * 22, y = Math.floor(courtMapNoise(i + 700) * rows) * 22;
+        ctx.fillStyle = `rgba(${i === head ? DEFRAG_COLORS[3] : DEFRAG_COLORS[i % 3]},${i === head ? 0.5 : 0.11})`;
+        ctx.fillRect(x + 2, y + 2, 18, 18);
+      }
+      ctx.font = "10px monospace";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = "rgba(140,190,255,0.16)";
+      ctx.fillText(`DEFRAGMENTING DRIVE C:  ${Math.floor((t * 2.5) % 100)}%`, W / 2, H * 0.5 + Math.min(H * 0.2, W * 0.12) + 18);
+    }
+
+    function drawDefragWalls(hr) {
+      const W = canvas.width, H = canvas.height, c = courtNow(), state = arenaRules.defrag;
+      const n = state.top.length - 1;
+      if (n < 1) return;
+      const cells = courtMapPattern("defragCells", 48, (g, size) => {
+        g.fillStyle = "#04112a";
+        g.fillRect(0, 0, size, size);
+        const order = [0, 0, 1, 0, 0, 2, 0, 0, 1, 0, 0, 0, 0, 3, 0, 1];
+        order.forEach((colour, i) => {
+          g.fillStyle = `rgba(${DEFRAG_COLORS[colour]},${colour === 0 ? 0.55 : 0.8})`;
+          g.fillRect((i % 4) * 12 + 1, Math.floor(i / 4) * 12 + 1, 10, 10);
+        });
+      });
+      const xAt = (i) => c.leftFace + (c.rightFace - c.leftFace) * i / n;
+      const trace = (profile, top, close) => {
+        const y = (d) => top ? d : H - d;
+        ctx.beginPath();
+        if (close) { ctx.moveTo(-60, top ? -60 : H + 60); ctx.lineTo(-60, y(profile[0])); }
+        else ctx.moveTo(-60, y(profile[0]));
+        for (let i = 0; i <= n; i++) ctx.lineTo(xAt(i), y(profile[i]));
+        ctx.lineTo(W + 60, y(profile[n]));
+        if (close) { ctx.lineTo(W + 60, top ? -60 : H + 60); ctx.closePath(); }
+      };
+      ["top", "bottom"].forEach((wall) => {
+        const top = wall === "top";
+        trace(state[wall], top, true);
+        ctx.fillStyle = cells;
+        ctx.fill();
+        if (state.moved > 0) { ctx.fillStyle = `rgba(170,215,255,${state.moved * 0.3})`; ctx.fill(); }
+        trace(state[wall], top, false);
+        ctx.strokeStyle = `rgba(150,205,255,${0.8 + hr * 0.2})`;
+        ctx.lineWidth = 2.5;
+        ctx.lineJoin = "round";
+        ctx.shadowColor = "rgba(90,169,255,0.9)";
+        ctx.shadowBlur = 10;
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+      });
+
+      // At high Heat a wall is about to move: outline where it is going first.
+      if (state.pending) {
+        const top = state.pending.wall === "top", blink = 0.45 + 0.45 * Math.sin(performance.now() * 0.03);
+        trace(state.pending.profile, top, false);
+        ctx.strokeStyle = `rgba(255,209,102,${blink})`;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([8, 6]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.font = "bold 11px monospace";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = `rgba(255,209,102,${0.5 + blink * 0.5})`;
+        const band = courtBand();
+        ctx.fillText("MOVING CLUSTERS", W / 2, top ? courtMapLabelY(band.top + 16) : band.bottom - 16);
+      }
+    }
+
     function drawArenaOverlay() {
       if (currentArenaId === "matrix") {
         drawMatrixArena(getHeatRatio());
@@ -8206,6 +8756,7 @@ function injectGameById(gameId, options = {}) {
       showPaddlesThisFrame = !isMatrix;
       drawArenaBase(0.18, !isMatrix);  // skip paddles in base for Matrix (overlay redraws them)
       drawArenaOverlay();
+      drawCourtMapEdges(getHeatRatio());
       if (!isMatrix) drawScreenSpacePaddles();
       drawGlitchWalls();
       drawBossFight();
@@ -10490,6 +11041,7 @@ function injectGameById(gameId, options = {}) {
       progSummaryData = null;
       progSummaryTimer = 0;
       clearGlitchWalls();
+      startArenaRules(currentArenaId);
       // Init/reinit arena overlay
       const _startArena = getArena();
       if (_startArena.cleanup) _startArena.cleanup();
@@ -10534,6 +11086,7 @@ function injectGameById(gameId, options = {}) {
       progSummaryData = null;
       progSummaryTimer = 0;
       clearGlitchWalls();
+      startArenaRules(null);
       resetPositions();
       pongAudio.stopGameMusic();
       currentScreen = "main";
@@ -10869,6 +11422,8 @@ function injectGameById(gameId, options = {}) {
         return;
       }
 
+      updateArenaRules();   // every frame, so walls can settle between points
+
       if (gameOver) {
         scoreFlashFrames = Math.max(0, scoreFlashFrames - 1);
         glitchPulse = Math.max(0, glitchPulse - 1);
@@ -10978,8 +11533,8 @@ function injectGameById(gameId, options = {}) {
         updateAiPaddle("right");
       }
 
-      leftY = clamp(leftY, 0, canvas.height - paddleH);
-      rightY = clamp(rightY, 0, canvas.height - paddleH);
+      leftY = clamp(leftY, paddleMinY(), paddleMaxY());
+      rightY = clamp(rightY, paddleMinY(), paddleMaxY());
 
       if (bossModeActive) {
         finalPointSlowMo = false;
@@ -11057,7 +11612,11 @@ function injectGameById(gameId, options = {}) {
           decoy.x += decoy.vx * decoyTimeScale * courtSpeedScale();
           decoy.y += decoy.vy * decoyTimeScale;
           decoy.life -= 1;
-          if (decoy.y <= 10 || decoy.y >= canvas.height - 10) decoy.vy *= -1;
+          if (arenaRules.id === "overflow") decoy.y = ((decoy.y % canvas.height) + canvas.height) % canvas.height;
+          else if (arenaRules.id) {
+            if (decoy.y <= courtTopAt(decoy.x) + 10) decoy.vy = Math.abs(decoy.vy);
+            else if (decoy.y >= courtBottomAt(decoy.x) - 10) decoy.vy = -Math.abs(decoy.vy);
+          } else if (decoy.y <= 10 || decoy.y >= canvas.height - 10) decoy.vy *= -1;
           if (decoy.life <= 0 || decoy.x < -40 || decoy.x > canvas.width + 40) {
             decoys.splice(i, 1);
           }
@@ -11093,7 +11652,7 @@ function injectGameById(gameId, options = {}) {
         } else {
           const teleportFrom = { x: ballX, y: ballY, owner: ballOwner };
           ballX = canvas.width * (0.2 + Math.random() * 0.6);
-          ballY = canvas.height * (0.15 + Math.random() * 0.7);
+          ballY = courtYAt(0.15 + Math.random() * 0.7);
           spawnCosmeticFx(teleportFrom.owner, "teleport", teleportFrom.x, teleportFrom.y, { to: { x: ballX, y: ballY } });
           // A glitch that sends the ball back the way it came makes it neutral (1 point), never an own goal.
           if (Math.random() < 0.5 + heatRatio * 0.15) { vx = -vx; ballOwner = "neutral"; }
@@ -11114,7 +11673,7 @@ function injectGameById(gameId, options = {}) {
 
         if (jukeCooldown > 0) {
           jukeCooldown--;
-        } else if (ballX > canvas.width * 0.25 && ballX < canvas.width * 0.75 && ballY > 50 && ballY < canvas.height - 50) {
+        } else if (ballX > canvas.width * 0.25 && ballX < canvas.width * 0.75 && ballY > courtBand().top + 50 && ballY < courtBand().bottom - 50) {
           const jukeChance = 0.01 + heatRatio * 0.018 + (clutchMode ? 0.008 : 0);
           if (Math.random() < jukeChance) {
             vy = -vy * (1 + heatRatio * 0.08);
@@ -11188,19 +11747,31 @@ function injectGameById(gameId, options = {}) {
         ballTrail.unshift({ x: ballX, y: ballY });
         if (ballTrail.length > ghostTrailLimit * trailScale) ballTrail.pop();
 
-        if (ballY <= BALL_R || ballY >= canvas.height - BALL_R) {
-          vy *= -1;
-          if (spiteBias !== 0 && rules.sentience) {
+        // The four court maps own their top and bottom walls (they wrap, slant
+        // or move); everywhere else the ball just turns round at the edge.
+        let wallBounced;
+        if (arenaRules.id) {
+          wallBounced = arenaWalls();
+        } else {
+          wallBounced = ballY <= BALL_R || ballY >= canvas.height - BALL_R;
+          if (wallBounced) vy *= -1;
+        }
+        if (wallBounced) {
+          // Slanted DEFRAG blocks set the angle themselves; spite would undo it.
+          if (spiteBias !== 0 && rules.sentience && arenaRules.id !== "defrag") {
             const losingCenterY = spiteBias > 0 ? rightY + paddleH / 2 : leftY + paddleH / 2;
             const pull = (losingCenterY - ballY) / canvas.height * spiteBias * 0.6;
             vy = clamp(vy + pull, -8, 8);
           }
           pongAudio.wallBounce();
           const now = Date.now();
-          if (now - lastWallBounceTime < 1000) {
+          // Two bounces inside a second means the ball is stuck going up and down.
+          // A narrowed court is crossed sooner, so the window narrows with it.
+          const stuckWindow = 1000 * (courtBand().bottom - courtBand().top) / canvas.height;
+          if (now - lastWallBounceTime < stuckWindow) {
             lastWallBounceTime = 0;
             ballX = canvas.width * (0.28 + Math.random() * 0.44);
-            ballY = canvas.height * (0.22 + Math.random() * 0.56);
+            ballY = courtYAt(0.22 + Math.random() * 0.56);
             vy = (Math.random() < 0.5 ? 1 : -1) * (3 + Math.random() * 2.5);
             if (Math.abs(vx) < 4) vx = Math.sign(vx) * 4;
             ballTrail = [];
@@ -11215,7 +11786,12 @@ function injectGameById(gameId, options = {}) {
         const leftShieldPad = powerState.blue.shieldTimer > 0 ? 18 : 0;
         const rightShieldPad = powerState.red.shieldTimer > 0 ? 18 : 0;
 
-        if (ballX <= leftX + paddleW && ballY >= leftY - leftShieldPad && ballY <= leftY + paddleH + leftShieldPad) {
+        // PENALTY BOX has room behind the paddles. A shot coming back off a post
+        // passes its own defender (it is the shooter's problem now), and a ball
+        // that was already behind a paddle is in the net, not there to be saved.
+        const goalBehind = arenaRules.id === "penalty";
+        const cameFromX = wallSweepFromX === null ? ballX : wallSweepFromX;
+        if (ballX <= leftX + paddleW && ballY >= leftY - leftShieldPad && ballY <= leftY + paddleH + leftShieldPad && !(goalBehind && (vx > 0 || cameFromX < leftX))) {
           const returnHeat = getHeatRatio();
           const leftState = powerState.blue;
           const strikeBoost = leftState.powerStrikeReady ? 0.22 : 0;
@@ -11228,6 +11804,7 @@ function injectGameById(gameId, options = {}) {
           if (leftState.shieldTimer > 0) { vx *= 0.96; vy *= 0.98; }
           heat = Math.min(HEAT_MAX, heat + HEAT_PER_HIT * rules.heatRate * (1 - GlitchProgression.getPerkStat("heatResistance")));
           rallyHits += 1; matchRallyHits++; combo += 1; comboTimer = COMBO_MAX_TIME;
+          if (arenaRules.id) ArenaRules.onReturn(arenaRules);
           ballOwner = "blue";
           awardXP(GlitchProgression.XP_REWARDS.paddleHit, "paddleHit", leftX + paddleW + 20, ballY);
           if (rallyHits > 0 && rallyHits % 10 === 0) {
@@ -11248,7 +11825,7 @@ function injectGameById(gameId, options = {}) {
           if (!bossModeActive) applyBallInstability();
         }
 
-        if (ballX >= rightX && ballY >= rightY - rightShieldPad && ballY <= rightY + paddleH + rightShieldPad) {
+        if (ballX >= rightX && ballY >= rightY - rightShieldPad && ballY <= rightY + paddleH + rightShieldPad && !(goalBehind && (vx < 0 || cameFromX > rightX + paddleW))) {
           const returnHeat = getHeatRatio();
           const rightState = powerState.red;
           const strikeBoost = rightState.powerStrikeReady ? 0.22 : 0;   // same as the left paddle
@@ -11259,6 +11836,7 @@ function injectGameById(gameId, options = {}) {
           if (rightState.shieldTimer > 0) { vx *= 0.96; vy *= 0.98; }
           heat = Math.min(HEAT_MAX, heat + HEAT_PER_HIT * rules.heatRate * (1 - GlitchProgression.getPerkStat("heatResistance")));
           rallyHits += 1; matchRallyHits++; combo += 1; comboTimer = COMBO_MAX_TIME;
+          if (arenaRules.id) ArenaRules.onReturn(arenaRules);
           ballOwner = "red";
           awardXP(GlitchProgression.XP_REWARDS.paddleHit, "paddleHit", rightX - 20, ballY);
           if (rallyHits > 0 && rallyHits % 10 === 0) awardXP(GlitchProgression.XP_REWARDS.longRally, "longRally", canvas.width / 2, 40);
@@ -11282,6 +11860,24 @@ function injectGameById(gameId, options = {}) {
           if (heat >= 72 && rallyHits % 4 === 0) pongAudio.critical();
           if (!bossModeActive && !bossTriggeredThisRally && !preBossActive && heat >= HEAT_MAX) triggerPreBoss();
           if (!bossModeActive) applyBallInstability();
+        }
+
+        // ── PENALTY BOX posts ──────────────────────────────────────────────
+        // Outside the goal mouth the end wall is solid. The ball keeps its colour
+        // when it comes back, so a shot off the post is an own goal waiting to
+        // happen for whoever hit it.
+        if (arenaRules.id === "penalty" && !bossModeActive) {
+          arenaBall.x = ballX; arenaBall.y = ballY; arenaBall.vx = vx; arenaBall.vy = vy;
+          arenaBall.px = wallSweepFromX === null ? ballX : wallSweepFromX;
+          const post = ArenaRules.posts(arenaRules, courtNow(), arenaBall);
+          ballY = arenaBall.y; vy = arenaBall.vy;        // a ball in the net stays between the posts
+          if (post) {
+            ballX = arenaBall.x; vx = arenaBall.vx;
+            glitchPulse = Math.max(glitchPulse, 12);
+            triggerCameraKick(post === "left" ? 9 : -9, (Math.random() - 0.5) * 6, 0.008);
+            impactFreezeFrames = Math.max(impactFreezeFrames, 1);
+            pongAudio.wallBounce();
+          }
         }
 
         // ── Scoring ────────────────────────────────────────────────────────
