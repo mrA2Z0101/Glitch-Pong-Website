@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 
 // The rules for the sixteen maps that change how a rally plays: PENALTY BOX,
@@ -1270,6 +1270,18 @@ test('the game lists the four court maps and loads their rules', () => {
   assert.ok(/glitchcade_floor_v1/.test(site) && /gauntlet\.clears > 0/.test(site), 'the menu reads gauntlet clears from the arcade save');
   const floor = readFileSync(new URL('../glitchcade-floor.js', import.meta.url), 'utf8');
   assert.ok(floor.includes("NEW ARENA: THE EYE'S LAIR"), 'the arcade says so when the gauntlet is first cleared');
+
+  // Every arena playlist names an arena that exists and files that are there.
+  const playlists = site.match(/arenaTracks: \{([\s\S]*?)\n        \},/);
+  assert.ok(playlists, 'found arenaTracks');
+  const rows = [...playlists[1].matchAll(/^\s*([a-z]+): \[([^\]]*)\]/gm)];
+  assert.ok(rows.length >= 11, `arenas with their own music: ${rows.length}`);
+  for (const [, arenaId, list] of rows) {
+    assert.ok(ids.includes(arenaId), `${arenaId} is an arena`);
+    const files = [...list.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+    assert.ok(files.length > 0, `${arenaId} lists at least one track`);
+    for (const file of files) assert.ok(existsSync(new URL(`../${file}`, import.meta.url)), `${file} exists`);
+  }
 
   // The page and the offline cache both have to fetch the rules file.
   const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');

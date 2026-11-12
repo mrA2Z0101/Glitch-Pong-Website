@@ -196,6 +196,7 @@ Every number that shapes a map is in `TUNING` at the top of `glitchpong-arenas.j
 - **Custom Match** rules apply as usual.
 - **Online matches don't use these rules.** The online referee (`server/authoritative-pong.js`, or the host's browser in a peer-to-peer game) runs plain Pong for everyone, so one of these sixteen maps selected before an online match shows its backdrop only: no posts, seam or moving walls, no gravity, ice, wind or beat boost, no bricks, bumpers, portals or train, no ghosts, no blackout, no prototype layer, and the Eye at its usual 100% Heat. See [multiplayer.md](multiplayer.md).
 - **The Eye.** The boss fight is the same on every arena.
+- **Music.** An arena can have its own playlist; eleven of these sixteen do so far. See [soundtrack.md](soundtrack.md).
 - **Arena wins** are recorded per arena in the player's stats, under the arena's `id`. The WORLD TOUR achievement asks for a win in all twenty; `tests/arenas.test.mjs` fails if its goal and the number of arenas differ.
 
 ## Adding an arena

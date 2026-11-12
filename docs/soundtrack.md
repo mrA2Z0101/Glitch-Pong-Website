@@ -69,3 +69,52 @@ scene directly, while later movement retains the normal zone fades.
 
 Music uses streamed media elements routed through Web Audio instead of decoding
 the entire soundtrack into memory. No build step or extra dependency is needed.
+
+## Glitch Pong arena tracks
+
+Glitch Arena plays the four `in_game_music` tracks. Matrix Mainframe, The
+Construct and Black-Hole Nexus have their own playlists. Eleven of the sixteen
+newer arenas have a track of their own, made for the map:
+
+| Arena | Track | File |
+| --- | --- | --- |
+| PENALTY BOX | Penalty Box: stadium synthwave | `sounds/music/penalty_music1.mp3` |
+| MEMORY LEAK | Memory Leak: tense dark synth that keeps tightening | `sounds/music/leak_music1.mp3` |
+| FREEFALL | Freefall: liquid drum and bass with falling arpeggios | `sounds/music/freefall_music1.mp3` |
+| COOLANT LEAK | Coolant Leak: icy minimal techno | `sounds/music/coolant_music1.mp3` |
+| ROOFTOP | Rooftop: rainy noir synthwave | `sounds/music/rooftop_music1.mp3` |
+| BREAKPOINT CROSSOVER | Breakpoint Crossover: 8-bit arcade rock | `sounds/music/bricks_music1.mp3` |
+| LAST TRAIN | Last Train: motorik synth with a train's rhythm | `sounds/music/train_music1.mp3` |
+| ECHO | Echo: dub techno, heavy on delay | `sounds/music/echo_music1.mp3` |
+| KERNEL PANIC | Kernel Panic: dark industrial ambient | `sounds/music/panic_music1.mp3` |
+| ARCHIVE BUILD 0.1 | Archive Build 0.1: square-wave beeps that turn into synthwave | `sounds/music/archive_music1.mp3` |
+| THE EYE'S LAIR | The Eye's Lair: slow, ominous boss theme | `sounds/music/lair_music1.mp3` |
+
+Each is about 2 minutes 10 seconds and loops. The files are the Suno downloads
+with their tags and cover art removed; the audio is untouched.
+
+The descriptions above are the briefs the tracks were generated from. Nobody
+has listened to the results yet, so check each one fits its map.
+
+Still on the Glitch Arena playlist:
+
+- **STACK OVERFLOW, DEFRAG, TILT, QUANTUM SHIFT.** Tracks with those titles are
+  in the Suno library but not downloaded: the account had 11 download credits.
+- **BEAT DROP** plays its own synthesised music in local matches, because its
+  tempo follows Heat. A "Beat Drop" track is in the Suno library and could be
+  used for online matches on that arena, where the beat rule does not run.
+
+Suno made two takes of every track. The first take of each is the one used;
+the second takes are in the Suno library too.
+
+### Adding or changing an arena's music
+
+1. Put the MP3 in `sounds/music/`.
+2. Add it to `arenaTracks` in `glitchpong-site.js`, under the arena's id (the
+   ids are in `ARENA_REGISTRY`), for example
+   `tilt: ["sounds/music/tilt_music1.mp3"],`. Listing more than one file makes
+   a playlist: a track is picked per match and not repeated twice running.
+3. Run `node --test tests/*.mjs`. It fails if a listed file is missing.
+
+Arena tracks are only fetched when a match starts on their arena, so adding
+them does not slow the game's first load.

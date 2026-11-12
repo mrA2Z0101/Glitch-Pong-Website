@@ -3020,6 +3020,25 @@ function injectGameById(gameId, options = {}) {
           "sounds/music/blackhole_nebula4.mp3",
           "sounds/music/blackhole_nebula5.mp3"
         ],
+        // Every other arena can have its own playlist: list its files here under
+        // the arena's id (see ARENA_REGISTRY) and it plays them, picking a track
+        // per match. An arena with nothing listed plays the game tracks above.
+        // tests/arenas.test.mjs checks that every file named here exists.
+        arenaTracks: {
+          penalty: ["sounds/music/penalty_music1.mp3"],
+          leak: ["sounds/music/leak_music1.mp3"],
+          freefall: ["sounds/music/freefall_music1.mp3"],
+          coolant: ["sounds/music/coolant_music1.mp3"],
+          rooftop: ["sounds/music/rooftop_music1.mp3"],
+          bricks: ["sounds/music/bricks_music1.mp3"],
+          train: ["sounds/music/train_music1.mp3"],
+          echo: ["sounds/music/echo_music1.mp3"],
+          panic: ["sounds/music/panic_music1.mp3"],
+          archive: ["sounds/music/archive_music1.mp3"],
+          lair: ["sounds/music/lair_music1.mp3"]
+          // Not yet: overflow, defrag, tilt, portal (their tracks are made but not
+          // downloaded) and beat, which plays its own synthesised music.
+        },
         menuMusic: "sounds/music/Menu Music.mp3",
         paddleHit: "sounds/sfx/Paddle Hit Sound.mp3",
         wallBounce: "sounds/sfx/Wall Bounce Sound.mp3",
@@ -3518,20 +3537,25 @@ function injectGameById(gameId, options = {}) {
         const matrixTks = SOUND_FILES.matrixTracks.filter(Boolean);
         const constructTks = SOUND_FILES.constructTracks.filter(Boolean);
         const blackholeTks = SOUND_FILES.blackholeTracks.filter(Boolean);
+        const ownTks = (SOUND_FILES.arenaTracks[currentArenaId] || []).filter(Boolean);
         const nextPlaylistKey = currentArenaId === "matrix" && matrixTks.length > 0
           ? "matrix"
           : currentArenaId === "construct" && constructTks.length > 0
             ? "construct"
             : currentArenaId === "blackhole" && blackholeTks.length > 0
               ? "blackhole"
-              : "default";
+              : ownTks.length > 0
+                ? currentArenaId
+                : "default";
         activeGameTracks = nextPlaylistKey === "matrix"
           ? matrixTks
           : nextPlaylistKey === "construct"
             ? constructTks
             : nextPlaylistKey === "blackhole"
               ? blackholeTks
-              : SOUND_FILES.gameTracks;
+              : nextPlaylistKey === "default"
+                ? SOUND_FILES.gameTracks
+                : ownTks;
 
         // A track is selected once per match. launchBallToPlayer() calls this
         // again after every countdown, so restarting here made short mobile
