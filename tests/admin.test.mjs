@@ -270,7 +270,7 @@ test('god mode only ever protects the left goal and the Eye never scores on it',
 });
 
 test('the match is frozen while the menu is open, but never an online one', () => {
-  const loopAt = siteSrc.indexOf('if (onlineState.active) {\n        if (onlineState.snapshot) applyOnlineSnapshot');
+  const loopAt = siteSrc.indexOf('if (onlineState.active) {\n        if (onlineState.snapshot) {\n          const lastX = ballX, lastY = ballY;\n          drawOnlineSnapshot();');
   const freezeAt = siteSrc.indexOf('if (isPaused || adminFrozen())');
   assert.ok(loopAt > 0 && freezeAt > loopAt, 'the freeze comes after the online branch returns');
 });

@@ -2417,7 +2417,13 @@ function injectGameById(gameId, options = {}) {
     let twoPlayerMode = false;
     // Online games never run the local simulation. This state only holds the
     // latest server snapshot plus socket/session credentials for reconnection.
-    const onlineState = { active:false, socket:null, session:null, snapshot:null, input:"stop", ended:false, reconnecting:false, statsRecorded:false };
+    const onlineState = { active:false, socket:null, session:null, snapshot:null, receivedAt:0, input:"stop", ended:false, reconnecting:false, statsRecorded:false };
+    // The court the online referee plays on (server/authoritative-pong.js; a test
+    // keeps these in step with it). Everything it sends is in these units, and
+    // its speeds are per second.
+    const ONLINE_COURT = { width: 960, height: 540, paddleX: 38, paddleW: 16, paddleH: 118 };
+    // The referee's court is fitted between the notch insets, like a local one.
+    function onlineScaleX() { return (canvas.width - safeInsetLeft - safeInsetRight) / ONLINE_COURT.width; }
     let aiDifficulty = "medium"; // "easy" | "medium" | "hard"
     let aiVsAiMode = false;       // spectator mode: both paddles use aiDifficulty
     let roundFrozen = true;
@@ -2453,7 +2459,17 @@ function injectGameById(gameId, options = {}) {
     function paddleMaxY() { return (arenaRules.id ? ArenaRules.paddleBand(arenaRules, courtNow()).bottom : canvas.height) - paddleH; }
     // PENALTY BOX sets the paddles in from the edge, so there is a goal behind
     // each one to see. Every other court keeps them where they always were.
+    // In an online match they are drawn where the referee's court has them (see
+    // ONLINE_COURT), so the ball turns round at the paddle you can see.
     function placePaddleAnchors() {
+      if (onlineState.active) {
+        const sx = onlineScaleX();
+        leftX = safeInsetLeft + (ONLINE_COURT.paddleX + ONLINE_COURT.paddleW) * sx - paddleW;
+        rightX = safeInsetLeft + (ONLINE_COURT.width - ONLINE_COURT.paddleX - ONLINE_COURT.paddleW) * sx;
+        paddleH = Math.round(ONLINE_COURT.paddleH * canvas.height / ONLINE_COURT.height);
+        return;
+      }
+      paddleH = isMobileDevice ? Math.round(canvas.height * 0.25) : 140;
       const gap = paddleEdgeGap + (arenaRules.id === "penalty" ? (isMobileDevice ? 20 : 30) : 0);
       leftX = gap + safeInsetLeft;
       rightX = canvas.width - gap - safeInsetRight - paddleW;
@@ -3928,18 +3944,60 @@ function injectGameById(gameId, options = {}) {
       return payload;
     }
 
-    function applyOnlineSnapshot(snapshot) {
+    // A snapshot arrived from the referee.
+    function receiveOnlineSnapshot(snapshot) {
       snapshot = vetSnapshot(snapshot);
-      if (!snapshot || !canvas.width || !canvas.height) return;
+      if (!snapshot) return;
+      const previous = onlineState.snapshot;
       onlineState.snapshot = snapshot;
-      const scaleX = canvas.width / snapshot.width;
-      const scaleY = canvas.height / snapshot.height;
-      leftY = snapshot.paddles.left.y * scaleY;
-      rightY = snapshot.paddles.right.y * scaleY;
-      ballX = snapshot.ball.x * scaleX;
-      ballY = snapshot.ball.y * scaleY;
-      vx = snapshot.ball.vx * scaleX;
-      vy = snapshot.ball.vy * scaleY;
+      onlineState.receivedAt = performance.now();
+      if (previous && onlineState.active) onlineReact(previous, snapshot);
+      drawOnlineSnapshot();
+    }
+
+    // The referee sends positions, not events. Work out what just happened from
+    // two snapshots in a row, so an online match has the same sounds and flashes
+    // as a local one.
+    function onlineReact(before, now) {
+      const scored = now.scores.left !== before.scores.left ? "left" : now.scores.right !== before.scores.right ? "right" : null;
+      if (scored) {
+        scoreFlashFrames = 22;
+        breachFlashFrames = 34;
+        breachSide = scored === "left" ? -1 : 1;      // the same flash a local point gets
+        glitchPulse = Math.max(glitchPulse, 26);
+        ballTrail = [];
+        pongAudio.score(scored === "left" ? "blue" : "red");
+        return;
+      }
+      const a = before.ball, b = now.ball;
+      if (a.vx === 0 && b.vx !== 0) { ballTrail = []; pongAudio.gameStart(); return; }      // the serve
+      if (a.vx !== 0 && b.vx !== 0 && Math.sign(a.vx) !== Math.sign(b.vx)) {
+        const owner = b.vx > 0 ? "blue" : "red";
+        glitchPulse = Math.max(glitchPulse, 8);
+        triggerCameraKick(b.vx > 0 ? 10 : -10, 0, 0.008);
+        pongAudio.paddleHit(owner);
+      } else if (a.vy !== 0 && b.vy !== 0 && Math.sign(a.vy) !== Math.sign(b.vy) && b.vx !== 0) {
+        pongAudio.wallBounce();
+      }
+    }
+
+    // Puts the latest snapshot on screen. Called every frame: between snapshots
+    // the ball is carried on at its own speed, so a late or bunched-up snapshot
+    // doesn't show as a stutter.
+    function drawOnlineSnapshot() {
+      const snapshot = onlineState.snapshot;
+      if (!snapshot || !canvas.width || !canvas.height) return;
+      const sx = onlineScaleX(), sy = canvas.height / snapshot.height;
+      const ahead = snapshot.status === "playing" ? Math.min(0.1, Math.max(0, (performance.now() - onlineState.receivedAt) / 1000)) : 0;
+      // paddles ease to where the referee has them, which hides small jumps
+      const wantLeft = snapshot.paddles.left.y * sy, wantRight = snapshot.paddles.right.y * sy;
+      leftY += (wantLeft - leftY) * 0.6;
+      rightY += (wantRight - rightY) * 0.6;
+      ballX = safeInsetLeft + (snapshot.ball.x + snapshot.ball.vx * ahead) * sx;
+      ballY = clamp((snapshot.ball.y + snapshot.ball.vy * ahead) * sy, BALL_R, canvas.height - BALL_R);
+      // the game's own units: a frame's travel, with horizontal speed in court units
+      vx = snapshot.ball.vx / 60 * sx / courtSpeedScale();
+      vy = snapshot.ball.vy / 60 * sy;
       leftScore = snapshot.scores.left;
       rightScore = snapshot.scores.right;
       heat = snapshot.heat || 0;
@@ -3957,6 +4015,7 @@ function injectGameById(gameId, options = {}) {
     function disconnectOnline() {
       if (onlineState.socket) onlineState.socket.disconnect();
       onlineState.active = false;
+      placePaddleAnchors();                             // back to this screen's own paddle size and place
       onlineState.socket = null;
       onlineState.session = null;
       onlineState.snapshot = null;
@@ -3981,12 +4040,12 @@ function injectGameById(gameId, options = {}) {
       socket.on("lobby:joined", payload => { onlineState.session.lobbyState = payload.lobbyState; showOnlineLobby(payload.lobbyState); });
       socket.on("lobby:player_list", lobby => { onlineState.session.lobbyState = lobby; refreshOnlineLobby(lobby); });
       socket.on("lobby:locked", lobby => { onlineState.session.lobbyState = lobby; refreshOnlineLobby(lobby); });
-      socket.on("state:snapshot", applyOnlineSnapshot);
+      socket.on("state:snapshot", receiveOnlineSnapshot);
       socket.on("match:start", payload => beginOnlineMatch(payload && payload.state));
       socket.on("match:end", payload => {
         const state = vetSnapshot(payload && payload.state);
         if (!state) return;
-        applyOnlineSnapshot(state); recordOnlineMatchStats(state); onlineState.ended = true;
+        receiveOnlineSnapshot(state); recordOnlineMatchStats(state); onlineState.ended = true;
         showOnlineError(`${state.winner === "left" ? "LEFT" : "RIGHT"} PLAYER WINS`);
       });
       socket.on("player:disconnected", () => showOnlineError("Opponent disconnected. Waiting for reconnection..."));
@@ -4023,8 +4082,18 @@ function injectGameById(gameId, options = {}) {
       countdownActive = false;
       roundFrozen = false;
       clearGlitchWalls();
-      startArenaRules(null);   // the online host runs plain Pong, so no court rules here
-      applyOnlineSnapshot(snapshot);
+      startArenaRules(null);   // the online host runs plain Pong, so no court rules here (this also places the paddles)
+      // Nothing left over from the menu's demo rally or a match before this one.
+      ballTrail = []; decoys = []; arenaPowerup = null; glitchPulse = 0; scoreFlashFrames = 0; shakeFrames = 0;
+      keys.w = keys.s = keys.up = keys.down = false;
+      p1Touch = null; p2Touch = null;
+      // A text box that still has the cursor (the join code, a nickname) would swallow the movement keys.
+      if (document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) document.activeElement.blur();
+      onlineState.snapshot = null;
+      onlineState.input = "stop";
+      receiveOnlineSnapshot(snapshot);
+      leftY = snapshot.paddles.left.y * canvas.height / snapshot.height;
+      rightY = snapshot.paddles.right.y * canvas.height / snapshot.height;
       const arena = getArena();
       if (arena.cleanup) arena.cleanup();
       if (arena.init) arena.init();
@@ -4656,12 +4725,7 @@ function injectGameById(gameId, options = {}) {
     function onGameResize() {
       // Recalculate both paddle anchors when rotation swaps the notched edge.
       refreshGameplaySafeArea();
-      placePaddleAnchors();
-
-      // Update mobile paddle height if it's percentage-based
-      if (isMobileDevice) {
-        paddleH = Math.round(canvas.height * 0.25);
-      }
+      placePaddleAnchors();     // also sets the paddle height for this screen
 
       // Clamp paddle Y positions so they're still fully on-screen
       leftY  = clamp(leftY,  0, canvas.height - paddleH);
@@ -12880,7 +12944,18 @@ function injectGameById(gameId, options = {}) {
       // Online snapshots are authoritative. Rendering reuses the existing arena,
       // particle, HUD, and audio presentation, but never advances local physics.
       if (onlineState.active) {
-        if (onlineState.snapshot) applyOnlineSnapshot(onlineState.snapshot);
+        if (onlineState.snapshot) {
+          const lastX = ballX, lastY = ballY;
+          drawOnlineSnapshot();
+          // the trail, as in a local match; a jump (the ball going back to the middle) starts it again
+          if (Math.hypot(ballX - lastX, ballY - lastY) > 160) ballTrail = [];
+          if (!roundFrozen && vx !== 0) {
+            ballTrail.unshift({ x: ballX, y: ballY });
+            if (ballTrail.length > ghostTrailLimit) ballTrail.pop();
+          }
+          glitchPulse = Math.max(0, glitchPulse - 1);
+          scoreFlashFrames = Math.max(0, scoreFlashFrames - 1);
+        }
         render();
         state.raf = requestAnimationFrame(loop);
         return;
@@ -13555,9 +13630,10 @@ function injectGameById(gameId, options = {}) {
 
       if (currentScreen !== "game" || isPaused) return;
 
+      // Online you only have one paddle, so either set of movement keys moves it.
       if (onlineState.active) {
-        if (code === keyBindings.p1Up) onlineSendInput("up");
-        if (code === keyBindings.p1Down) onlineSendInput("down");
+        if (code === keyBindings.p1Up || code === keyBindings.p2Up) { e.preventDefault(); onlineSendInput("up"); }
+        if (code === keyBindings.p1Down || code === keyBindings.p2Down) { e.preventDefault(); onlineSendInput("down"); }
         return;
       }
 
@@ -13586,8 +13662,10 @@ function injectGameById(gameId, options = {}) {
 
     addListener(document, "keyup", (e) => {
       const code = e.code || "";
-      if (onlineState.active && currentScreen === "game" && (code === keyBindings.p1Up || code === keyBindings.p1Down)) {
-        onlineSendInput("stop");
+      if (onlineState.active && currentScreen === "game" && [keyBindings.p1Up, keyBindings.p1Down, keyBindings.p2Up, keyBindings.p2Down].includes(code)) {
+        // letting go of "up" while "down" is still held shouldn't stop the paddle
+        const wasUp = code === keyBindings.p1Up || code === keyBindings.p2Up;
+        if ((onlineState.input === "up") === wasUp) onlineSendInput("stop");
         return;
       }
       // Always clear standard defaults
@@ -13667,6 +13745,8 @@ function injectGameById(gameId, options = {}) {
     function applyP1Dir(dir) {
       keys.w = dir < 0;
       keys.s = dir > 0;
+      // Online, the paddle is moved by the referee, so tell it.
+      if (onlineState.active) onlineSendInput(dir < 0 ? "up" : dir > 0 ? "down" : "stop");
     }
 
     function applyP2Dir(dir) {
@@ -13737,7 +13817,8 @@ function injectGameById(gameId, options = {}) {
       if (gameOver || aiVsAiMode) return;
       for (let i = 0; i < e.changedTouches.length; i++) {
         const t = e.changedTouches[i];
-        if (t.clientX < canvas.width * P1_ZONE_X && !p1Touch) {
+        // Online you have one paddle wherever it is, so the whole screen moves it.
+        if ((onlineState.active || t.clientX < canvas.width * P1_ZONE_X) && !p1Touch) {
           e.preventDefault();
           p1Touch = {
             id: t.identifier,
@@ -13767,7 +13848,8 @@ function injectGameById(gameId, options = {}) {
           applyP1Dir(p1Dir(t.clientY));
           const dy = t.clientY - p1Touch.startY;
           const dt = Date.now() - p1Touch.startTime;
-          if (Math.abs(dy) >= SWIPE_DIST && dt <= SWIPE_MS && leftDashCooldown === 0) {
+          // (no dash online: the referee's game has none)
+          if (!onlineState.active && Math.abs(dy) >= SWIPE_DIST && dt <= SWIPE_MS && leftDashCooldown === 0) {
             performPaddleDash("left", dy < 0 ? -1 : 1);
             p1Touch.startY = t.clientY;
             p1Touch.startTime = Date.now();
@@ -13791,8 +13873,7 @@ function injectGameById(gameId, options = {}) {
       for (let i = 0; i < e.changedTouches.length; i++) {
         const id = e.changedTouches[i].identifier;
         if (p1Touch && id === p1Touch.id) {
-          keys.w = false;
-          keys.s = false;
+          applyP1Dir(0);
           p1Touch = null;
         }
         if (p2Touch && id === p2Touch.id) {

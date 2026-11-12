@@ -520,7 +520,7 @@
       if (!loading) {
         loading = (async () => {
           if (typeof root.Peer !== "function") await loadScript("vendor/peerjs.min.js");
-          if (!root.GlitchPongSim) await loadScript("server/authoritative-pong.js");
+          if (!root.GlitchPongSim) await loadScript("server/authoritative-pong.js?v=sim-2");
           if (!root.GlitchSessions) await loadScript("server/session-manager.js");
           if (!root.GlitchOnlineHost) await loadScript("server/online-host.js");
           return { Peer: root.Peer, SessionManager: root.GlitchSessions.SessionManager, createOnlineHost: root.GlitchOnlineHost.createOnlineHost };

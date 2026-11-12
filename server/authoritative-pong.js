@@ -12,6 +12,7 @@
 })(typeof self !== "undefined" ? self : this, function () {
 const WIDTH = 960;
 const HEIGHT = 540;
+const PADDLE_X = 38;      // gap between the side of the court and the back of a paddle
 const PADDLE_W = 16;
 const PADDLE_H = 118;
 const BALL_R = 9;
@@ -40,16 +41,19 @@ function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
 
 function step(state, dt, now = Date.now()) {
   if (state.status !== "playing") return;
-  if (state.resetAt) {
-    if (now < state.resetAt) return;
-    state.resetAt = 0;
-    resetBall(state, Math.random() < 0.5 ? -1 : 1);
-  }
 
+  // Paddles answer all the time, including in the pause between points, so a
+  // player can get into position for the serve.
   for (const side of ["left", "right"]) {
     const paddle = state.paddles[side];
     const velocity = paddle.direction === "up" ? -PADDLE_SPEED : paddle.direction === "down" ? PADDLE_SPEED : 0;
     paddle.y = clamp(paddle.y + velocity * dt, 0, HEIGHT - PADDLE_H);
+  }
+
+  if (state.resetAt) {
+    if (now < state.resetAt) return;
+    state.resetAt = 0;
+    resetBall(state, Math.random() < 0.5 ? -1 : 1);
   }
 
   const ball = state.ball;
@@ -62,15 +66,15 @@ function step(state, dt, now = Date.now()) {
 
   const left = state.paddles.left;
   const right = state.paddles.right;
-  if (ball.vx < 0 && ball.x - BALL_R <= 38 + PADDLE_W && ball.x > 22 && ball.y >= left.y - BALL_R && ball.y <= left.y + PADDLE_H + BALL_R) {
-    ball.x = 38 + PADDLE_W + BALL_R;
+  if (ball.vx < 0 && ball.x - BALL_R <= PADDLE_X + PADDLE_W && ball.x > 22 && ball.y >= left.y - BALL_R && ball.y <= left.y + PADDLE_H + BALL_R) {
+    ball.x = PADDLE_X + PADDLE_W + BALL_R;
     ball.vx = Math.abs(ball.vx) * 1.025;
     ball.vy += (ball.y - (left.y + PADDLE_H / 2)) * 3.3;
     state.lastHit = "left";
     state.heat = Math.min(100, state.heat + 4.5);
   }
-  if (ball.vx > 0 && ball.x + BALL_R >= WIDTH - 38 - PADDLE_W && ball.x < WIDTH - 22 && ball.y >= right.y - BALL_R && ball.y <= right.y + PADDLE_H + BALL_R) {
-    ball.x = WIDTH - 38 - PADDLE_W - BALL_R;
+  if (ball.vx > 0 && ball.x + BALL_R >= WIDTH - PADDLE_X - PADDLE_W && ball.x < WIDTH - 22 && ball.y >= right.y - BALL_R && ball.y <= right.y + PADDLE_H + BALL_R) {
+    ball.x = WIDTH - PADDLE_X - PADDLE_W - BALL_R;
     ball.vx = -Math.abs(ball.vx) * 1.025;
     ball.vy += (ball.y - (right.y + PADDLE_H / 2)) * 3.3;
     state.lastHit = "right";
@@ -86,8 +90,11 @@ function step(state, dt, now = Date.now()) {
       state.winner = scorer;
       ball.vx = 0; ball.vy = 0;
     } else {
+      // The ball waits in the middle, where both players can see it, then is served.
       state.resetAt = now + 900;
+      ball.x = WIDTH / 2; ball.y = HEIGHT / 2;
       ball.vx = 0; ball.vy = 0;
+      state.lastHit = "neutral";
     }
   }
   state.heat = Math.max(0, state.heat - dt * 1.2);
@@ -97,5 +104,5 @@ function snapshot(state) {
   return JSON.parse(JSON.stringify(state));
 }
 
-return { initialState, resetBall, step, snapshot, WIDTH, HEIGHT };
+return { initialState, resetBall, step, snapshot, WIDTH, HEIGHT, PADDLE_X, PADDLE_W, PADDLE_H, BALL_R, WIN_SCORE };
 });
