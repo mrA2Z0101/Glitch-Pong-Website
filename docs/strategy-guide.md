@@ -64,6 +64,7 @@ The arena can't do that to you. When a glitch sends the ball back the way it cam
 - **Teleport.** Every 7–20 seconds (more often at high Heat) the ball blinks somewhere random, and 50–65% of the time it comes back the way it came.
 - **Glitch walls** appear mid-court from 30% Heat (up to five at 80%+). If your shot hits the side of one, it bounces straight back at you.
 - **Black-Hole Nexus micro-holes** (80%+ Heat) fling the ball off in a random direction.
+- **Bricks, bumpers and the train** on Breakpoint Crossover, Tilt and Last Train (section 7) send a shot that hits them square on straight back.
 
 **The two ways an own goal still happens:** your opponent's **Phase Shield** bounces your shot back at you, still in your colour. So does a **goal post on Penalty Box** (section 7). Miss either and it's 2, or 3 at Critical Heat.
 
@@ -109,8 +110,12 @@ An orb appears in the middle third of the court every 6–13 seconds and lasts a
 - **Coolant Leak.** Your paddle slides. Start moving early and let go before you arrive, or tap against the slide to brake. Dash still works as an instant jump and is the one precise move you have on solid ice. Grip comes back as Heat rises and is complete at 80%.
 - **Rooftop.** Wind hurries the ball towards one player and holds it up for the other. The rain leans the way it is blowing, and a readout shows the strength. Into the wind the ball arrives later and further up or down the court than you'd expect. At Critical Heat every lightning flash turns the wind round.
 - **Beat Drop.** A return that lands on the beat comes off faster. You can't choose when the ball reaches you, but you can see it coming: if the ball is going to meet a paddle as the court pulses, be ready for the quicker one. The tempo rises with Heat, so more returns land on the beat late in a rally.
+- **Breakpoint Crossover.** A wall of bricks stands on the centre line. Your shot breaks one brick and comes back to you neutral, so the first job is to make a hole, and the second is to hit it. A gap sometimes holds a power-up: put a ball in your colour through it. Bricks regrow faster as Heat rises, so a hole you made early may be gone when you need it.
+- **Tilt.** Lit bumpers kick the ball away faster than it arrived. Hit one square on and your shot comes straight back, neutral. Clip one and the ball changes angle and keeps going. Dark bumpers do nothing, but more of them light as Heat rises, and by 65% all seven are live.
+- **Quantum Shift.** Two portals on the centre line swap the ball between the top and bottom of the court, at the same speed and direction. Watch where your opponent's shot is heading: if it's going into a portal, cover the other one. From 50% Heat the portals roam, and a trip can then carry the ball closer to you as well.
+- **Last Train.** A train runs down the centre line and nothing gets through while it passes. The signals flash and chevrons show its direction first. A shot that hits the train comes back neutral, so either get the ball across before it arrives or hold it on your side. From 50% Heat the trains are expresses: more often, much faster, and with a shorter warning.
 
-How these eight are built and tuned: [arenas.md](arenas.md).
+How these twelve are built and tuned: [arenas.md](arenas.md).
 
 ---
 

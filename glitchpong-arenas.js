@@ -14,6 +14,12 @@
 //   rooftop   ROOFTOP         wind pushes the ball along the court
 //   beat      BEAT DROP       a return hit on the beat comes off faster
 //
+// Four put things on the court:
+//   bricks    BREAKPOINT CROSSOVER  a column of bricks down the centre line
+//   tilt      TILT                  pinball bumpers that kick the ball away
+//   portal    QUANTUM SHIFT         two linked portals
+//   train     LAST TRAIN            a train that crosses the court on a schedule
+//
 // Nothing here touches the page or the canvas: glitchpong-site.js owns the
 // drawing and calls in with a description of the court. That keeps the rules
 // testable under Node (tests/arenas.test.mjs). See docs/arenas.md.
@@ -21,13 +27,18 @@
 // A court is { width, height, leftFace, rightFace, leftWall, rightWall, ballR,
 // paddleH, xScale }: the paddle faces, the end-wall faces behind them, and how
 // many pixels one unit of the ball's horizontal speed covers. A ball is
-// { x, y, vx, vy } with vy in pixels a frame.
+// { x, y, vx, vy } with vy in pixels a frame; the object maps also read
+// { px, py }, where the ball was before this frame's move.
 (function (root, factory) {
   const api = factory();
   if (typeof module === "object" && module.exports) module.exports = api;
   else root.GlitchArenas = api;
 })(typeof self !== "undefined" ? self : this, function () {
-  const IDS = ["penalty", "overflow", "leak", "defrag", "freefall", "coolant", "rooftop", "beat"];
+  const IDS = [
+    "penalty", "overflow", "leak", "defrag",
+    "freefall", "coolant", "rooftop", "beat",
+    "bricks", "tilt", "portal", "train"
+  ];
 
   const TUNING = {
     vyMax: 9,                 // the same cap a paddle hit puts on vertical speed
@@ -81,7 +92,41 @@
     // BEAT DROP
     bpm: [104, 160],          // tempo at no Heat and at full Heat
     beatWindow: 5,            // a return this many frames either side of a beat is on it
-    beatBoost: 0.14           // extra speed on an on-beat return (a Power Strike is 0.22)
+    beatBoost: 0.14,          // extra speed on an on-beat return (a Power Strike is 0.22)
+
+    // BREAKPOINT CROSSOVER
+    brickTall: 78,            // a brick is about this tall; the column always has an odd number of them
+    brickWide: 24,
+    regrow: [600, 180],       // frames before a broken brick comes back, at no Heat and at full Heat
+    regrowWarn: 36,           // frames a brick shows as an outline before it is solid again
+    dropChance: [0.4, 0.75],  // chance a broken brick drops a power-up: normal and "frequent" power-ups
+
+    // TILT
+    bumperSize: 0.047,        // bumper radius as a share of court height
+    // Where the bumpers sit (share of the gap between the paddles, share of the
+    // height) and the Heat ratio that lights each one. The layout looks the same
+    // from both ends.
+    bumperSlots: [[0.36, 0.27], [0.64, 0.73], [0.5, 0.5], [0.64, 0.27], [0.36, 0.73], [0.5, 0.14], [0.5, 0.86]],
+    bumperHeat: [0, 0, 0.25, 0.45, 0.45, 0.65, 0.65],
+    kick: 1.12,               // the ball leaves a bumper this much faster than it arrived...
+    kickMax: 18,              // ...until it is going this fast; bumpers never slow a ball down
+    bumperRest: 10,           // frames before the same bumper can kick again
+
+    // QUANTUM SHIFT
+    portalSize: 0.075,        // portal radius as a share of court height
+    portalHome: [[0.5, 0.27], [0.5, 0.73]],
+    portalHeat: 0.5,          // Heat ratio where the portals start to move
+    portalReach: [0.17, 0.11],// how far they roam at full Heat: share of the gap, share of the height
+    portalSpeed: 0.012,       // radians a frame
+
+    // LAST TRAIN (the two values are a local train and an express)
+    trainFirst: 300,          // frames into a rally before the first signal
+    trainEvery: [600, 240],   // frames between trains at no Heat and at full Heat
+    expressHeat: 0.5,         // Heat ratio from which trains are expresses
+    trainWarn: [90, 60],      // frames the signals flash before the train arrives
+    trainSpeed: [9, 16],      // pixels a frame on a 720-pixel-tall court
+    trainLength: [1.2, 0.8],  // in court heights
+    trainShove: 5             // vertical speed a ball picks up when the front of the train catches it
   };
 
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -97,7 +142,11 @@
       freefall: { dir: 1, want: 1, flip: 0 },
       coolant: { grip: TUNING.gripCold, v: { left: 0, right: 0 } },
       rooftop: { wind: 0, gust: 0, timer: 0, strikeIn: 0, flash: 0, struck: false, bolt: 0 },
-      beat: { phase: 0, step: 0, ticked: false, bpm: TUNING.bpm[0], hit: 0, hitSide: null }
+      beat: { phase: 0, step: 0, ticked: false, bpm: TUNING.bpm[0], hit: 0, hitSide: null },
+      bricks: { list: [], broke: 0 },
+      tilt: { lit: TUNING.bumperSlots.map(() => false), flash: TUNING.bumperSlots.map(() => 0), rest: TUNING.bumperSlots.map(() => 0) },
+      portal: { amount: 0, phase: 0, flash: 0 },
+      train: { phase: "idle", timer: TUNING.trainFirst, dir: 1, head: 0, speed: 0, length: 0, express: false, count: 0, hit: 0 }
     };
   }
 
@@ -279,6 +328,203 @@
     return TUNING.beatBoost;
   }
 
+  // ── Things on the court ──────────────────────────────────────────────────
+  const lerp = (a, b, t) => a + (b - a) * clamp(t, 0, 1);
+
+  // Where the ball's move this frame first touches a box, and through which
+  // face ("L", "R", "T" or "B"). A ball that is simply inside the box (it
+  // teleported there, or the box moved onto it) comes back with `inside` set
+  // and the face it is nearest.
+  function sweepBox(ball, r, box) {
+    const x0 = typeof ball.px === "number" ? ball.px : ball.x, y0 = typeof ball.py === "number" ? ball.py : ball.y;
+    const dx = ball.x - x0, dy = ball.y - y0;
+    const minX = box.x - r, maxX = box.x + box.w + r, minY = box.y - r, maxY = box.y + box.h + r;
+    const startedInside = x0 > minX && x0 < maxX && y0 > minY && y0 < maxY;
+    if (!startedInside && Math.hypot(dx, dy) <= 400) {       // further than that is a teleport, not a move
+      let tEnter = 0, tExit = 1, axis = null;
+      for (const [p, d, lo, hi, name] of [[x0, dx, minX, maxX, "x"], [y0, dy, minY, maxY, "y"]]) {
+        if (Math.abs(d) < 1e-9) { if (p <= lo || p >= hi) return null; continue; }
+        let t1 = (lo - p) / d, t2 = (hi - p) / d;
+        if (t1 > t2) [t1, t2] = [t2, t1];
+        if (t1 > tEnter) { tEnter = t1; axis = name; }
+        tExit = Math.min(tExit, t2);
+        if (tEnter >= tExit) return null;
+      }
+      if (!axis) return null;
+      return { t: tEnter, x: x0 + dx * tEnter, y: y0 + dy * tEnter, face: axis === "x" ? (dx > 0 ? "L" : "R") : (dy > 0 ? "T" : "B") };
+    }
+    if (ball.x <= minX || ball.x >= maxX || ball.y <= minY || ball.y >= maxY) return null;
+    const dL = ball.x - minX, dR = maxX - ball.x, dT = ball.y - minY, dB = maxY - ball.y, nearest = Math.min(dL, dR, dT, dB);
+    return { t: 0, x: ball.x, y: ball.y, inside: true, face: nearest === dL ? "L" : nearest === dR ? "R" : nearest === dT ? "T" : "B" };
+  }
+
+  // Turns the ball round off a box. True when it now travels the other way along the court.
+  function bounceOffBox(ball, r, box, hit) {
+    const was = ball.vx;
+    if (hit.face === "L") { ball.vx = -Math.abs(ball.vx); ball.x = box.x - r - 1; ball.y = hit.y; }
+    else if (hit.face === "R") { ball.vx = Math.abs(ball.vx); ball.x = box.x + box.w + r + 1; ball.y = hit.y; }
+    else if (hit.face === "T") { ball.vy = -Math.abs(ball.vy); ball.y = box.y - r - 1; ball.x = hit.x; }
+    else { ball.vy = Math.abs(ball.vy); ball.y = box.y + box.h + r + 1; ball.x = hit.x; }
+    return Math.sign(ball.vx) !== Math.sign(was);
+  }
+
+  const circleNearBox = (x, y, r, box) => x > box.x - r && x < box.x + box.w + r && y > box.y - r && y < box.y + box.h + r;
+
+  // ── BREAKPOINT CROSSOVER ─────────────────────────────────────────────────
+  function brickBox(s, c, i) {
+    const tall = c.height / s.bricks.list.length;
+    return { x: c.width / 2 - TUNING.brickWide / 2, y: i * tall, w: TUNING.brickWide, h: tall };
+  }
+
+  // A full column, apart from the middle brick: the serve starts inside it.
+  function resetBricks(s, c) {
+    const n = Math.max(5, 2 * Math.round((c.height / TUNING.brickTall - 1) / 2) + 1), mid = (n - 1) / 2;
+    s.bricks.list = Array.from({ length: n }, (unused, i) => ({ on: i !== mid, timer: i === mid ? TUNING.regrow[0] : 0, warn: 0 }));
+  }
+
+  function hitBricks(s, c, ball) {
+    let first = null, at = -1;
+    s.bricks.list.forEach((brick, i) => {
+      if (!brick.on) return;
+      const hit = sweepBox(ball, c.ballR, brickBox(s, c, i));
+      if (hit && (!first || hit.t < first.t)) { first = hit; at = i; }
+    });
+    if (!first) return null;
+    const box = brickBox(s, c, at), reversed = bounceOffBox(ball, c.ballR, box, first);
+    s.bricks.list[at] = { on: false, timer: TUNING.regrow[0], warn: 0 };
+    s.bricks.broke = 1;
+    return { type: "brick", index: at, x: box.x + box.w / 2, y: box.y + box.h / 2, reversed };
+  }
+
+  // ── TILT ─────────────────────────────────────────────────────────────────
+  function bumperAt(c, i) {
+    const [sx, sy] = TUNING.bumperSlots[i];
+    return { x: c.width / 2 + (sx - 0.5) * (c.rightFace - c.leftFace), y: sy * c.height, r: Math.max(16, c.height * TUNING.bumperSize) };
+  }
+
+  function hitBumpers(s, c, ball) {
+    for (let i = 0; i < TUNING.bumperSlots.length; i++) {
+      if (!s.tilt.lit[i] || s.tilt.rest[i] > 0) continue;
+      const b = bumperAt(c, i), dx = ball.x - b.x, dy = ball.y - b.y, d = Math.hypot(dx, dy), reach = b.r + c.ballR;
+      if (d >= reach) continue;
+      const nx = d > 0.001 ? dx / d : -Math.sign(ball.vx) || 1, ny = d > 0.001 ? dy / d : 0;
+      const vxp = ball.vx * c.xScale, into = vxp * nx + ball.vy * ny;
+      if (into >= 0) continue;                           // already on its way out
+      const rx = vxp - 2 * into * nx, ry = ball.vy - 2 * into * ny, was = ball.vx;
+      // Along the court the ball always leaves faster (up to kickMax) and never
+      // slower, whichever way the bumper sends it.
+      const pace = Math.max(Math.abs(was), Math.min(TUNING.kickMax, Math.max(4, Math.abs(was)) * TUNING.kick));
+      const way = Math.abs(rx) > 0.5 ? Math.sign(rx) : Math.abs(nx) > 0.2 ? Math.sign(nx) : Math.sign(was) || 1;
+      ball.vx = way * pace;
+      ball.vy = clamp(ry * TUNING.kick, -TUNING.vyMax, TUNING.vyMax);
+      ball.x = b.x + nx * (reach + 1);
+      ball.y = b.y + ny * (reach + 1);
+      s.tilt.flash[i] = 1;
+      s.tilt.rest[i] = TUNING.bumperRest;
+      return { type: "bumper", index: i, x: b.x, y: b.y, reversed: Math.sign(ball.vx) !== Math.sign(was) };
+    }
+    return null;
+  }
+
+  // ── QUANTUM SHIFT ────────────────────────────────────────────────────────
+  // The two portals sit on the centre line and, at high Heat, circle their
+  // homes in opposite directions, so the court still looks the same from both ends.
+  function portalAt(s, c, i) {
+    const [hx, hy] = TUNING.portalHome[i], side = i ? -1 : 1, span = c.rightFace - c.leftFace;
+    return {
+      x: c.width / 2 + (hx - 0.5) * span + side * s.portal.amount * TUNING.portalReach[0] * span * Math.cos(s.portal.phase),
+      y: hy * c.height + side * s.portal.amount * TUNING.portalReach[1] * c.height * Math.sin(s.portal.phase),
+      r: Math.max(22, c.height * TUNING.portalSize)
+    };
+  }
+
+  // Sends `thing` (the ball, or a decoy) through a portal it has entered. It
+  // comes out of the other one at the same offset from the centre, so it
+  // carries on across that portal and out the far side. `thing.lock` remembers
+  // which portal it just came out of, so it isn't sent straight back.
+  function hitPortals(s, c, thing) {
+    if (thing.lock === 0 || thing.lock === 1) {
+      const out = portalAt(s, c, thing.lock);
+      if (Math.hypot(thing.x - out.x, thing.y - out.y) <= out.r + c.ballR) return null;
+      thing.lock = -1;
+    }
+    for (let i = 0; i < 2; i++) {
+      const a = portalAt(s, c, i);
+      if (Math.hypot(thing.x - a.x, thing.y - a.y) >= a.r) continue;
+      const b = portalAt(s, c, 1 - i), from = { x: thing.x, y: thing.y };
+      thing.x = b.x + (thing.x - a.x);
+      thing.y = b.y + (thing.y - a.y);
+      thing.lock = 1 - i;
+      s.portal.flash = 1;
+      return { type: "portal", from, to: { x: thing.x, y: thing.y } };
+    }
+    return null;
+  }
+
+  // ── LAST TRAIN ───────────────────────────────────────────────────────────
+  // The track runs down the centre line. Trains alternate direction.
+  function trainLane(c) {
+    const w = clamp(c.width * 0.036, 30, 46);
+    return { x: c.width / 2 - w / 2, y: 0, w, h: c.height };
+  }
+
+  // The train itself, while one is on the court.
+  function trainBox(s, c) {
+    const t = s.train;
+    if (t.phase !== "passing") return null;
+    const lane = trainLane(c);
+    return { x: lane.x, y: t.dir > 0 ? t.head - t.length : t.head, w: lane.w, h: t.length };
+  }
+
+  function hitTrain(s, c, ball) {
+    const box = trainBox(s, c);
+    if (!box) return null;
+    const hit = sweepBox(ball, c.ballR, box);
+    if (!hit) return null;
+    s.train.hit = 1;
+    if (!hit.inside && (hit.face === "L" || hit.face === "R")) {
+      const reversed = bounceOffBox(ball, c.ballR, box, hit);
+      return { type: "train", reversed, x: ball.x, y: ball.y };
+    }
+    // The ball was on the track when the train got there. It is thrown clear
+    // on the side it was heading for, and dragged along a little.
+    ball.x = ball.vx > 0 ? box.x + box.w + c.ballR + 1 : box.x - c.ballR - 1;
+    ball.vy = clamp(ball.vy + s.train.dir * TUNING.trainShove, -TUNING.vyMax, TUNING.vyMax);
+    return { type: "train", reversed: false, shoved: true, x: ball.x, y: ball.y };
+  }
+
+  // ── All four ─────────────────────────────────────────────────────────────
+  // The ball against whatever this map has put on the court. Returns null or
+  // an event: { type: "brick" | "bumper" | "train", x, y, reversed } or
+  // { type: "portal", from, to }. `reversed` means the ball now travels back
+  // the way it came; the game makes such a ball neutral, as it does for any
+  // glitch that turns the ball round.
+  function objects(s, c, ball) {
+    if (s.id === "bricks") return hitBricks(s, c, ball);
+    if (s.id === "tilt") return hitBumpers(s, c, ball);
+    if (s.id === "portal") return hitPortals(s, c, ball);
+    if (s.id === "train") return hitTrain(s, c, ball);
+    return null;
+  }
+
+  // Boxes that power-ups and glitch walls should stay out of.
+  function obstacles(s, c) {
+    if (s.id === "bricks") return [{ x: c.width / 2 - TUNING.brickWide / 2, y: 0, w: TUNING.brickWide, h: c.height }];
+    if (s.id === "train") return [trainLane(c)];
+    const around = (o) => ({ x: o.x - o.r, y: o.y - o.r, w: o.r * 2, h: o.r * 2 });
+    if (s.id === "tilt") return TUNING.bumperSlots.map((unused, i) => around(bumperAt(c, i)));
+    if (s.id === "portal") return [0, 1].map((i) => around(portalAt(s, c, i)));
+    return [];
+  }
+
+  // Is there something solid at this spot? Decoy balls vanish when there is.
+  function blocked(s, c, x, y, r) {
+    if (s.id === "bricks") return s.bricks.list.some((brick, i) => brick.on && circleNearBox(x, y, r, brickBox(s, c, i)));
+    if (s.id === "tilt") return s.tilt.lit.some((lit, i) => { const b = bumperAt(c, i); return lit && Math.hypot(x - b.x, y - b.y) < b.r + r; });
+    if (s.id === "train") { const box = trainBox(s, c); return !!box && circleNearBox(x, y, r, box); }
+    return false;
+  }
+
   // ── Lifecycle ────────────────────────────────────────────────────────────
   // Begin a match on `id`. Anything that isn't one of the four maps (another
   // arena, an online match, the menu) switches every rule off.
@@ -292,6 +538,7 @@
       s.defrag.bottomTarget = s.defrag.bottom.slice();
       s.defrag.timer = TUNING.shiftEvery[0];
     }
+    if (s.id === "bricks" && c) resetBricks(s, c);
     return s.id;
   }
 
@@ -312,6 +559,12 @@
       s.rooftop.gust = 0;                                // every serve starts in a lull
       s.rooftop.timer = 90;
       s.rooftop.strikeIn = 0;
+    } else if (s.id === "bricks") {
+      resetBricks(s, c);
+    } else if (s.id === "train") {
+      // The serve starts on the track, so the line is cleared for it.
+      s.train.phase = "idle";
+      s.train.timer = TUNING.trainFirst;
     }
   }
 
@@ -323,10 +576,12 @@
   // The Eye needs the whole court: its shots are aimed across the full height.
   function openCourt(s) {
     if (s.id === "leak" && s.leak.returns > 0) { s.leak.returns = 0; s.leak.snap = 1; }
+    if (s.id === "train") { s.train.phase = "idle"; s.train.timer = TUNING.trainFirst; }   // no train through the Eye
   }
 
-  // Once a frame. `live` is false whenever the ball is not in play.
-  function update(s, c, heatRatio, critical, live, rand = Math.random) {
+  // Once a frame. `live` is false whenever the ball is not in play. `ball` is
+  // where the ball is, so nothing solid appears on top of it.
+  function update(s, c, heatRatio, critical, live, rand = Math.random, ball = null) {
     if (s.id === "penalty") {
       const p = s.penalty, want = critical && live ? 1 : 0;
       p.amount += (want - p.amount) * (want > p.amount ? 0.04 : 0.08);
@@ -418,6 +673,60 @@
       b.ticked = step !== b.step;
       b.step = step;
       b.hit = Math.max(0, b.hit - 0.05);
+    } else if (s.id === "bricks") {
+      // Broken bricks count down faster the hotter it is, show as an outline,
+      // then turn solid once the ball is out of the way.
+      const pace = TUNING.regrow[0] / lerp(TUNING.regrow[0], TUNING.regrow[1], heatRatio);
+      s.bricks.list.forEach((brick, i) => {
+        if (brick.on) return;
+        if (brick.warn > 1) brick.warn -= 1;
+        else if (brick.warn === 1) {
+          if (!ball || !circleNearBox(ball.x, ball.y, c.ballR + 6, brickBox(s, c, i))) { brick.on = true; brick.warn = 0; }
+        } else if (live && (brick.timer -= pace) <= 0) brick.warn = TUNING.regrowWarn;
+      });
+      s.bricks.broke = Math.max(0, s.bricks.broke - 0.08);
+    } else if (s.id === "tilt") {
+      const t = s.tilt;
+      TUNING.bumperSlots.forEach((unused, i) => {
+        const want = heatRatio >= TUNING.bumperHeat[i];
+        if (!want) t.lit[i] = false;
+        else if (!t.lit[i]) {
+          const b = bumperAt(c, i);
+          if (!ball || Math.hypot(ball.x - b.x, ball.y - b.y) > b.r + c.ballR + 30) t.lit[i] = true;
+        }
+        t.flash[i] = Math.max(0, t.flash[i] - 0.06);
+        t.rest[i] = Math.max(0, t.rest[i] - 1);
+      });
+    } else if (s.id === "portal") {
+      const p = s.portal, want = live ? clamp((heatRatio - TUNING.portalHeat) / (1 - TUNING.portalHeat), 0, 1) : 0;
+      p.amount += (want - p.amount) * 0.03;
+      if (p.amount < 0.001) p.amount = 0;
+      if (p.amount > 0) p.phase += TUNING.portalSpeed;
+      p.flash = Math.max(0, p.flash - 0.06);
+    } else if (s.id === "train") {
+      const t = s.train;
+      if (t.phase === "passing") {
+        t.head += t.dir * t.speed;
+        if (t.dir > 0 ? t.head - t.length > c.height : t.head + t.length < 0) {
+          t.phase = "idle";
+          t.timer = Math.round(lerp(TUNING.trainEvery[0], TUNING.trainEvery[1], heatRatio));
+          t.dir = -t.dir;
+        }
+      } else if (live && --t.timer <= 0) {
+        if (t.phase === "idle") {
+          t.express = heatRatio >= TUNING.expressHeat;
+          t.phase = "warning";
+          t.timer = TUNING.trainWarn[t.express ? 1 : 0];
+        } else {
+          const kind = t.express ? 1 : 0;
+          t.phase = "passing";
+          t.speed = TUNING.trainSpeed[kind] * c.height / 720;
+          t.length = TUNING.trainLength[kind] * c.height;
+          t.head = t.dir > 0 ? 0 : c.height;
+          t.count += 1;
+        }
+      }
+      t.hit = Math.max(0, t.hit - 0.08);
     }
   }
 
@@ -517,6 +826,7 @@
     IDS, TUNING, createState, start, roundReset, onReturn, openCourt, update,
     mouth, posts, walls, topAt, bottomAt, band, paddleBand, predictY, aimY,
     makeProfile, profileAt, leakMaxInset,
-    gravity, fall, hopSpeed, slide, drift, beatDistance, onBeat, returnBoost
+    gravity, fall, hopSpeed, slide, drift, beatDistance, onBeat, returnBoost,
+    objects, obstacles, blocked, sweepBox, brickBox, bumperAt, portalAt, hitPortals, trainLane, trainBox
   };
 });
