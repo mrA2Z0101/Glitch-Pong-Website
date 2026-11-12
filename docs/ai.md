@@ -13,7 +13,7 @@ Measured in the real game, Hard against Hard on GLITCH ARENA:
 | | Old | New |
 |---|---|---|
 | Returns in an average point | 75 | 13 |
-| Longest rally seen | 320 returns | 41 returns |
+| Longest rally | 320 returns (in one match) | 41 returns (in four matches) |
 | Length of a first-to-7 match | 22 minutes | 5 to 10 minutes |
 | Dashes in a match, both paddles | 1 | 12 to 35 |
 
