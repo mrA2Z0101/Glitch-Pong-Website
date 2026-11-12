@@ -36,6 +36,15 @@ The client picks for itself: if `window.io` exists (the server's `/socket.io/soc
 - If the guest drops, "Resume last session" brings them back for 45 seconds. If the host leaves, the game ends and the code is released.
 - Online matches are plain Pong on every arena. Each player sees the backdrop of the arena they last picked, but arena rules (Black-Hole Nexus gravity, and everything the sixteen maps in [arenas.md](arenas.md) do) only apply to local matches.
 
+### Controls and what you see
+
+- **Keyboard:** W/S or the arrow keys. Online you have one paddle, so either pair moves it, whichever side you are on.
+- **Touch:** hold anywhere on the screen. The upper half moves your paddle up and the lower half moves it down.
+- **No dash, power-ups, Heat effects or the Eye.** The online referee plays plain Pong, first to 11.
+- After a point the ball waits in the middle of the court for 0.9 seconds and is then served. Paddles can move during the wait.
+- Paddles are drawn where the referee has them, at the referee's size, so they are a little further in and (on a desktop) a little taller than in a local match.
+- The referee sends positions 60 times a second, not events. The client works out hits, wall bounces, serves and points by comparing each snapshot with the one before, and plays the usual sounds and flashes for them. Between snapshots it carries the ball on at its own speed (for at most a tenth of a second), which hides late or bunched-up snapshots.
+
 **Keep the host's tab open and in front.** Browsers slow down timers in background tabs, and a host that sleeps stops the match for both players. A phone host also stops if the screen locks. The lobby tells the host this.
 
 ## Where it can go wrong
@@ -94,7 +103,7 @@ The real thing, two browsers over a real WebRTC channel, was run by hand with Pl
 
 ### Not tested
 
-- **The public PeerJS broker.** The sandbox couldn't reach it, so this has only been run against a local one.
+- **The public PeerJS broker under real conditions.** A later run (two headless browser pages on one machine, keyboard and touch) did connect through it and play a match, but that says nothing about how reliable it is day to day.
 - **Real NAT traversal and TURN.** Both browsers were on one machine.
 - **Safari, iOS and Android browsers.**
 - **A host in the background.** Only reasoned about, not measured.
