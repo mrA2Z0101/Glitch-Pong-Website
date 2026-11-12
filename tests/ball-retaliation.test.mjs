@@ -6,7 +6,7 @@ import { test } from 'node:test';
 const config = await readFile(new URL('../breakpoint/js/config.js', import.meta.url), 'utf8');
 const entities = await readFile(new URL('../breakpoint/js/entities.js', import.meta.url), 'utf8');
 const sandbox = { Image: class {}, FX: { reduced: false } };
-vm.runInNewContext(config + '\n' + entities + '\nglobalThis.BallClass = Ball; globalThis.settings = CFG; globalThis.colors = COL;', sandbox);
+vm.runInNewContext(config + '\n' + entities + '\nglobalThis.BallClass = Ball; globalThis.settings = CFG; globalThis.colors = COL; globalThis.Hydra = DataHydra; globalThis.Guardian = MemoryGuardian;', sandbox);
 const Ball = sandbox.BallClass, CFG = sandbox.settings;
 
 function world(target) {
@@ -104,4 +104,29 @@ test('stuck balls wait for launch and ordinary balls retain their usual movement
   normal.update(0.01, g);
   assert.ok(Math.abs(normal.x - 200) < 0.001);
   assert.ok(Math.abs(normal.y - 196) < 0.001);
+});
+
+test('a ball hunting the hydra steers at a living head, not at the gap between them', () => {
+  const hydra = new sandbox.Hydra(1);
+  assert.equal(hydra.heads.length, 3);
+  hydra.heads[1].hp = 0;                                   // the middle head is gone
+  const ball = new Ball(480, 460, -Math.PI / 2, 400);
+  const aim = hydra.aimPoint(ball);
+  assert.ok(aim === hydra.heads[0] || aim === hydra.heads[2], 'it picks a head that is still alive');
+  assert.ok(Math.abs(aim.x - 480) > 100, 'which is not where the dead one was');
+  // and it gets there, where homing on the hydra's own position (the middle) never arrives
+  const g = { mods: {}, paddle: { x: 480, y: 600, w: 110, h: 13 }, onWallHit() {},
+    steerProtectiveBall(b, dt) { b.protecting = hydra; b.homeOn(hydra.aimPoint(b), dt); return true; } };
+  let hit = false;
+  for (let i = 0; i < 600 && !hit; i++) {
+    ball.update(1 / 120, g);
+    hit = hydra.aliveHeads.some((h) => Math.hypot(ball.x - h.x, ball.y - h.y) < ball.r + h.r);
+  }
+  assert.ok(hit, 'the chase ends in a hit');
+  // nearest first: from the far left it goes for the left head
+  assert.equal(hydra.aimPoint({ x: 20, y: 160 }), hydra.heads[0]);
+  assert.equal(hydra.aimPoint({ x: 940, y: 160 }), hydra.heads[2]);
+  // a boss with a body is its own target
+  const guardian = new sandbox.Guardian(1);
+  assert.equal(guardian.aimPoint(ball), guardian);
 });

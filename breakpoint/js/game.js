@@ -287,16 +287,7 @@ const game = {
     let target = tgt ? tgt.x : CFG.W / 2;
     if (tgt && tgt.vy > 0 && !tgt.stuck) {
       // predict where it crosses the paddle line (ignoring wall bounces — good enough)
-      const dtToPad = (this.paddle.y - tgt.y) / Math.max(tgt.vy, 1);
-      let px = tgt.x + tgt.vx * dtToPad;
-      const span = CFG.W - 2 * (tgt.r || 6);
-      if (this.rule === 'wrap') {
-        target = ((px % CFG.W) + CFG.W) % CFG.W;        // no side walls here: it comes back in the far side
-      } else {
-        px = Math.abs(((px - (tgt.r || 6)) % (2 * span) + 2 * span) % (2 * span));
-        if (px > span) px = 2 * span - px;
-        target = px + (tgt.r || 6);
-      }
+      target = Rules.landingX(tgt, this.paddle.y, CFG.W, this.rule === 'wrap' ? Rules.wrapLine(CFG.PADDLE_Y) : null);
       // AIM: offset the contact point so the bounce is steered at a surviving brick.
       // The paddle maps rel=(ball.x-p.x)/(p.w/2) to angle=-90°+rel*1.05rad, so we can
       // invert that to pick where on the paddle the ball should land.
@@ -460,6 +451,7 @@ const game = {
     this.score = 0; this.combo = 0; this.maxCombo = 0;
     this.lives = Rules.startingLives(mode, Meta.rank('life_up'));
     this.glitch = Meta.rank('startmult') ? 25 : 0;
+    this.overloadArmed = true;
     this.corruption = 0;
     this.time = 0;
     this.stats = { bricks: 0, bosses: 0, powerups: 0, timeStart: performance.now(), powers: {}, lives: [], comboSector: 0, newEntries: 0 };
@@ -698,7 +690,9 @@ const game = {
   addGlitch(n) {
     const before = this.glitch;
     this.glitch = clamp(this.glitch + n, 0, 100);
-    if (this.glitch >= 100 && before < 100) {
+    // an overload, once; the meter has to fall back before it can happen again
+    if (Rules.overloadFires(before, this.glitch, this.overloadArmed !== false)) {
+      this.overloadArmed = false;
       this.unlock('glitch100');
       banner('SYSTEM OVERLOAD');
       AudioSys.sfx('event');
@@ -784,7 +778,7 @@ const game = {
 
     // powerup drop
     let luck = Rules.dropChance(Meta.rank('luck'), this.glitch);
-    let pool = POWERUP_KEYS;
+    let pool = Rules.dropPool(this.mode);
     // anti-softlock: if only firewall bricks remain, shower firewall-piercing drops
     if (Rules.onlyFirewallsLeft(this.bricks.filter(x => x.alive && x.type !== 'barrier').map(x => x.type))) {
       luck = 0.6;
@@ -968,7 +962,7 @@ const game = {
       }
       case 'drone': this.drones.push(new AssistDrone()); break;
       case 'random': {
-        const others = POWERUP_KEYS.filter(k => k !== 'random');
+        const others = Rules.dropPool(this.mode).filter(k => k !== 'random');
         this.applyPowerup(choice(others), x, y);
         return;
       }
@@ -1000,6 +994,9 @@ const game = {
 
   // ======== glitch events ========
   triggerEvent() {
+    // one event at a time: the one in progress is wound up properly first (a DATA
+    // SURGE that was simply replaced used to leave the ball fast until the sector ended)
+    if (this.activeEvent) this.endEvent();
     const ev = choice(EVENTS);
     this.activeEvent = ev;
     this.meet('event', ev.id);
@@ -1353,6 +1350,7 @@ const game = {
       if (this.corruption > 20 && chance(dt * this.corruption / 90)) FX.setRgb(this.corruption / 220);
       if (this.corruption > 55 && chance(dt * 0.5)) FX.tear(0.25);
       this.glitch = Math.max(0, this.glitch - dt * 0.55);
+      if (Rules.overloadRearms(this.glitch)) this.overloadArmed = true;
       AudioSys.setGlitch(Math.max(this.glitch / 100, this.corruption / 130));
     }
 
@@ -1503,7 +1501,9 @@ const game = {
     ball.y = p.y - p.h / 2 - ball.r - 1;
     this.combo = 0;
     if (this.tutor) this.tutor.e.returns++;
-    if (this.rule === 'leak') this.leakReturns = (this.leakReturns || 0) + 1;
+    // MEMORY LEAK: a ball that comes back having broken nothing costs the paddle some length.
+    // (`dull` counts returns since its last brick and has just been raised for this one.)
+    if (this.rule === 'leak' && ball.dull > 1) this.leakReturns = (this.leakReturns || 0) + 1;
     p.glow = 1;
     AudioSys.sfx('paddle', (rel + 1) / 2);
     FX.spawn(ball.x, p.y - p.h / 2, PaddleColor.hex, 6, { spd: 120, dir: -Math.PI / 2, spread: 1.6 });
@@ -1555,7 +1555,7 @@ const game = {
     }
     ball.protecting = foe;
     ball.mood = 'protective';
-    ball.homeOn(foe, dt);
+    ball.homeOn(foe.aimPoint ? foe.aimPoint(ball) : foe, dt);
     return true;
   },
 
@@ -1571,7 +1571,8 @@ const game = {
       // Launch straight at the shooter; guidance continues between bounces.
       ball.mood = 'protective';
       ball.protecting = foe;
-      return Math.atan2(foe.y - ball.y, foe.x - ball.x);
+      const at = foe.aimPoint ? foe.aimPoint(ball) : foe;
+      return Math.atan2(at.y - ball.y, at.x - ball.x);
     }
     if (boss instanceof TheEye) {
       // GRUDGE: it hasn't forgotten the Pong arena
@@ -1609,8 +1610,11 @@ const game = {
   },
 
   renderProtectiveTarget() {
-    const foe = this.protectiveTarget();
-    if (!foe) return;
+    const target = this.protectiveTarget();
+    if (!target) return;
+    // the part of it the ball is steering at (one head of the hydra, not the space between them)
+    const hunter = this.balls.find(b => b.protecting === target);
+    const foe = target.aimPoint && hunter ? target.aimPoint(hunter) : target;
     const rx = (foe.rx || foe.r || 16) + 10, ry = (foe.ry || foe.r || 16) + 10;
     const col = '#ff8a3d';
     ctx.save();
@@ -1618,7 +1622,7 @@ const game = {
     ctx.globalAlpha = 0.36;
     ctx.setLineDash([5, 7]); ctx.lineDashOffset = FX.reduced ? 0 : -this.time * 36;
     for (const ball of this.balls) {
-      if (ball.dead || ball.stuck || ball.protecting !== foe ||
+      if (ball.dead || ball.stuck || ball.protecting !== target ||
           (ball.invisible > 0 && Math.floor(ball.invisible * 10) % 2 === 0)) continue;
       ctx.beginPath(); ctx.moveTo(ball.x, ball.y); ctx.lineTo(foe.x, foe.y); ctx.stroke();
     }

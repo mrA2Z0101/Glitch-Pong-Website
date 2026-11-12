@@ -179,8 +179,8 @@ class Ball {
 
     // walls
     const wallL = g.wallInsetL || 0, wallR = CFG.W - (g.wallInsetR || 0);
-    if (g.rule === 'wrap' && !wallL && wallR === CFG.W) {
-      // DATA TUNNEL has no side walls: out one side, in the other
+    if (g.rule === 'wrap' && !wallL && wallR === CFG.W && this.y < Rules.wrapLine(CFG.PADDLE_Y)) {
+      // DATA TUNNEL has no side walls up among the bricks: out one side, in the other
       const nx = Rules.wrapX(this.x, this.r, CFG.W);
       if (nx !== this.x) { this.x = nx; this.wrapped = true; this.trail.length = 0; }
     } else {
@@ -680,6 +680,8 @@ class Boss {
     this.attackT = 3;
   }
   pointHit(px, py) { return dist2(px, py, this.x, this.y) < this.r * this.r; }
+  // where a ball hunting this boss should steer: its body, for most of them
+  aimPoint() { return this; }
   hit(dmg, g, hx, hy) {
     if (this.invuln > 0 || this.dead) return false;
     this.hp -= dmg; this.flash = 0.15;
@@ -878,6 +880,16 @@ class DataHydra extends Boss {
     this.hp = this.maxHp;
   }
   get aliveHeads() { return this.heads.filter(h => h.hp > 0); }
+  // The hydra has no body, only heads. A ball that hunted the middle of it used
+  // to circle the gap left by a dead head for ever, and the sector never ended.
+  aimPoint(from) {
+    let best = null, bd = Infinity;
+    for (const h of this.aliveHeads) {
+      const d = dist2(from.x, from.y, h.x, h.y);
+      if (d < bd) { bd = d; best = h; }
+    }
+    return best || this;
+  }
   pointHit(px, py) { return this.aliveHeads.some(h => dist2(px, py, h.x, h.y) < h.r * h.r); }
   hit(dmg, g, hx, hy) {
     // damage nearest alive head

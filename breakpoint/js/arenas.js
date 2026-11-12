@@ -72,7 +72,7 @@ class LeakGauge {
 // AI MAINFRAME — the machine's own paddle. It slides toward a ball on its way
 // up and knocks it back down; a falling ball passes through.
 class Defender {
-  constructor() { this.d = { x: CFG.W * 0.2 }; this.prev = new WeakMap(); this.flash = 0; }
+  constructor() { this.d = { x: CFG.W * 0.2, rest: 0 }; this.prev = new WeakMap(); this.flash = 0; }
   get x() { return this.d.x; }
   update(dt, g) {
     const t = Rules.ARENA_TUNING.defender;
@@ -84,6 +84,7 @@ class Defender {
       if (Rules.defenderBlocks(this.d, b, prevY)) {
         b.vy = Math.abs(b.vy);
         b.y = t.y + t.height / 2 + b.r + 1;
+        this.d.rest = t.rest;                      // it reboots: the next shot gets through
         this.flash = 1;
         AudioSys.sfx('wall');
         FX.spawn(b.x, b.y, COL.blue, 8, { spd: 150, dir: Math.PI / 2, spread: 1.6 });
@@ -99,10 +100,18 @@ class Defender {
     ctx.setLineDash([2, 10]);
     ctx.beginPath(); ctx.moveTo(0, t.y); ctx.lineTo(CFG.W, t.y); ctx.stroke();
     ctx.setLineDash([]);
-    ctx.globalAlpha = 1;
-    ctx.shadowColor = COL.blue; ctx.shadowBlur = 14 + this.flash * 16;
+    const down = this.d.rest > 0;                  // rebooting: dim, flickering, and nothing to fear
+    ctx.globalAlpha = down ? 0.22 + 0.1 * Math.sin(this.d.rest * 30) : 1;
+    ctx.shadowColor = COL.blue; ctx.shadowBlur = down ? 0 : 14 + this.flash * 16;
     ctx.fillStyle = this.flash > 0 ? '#fff' : COL.blue;
     ctx.fillRect(x, y, t.width, t.height);
+    if (down) {
+      ctx.globalAlpha = 0.7; ctx.fillStyle = COL.blue;
+      ctx.font = '700 9px Orbitron, monospace'; ctx.textAlign = 'center';
+      ctx.fillText('REBOOTING ' + Math.ceil(this.d.rest), this.d.x, y - 6);
+      ctx.restore();
+      return;
+    }
     ctx.shadowBlur = 0;
     ctx.fillStyle = 'rgba(255,255,255,.8)';
     ctx.fillRect(x + 3, y + t.height - 4, t.width - 6, 2);                    // lit along its underside: that's the face that blocks
@@ -130,15 +139,19 @@ class SideWrap {
     }
   }
   render(ctx) {
+    const line = Rules.wrapLine(CFG.PADDLE_Y);                    // open above this, solid wall below
     ctx.save();
     for (const side of [0, 1]) {
       const x = side ? CFG.W : 0, dir = side ? -1 : 1;
       const g = ctx.createLinearGradient(x, 0, x + dir * 26, 0);
       g.addColorStop(0, `rgba(113,239,255,${(0.2 + this.hot[side] * 0.5).toFixed(2)})`); g.addColorStop(1, 'transparent');
       ctx.fillStyle = g;
-      ctx.fillRect(side ? CFG.W - 26 : 0, 0, 26, CFG.H);
+      ctx.fillRect(side ? CFG.W - 26 : 0, 0, 26, line);
+      ctx.fillStyle = 'rgba(113,239,255,.75)';                    // the solid stretch of wall beside the paddle
+      ctx.fillRect(side ? CFG.W - 4 : 0, line, 4, CFG.H - line);
+      ctx.fillRect(side ? CFG.W - 16 : 0, line - 1, 16, 2);
       ctx.fillStyle = 'rgba(113,239,255,.55)';
-      for (let y = (this.t * 40) % 46; y < CFG.H; y += 46) {      // chevrons pointing out through the wall
+      for (let y = (this.t * 40) % 46; y < line - 14; y += 46) {  // chevrons pointing out through the wall
         ctx.beginPath(); ctx.moveTo(x + dir * 12, y); ctx.lineTo(x + dir * 4, y + 6); ctx.lineTo(x + dir * 12, y + 12); ctx.lineTo(x + dir * 9, y + 6); ctx.fill();
       }
     }

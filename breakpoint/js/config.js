@@ -89,10 +89,10 @@ const BRICK_INFO = {
 
 // Enemies, bosses, glitch events and the ball's moods, as the codex describes them.
 const ENEMY_INFO = {
-  drone:  { name: 'DRONE',      line: 'Hovers above the wall and shoots straight down. Two hits. From sector 3.' },
-  virus:  { name: 'VIRUS ORB',  line: 'Drifts about and turns the bricks it touches into virus bricks. One hit. From sector 6.' },
-  repair: { name: 'REPAIR BOT', line: 'Patrols and repairs damaged bricks. Two hits. From sector 6.' },
-  turret: { name: 'TURRET',     line: 'Sits at the side and aims at your paddle. Three hits. From sector 6.' },
+  drone:  { name: 'DRONE',      line: 'Hovers above the wall and shoots straight down. One hit from the ball. From sector 3.' },
+  virus:  { name: 'VIRUS ORB',  line: 'Drifts about and turns the bricks it touches into virus bricks. One hit from the ball. From sector 6.' },
+  repair: { name: 'REPAIR BOT', line: 'Patrols and repairs damaged bricks. One hit from the ball. From sector 6.' },
+  turret: { name: 'TURRET',     line: 'Sits at the side and aims at your paddle. Two hits from the ball. From sector 6.' },
 };
 const BOSS_INFO = {
   'MEMORY GUARDIAN': { line: 'Three shield arcs turn around it and deflect the ball. Shoot through the gaps.' },
@@ -100,7 +100,7 @@ const BOSS_INFO = {
   'FIREWALL TITAN':  { line: 'Armoured underneath. Hit it from the sides or above, or use a fire ball.' },
   'QUANTUM CORE':    { line: 'Teleports every few seconds and cannot be hurt for a moment after each jump.' },
   'DATA HYDRA':      { line: 'Three heads, each with its own health. All three must go.' },
-  'THE EYE':         { line: 'From the Pong arena. It blinks to armour itself, fires volleys of six, and teleports. Sector 10, and the end of Boss Rush.' },
+  'THE EYE':         { line: 'From the Pong arena. It blinks to armour itself, fires volleys of six, and teleports. Every tenth sector, and the end of Boss Rush.' },
 };
 const EVENT_INFO = {
   systemError:  'The picture jumps about for six seconds.',

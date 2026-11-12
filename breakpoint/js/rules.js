@@ -38,6 +38,18 @@ const Rules = (() => {
   // The chance that a broken brick drops a power-up.
   function dropChance(luckRank, glitch) { return CFG.DROP_CHANCE + (luckRank || 0) * 0.04 + (glitch >= 50 ? 0.04 : 0); }
 
+  // The Glitch meter overloads when it reaches 100%: a flash, a shake and a
+  // glitch event on the spot. It then has to fall back below `rearm` before it
+  // can overload again. Without that, a meter hovering just under full (which is
+  // where it sits in deep sectors) overloaded every couple of seconds.
+  const OVERLOAD = { rearm: 80 };
+  function overloadFires(before, after, armed) { return armed && before < 100 && after >= 100; }
+  function overloadRearms(glitch) { return glitch < OVERLOAD.rearm; }
+
+  // What a broken brick can drop. Hardcore is one life, so nothing there hands
+  // out another (it used to: the AI collected four or five a run).
+  function dropPool(mode) { return mode === 'hardcore' ? POWERUP_KEYS.filter((k) => k !== 'life') : POWERUP_KEYS; }
+
   // ---------------- bricks ----------------
   // Why a hit does nothing to a brick, or null if it lands. `src` says what hit
   // it: { laser, fire, emp, explosion }.
@@ -184,26 +196,29 @@ const Rules = (() => {
     standard:  { name: 'STANDARD',         line: 'The original court. No tricks.' },
     lightBar:  { name: 'LIGHT BAR',        line: 'A neon bar patrols the middle and bats the ball away.' },
     pulse:     { name: 'REACTOR PULSE',    line: 'The core charges, then throws every ball near it outward.' },
-    leak:      { name: 'LEAKING PADDLE',   line: 'Every return costs the paddle some length. Catch a power-up to get it back.' },
+    leak:      { name: 'LEAKING PADDLE',   line: 'A return that breaks nothing costs the paddle some length. A power-up restores it.' },
     tunnels:   { name: 'HIVE TUNNELS',     line: 'Two gates. In one, out the other.' },
     beam:      { name: 'LIGHT BEAM',       line: 'A beam sweeps the nave and turns the ball back.' },
     badSector: { name: 'BAD SECTOR',       line: 'A corrupted patch of the board scrambles the ball\'s direction.' },
-    defender:  { name: 'DEFENDER',         line: 'The mainframe has a paddle of its own. It blocks shots on their way up.' },
-    wrap:      { name: 'NO SIDE WALLS',    line: 'The ball leaves one side and comes back in the other.' },
+    defender:  { name: 'DEFENDER',         line: 'The mainframe\'s paddle blocks a shot on its way up, then needs two seconds to reboot.' },
+    wrap:      { name: 'NO SIDE WALLS',    line: 'Up among the bricks the ball leaves one side and comes back in the other.' },
     well:      { name: 'GRAVITY WELL',     line: 'A black hole drifts across the field and bends the ball toward it.' },
     descend:   { name: 'DESCENDING RACKS', line: 'The whole wall drops a row every 14 seconds.' },
     drift:     { name: 'DRIFT',            line: 'Sideways gravity that keeps changing its mind.' },
   };
   const ARENA_TUNING = {
-    leak:     { perReturn: 0.03, least: 0.6 },               // share of the paddle lost per return, and the least it shrinks to
+    leak:     { perReturn: 0.03, least: 0.8 },               // share of the paddle lost per wasted return, and the least it shrinks to
     pulse:    { every: 9, warn: 1.6, radius: 230, y: 340 },   // seconds between pulses, seconds of warning, reach in pixels
-    defender: { width: 120, height: 10, speed: 170, y: 440, sees: 300 },
-    descend:  { every: 14, warn: 2, step: 30, gap: 150 },     // a row is 30 pixels; it stops this far above the paddle
+    defender: { width: 110, height: 10, speed: 120, y: 410, sees: 300, rest: 2 },   // `rest`: seconds it is out of action after a block
+    descend:  { every: 14, warn: 2, step: 30, gap: 170 },     // a row is 30 pixels; it stops this far above the paddle
     drift:    { accel: 150, rate: 0.45 },                     // sideways pull in pixels a second squared, and how fast it swings
+    wrap:     { solid: 240 },                                 // the side walls are solid for this far above the paddle
   };
   function arenaRule(arena) { return ARENA_RULES[arena && arena.rule] || ARENA_RULES.standard; }
 
-  // MEMORY LEAK: how long the paddle is after this many returns (1 is full length).
+  // MEMORY LEAK: how long the paddle is after this many wasted returns (1 is full
+  // length). A return is wasted if the ball broke nothing since the paddle last
+  // touched it, so accurate play keeps the paddle whole.
   function leakFactor(returns) {
     const t = ARENA_TUNING.leak;
     return Math.max(t.least, 1 - t.perReturn * Math.max(0, returns));
@@ -232,9 +247,13 @@ const Rules = (() => {
 
   // AI MAINFRAME. The defender is a bar at a fixed height that slides toward
   // whichever ball is coming up at it. It moves slower than a ball does, so an
-  // angled shot gets round it. `d` is { x }.
+  // angled shot gets round it, and after a block it reboots: for `rest` seconds
+  // it neither moves nor blocks, so the next shot always gets through.
+  // `d` is { x, rest }.
   function defenderStep(d, balls, dt, W) {
     const t = ARENA_TUNING.defender;
+    d.rest = Math.max(0, (d.rest || 0) - dt);
+    if (d.rest > 0) return d.x;
     let target = null;
     for (const b of balls) {
       if (b.stuck || b.dead || !(b.vy < 0) || b.y < t.y || b.y > t.y + t.sees) continue;
@@ -251,7 +270,7 @@ const Rules = (() => {
   // Only on the way up: a falling ball passes through it.
   function defenderBlocks(d, ball, prevY) {
     const t = ARENA_TUNING.defender, bottom = t.y + t.height / 2, r = ball.r || 0;
-    if (!(ball.vy < 0)) return false;
+    if (d.rest > 0 || !(ball.vy < 0)) return false;
     if (prevY - r < bottom || ball.y - r > bottom) return false;      // didn't reach the underside on this step
     return Math.abs(ball.x - d.x) <= t.width / 2 + r;
   }
@@ -282,6 +301,27 @@ const Rules = (() => {
     if (x < -r) return x + W + 2 * r;
     if (x > W + r) return x - W - 2 * r;
     return x;
+  }
+  // The side walls are open only above this height. Lower down, near the paddle,
+  // they are ordinary walls: a ball that wrapped there would arrive on the far
+  // side of the field with no time for anyone to reach it.
+  function wrapLine(paddleY) { return paddleY - ARENA_TUNING.wrap.solid; }
+
+  // Where a falling ball will cross the paddle's height, allowing for the side
+  // walls (it bounces off them) and, with `line` set, for DATA TUNNEL (above
+  // `line` it wraps instead). The AI aims the paddle with this.
+  function landingX(ball, paddleY, W, line) {
+    const r = ball.r || 0, vy = Math.max(ball.vy, 1);
+    let x = ball.x, y = ball.y;
+    if (line !== undefined && line !== null && y < line) {
+      const t = (Math.min(line, paddleY) - y) / vy, span = W + 2 * r;
+      x = ((x + ball.vx * t + r) % span + span) % span - r;        // wrapped
+      y = Math.min(line, paddleY);
+    }
+    const t = (paddleY - y) / vy, span = W - 2 * r;
+    let px = Math.abs(((x + ball.vx * t - r) % (2 * span) + 2 * span) % (2 * span));   // folded off the walls
+    if (px > span) px = 2 * span - px;
+    return px + r;
   }
 
   // ---------------- codex ----------------
@@ -438,6 +478,7 @@ const Rules = (() => {
 
   return {
     levelFromXp,
+    OVERLOAD, overloadFires, overloadRearms, wrapLine, landingX, dropPool,
     glitchMultiplier, scoreMultiplier, comboBonus, points, clearBonus, timeBonus, runRewards, startingLives, serveSpeed, dropChance,
     brickImmune, onlyFirewallsLeft, BREACH_KIT,
     arenaIndex, isBossSector, bossFor, enemyCap, enemyKinds, PATTERNS, sectorRows, patternHolds, pickWeighted, layoutSector,

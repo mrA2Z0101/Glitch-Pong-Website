@@ -76,6 +76,12 @@ test('some bricks shrug off some hits', () => {
   assert.equal(R.onlyFirewallsLeft(['firewall', 'normal']), false);
   assert.equal(R.onlyFirewallsLeft([]), false, 'an empty board is a cleared sector, not a stuck one');
   for (const kind of R.BREACH_KIT) assert.ok(T.POWERUPS[kind], `${kind} is a real power-up`);
+
+  // what can drop: everything, except that Hardcore's one life stays one life
+  assert.deepEqual(plain(R.dropPool('classic')), plain(T.POWERUP_KEYS));
+  assert.equal(R.dropPool('hardcore').includes('life'), false);
+  assert.equal(R.dropPool('hardcore').length, T.POWERUP_KEYS.length - 1);
+  assert.ok(R.dropPool('hardcore').includes('random'), 'the randomizer still drops there');
 });
 
 test('every fifth sector is a boss, and THE EYE takes every tenth', () => {
@@ -242,13 +248,17 @@ test('each of the twelve arenas has a place, a rule, a hazard and a soundtrack o
   for (const file of T.MUSIC.eye) assert.ok(existsSync(new URL('../breakpoint/sounds/music/' + file + '.mp3', import.meta.url)));
 });
 
-test('MEMORY LEAK: every return shortens the paddle, down to 60%', () => {
+test('MEMORY LEAK: a wasted return shortens the paddle, down to four fifths', () => {
+  const t = R.ARENA_TUNING.leak;
   assert.equal(R.leakFactor(0), 1);
-  assert.equal(R.leakFactor(1), 0.97);
-  assert.ok(Math.abs(R.leakFactor(10) - 0.7) < 1e-9);
-  assert.equal(R.leakFactor(14), 0.6);
-  assert.equal(R.leakFactor(500), 0.6, 'it stops shrinking');
+  assert.equal(R.leakFactor(1), 1 - t.perReturn);
+  assert.ok(Math.abs(R.leakFactor(5) - (1 - 5 * t.perReturn)) < 1e-9);
+  assert.equal(R.leakFactor(500), t.least, 'it stops shrinking');
   assert.equal(R.leakFactor(-3), 1);
+  let last = 1;
+  for (let n = 0; n < 40; n++) { const k = R.leakFactor(n); assert.ok(k <= last && k >= t.least); last = k; }
+  assert.ok(t.least >= 0.7, 'never less than 70% of the paddle: the shortest paddle is still a fair one');
+  assert.ok((1 - t.least) / t.perReturn >= 6, 'and it takes at least six wasted returns to get there');
 });
 
 test('QUANTUM REACTOR: the core warns, fires, and throws nearby balls outward', () => {
@@ -306,6 +316,16 @@ test('AI MAINFRAME: the defender chases a rising ball and only blocks on the way
   assert.equal(R.defenderBlocks(bar, ball(480 + t.width / 2 + 8, under + 5, -400), under + 12), false, 'wide of it');
   assert.equal(R.defenderBlocks(bar, ball(480 + t.width / 2 + 6, under + 5, -400), under + 12), true, 'clipping its end counts');
   assert.equal(R.defenderBlocks(bar, ball(480, under - 60, -400), under - 30), false, 'already above it');
+  // after a block it reboots: for a while it neither blocks nor moves, so the next shot always gets through
+  const resting = { x: 480, rest: t.rest };
+  assert.equal(R.defenderBlocks(resting, ball(480, under + 5, -400), under + 12), false);
+  R.defenderStep(resting, [{ x: 900, y: t.y + 100, vy: -300, r: 7 }], 0.5, 960);
+  assert.equal(resting.x, 480, 'it stays put while it reboots');
+  assert.equal(resting.rest, t.rest - 0.5);
+  R.defenderStep(resting, [], t.rest, 960);
+  assert.equal(resting.rest, 0);
+  assert.equal(R.defenderBlocks(resting, ball(480, under + 5, -400), under + 12), true, 'and then it is back');
+  assert.ok(t.rest >= 1.5, 'long enough for a return trip to the paddle and back');
   // an angled shot beats it: the ball crosses more ground sideways than the defender can cover
   assert.ok(t.speed < T.CFG.BALL_SPD * Math.sin(Math.PI / 3), 'slower than a sixty-degree shot travels sideways');
 });
@@ -345,6 +365,55 @@ test('BROKEN SIMULATION drifts both ways, and DATA TUNNEL wraps', () => {
   assert.equal(R.wrapX(-8, 7, 960), 966, 'gone off the left, back in just outside the right');
   assert.equal(R.wrapX(968, 7, 960), -6);
   assert.equal(R.wrapX(R.wrapX(-8, 7, 960), 7, 960), 966, 'and it does not wrap straight back');
+  // beside the paddle the walls are solid: a ball that wrapped there could not be reached by anyone
+  const line = R.wrapLine(T.CFG.PADDLE_Y);
+  assert.equal(line, T.CFG.PADDLE_Y - R.ARENA_TUNING.wrap.solid);
+  const crossing = 960 / T.CFG.PADDLE_SPD;                               // seconds for the paddle to cross the field
+  const fall = R.ARENA_TUNING.wrap.solid / (T.CFG.BALL_MAX * Math.cos(Math.PI / 3));   // the least time a ball takes from the line to the paddle
+  assert.ok(line > T.CFG.BRICK_TOP + 9 * 30, 'the whole wall of bricks is in the open part');
+  assert.ok(fall > 0.6, `a ball that wraps at the last moment still gives ${fall.toFixed(2)}s to move (the paddle crosses the field in ${crossing.toFixed(2)}s)`);
+});
+
+test('where a falling ball will land, for the AI at the paddle', () => {
+  const ball = (x, y, vx, vy) => ({ x, y, vx, vy, r: 7 });
+  assert.equal(R.landingX(ball(400, 300, 0, 300), 600, 960), 400, 'straight down');
+  assert.equal(R.landingX(ball(400, 300, 100, 300), 600, 960), 500);
+  // off the right wall: 300 down at 300/s is one second, 700 across; the wall for the ball's centre is at 953
+  assert.equal(R.landingX(ball(600, 300, 700, 300), 600, 960), 953 - (1300 - 953));
+  assert.equal(R.landingX(ball(100, 300, -300, 300), 600, 960), 7 + (7 - -200), 'and off the left wall');
+  // DATA TUNNEL: above the line it wraps, below the line it bounces
+  const line = 430;
+  assert.equal(R.landingX(ball(400, 300, 100, 300), 600, 960, line), 500, 'a ball nowhere near the sides lands the same');
+  // 130 down to the line takes 0.433s and carries it 303 across, out the right side and back in the left
+  const wrapped = R.landingX(ball(900, 300, 700, 300), 600, 960, line);
+  const atLine = ((900 + 700 * (130 / 300) + 7) % 974) - 7;
+  assert.ok(Math.abs(wrapped - (atLine + 700 * (170 / 300))) < 1e-6, `comes back in on the left and carries on (${wrapped})`);
+  assert.ok(wrapped < 700, 'so it lands on the other side from where a bounce would put it');
+  assert.equal(R.landingX(ball(900, 500, 300, 300), 600, 960, line), 953 - (1000 - 953), 'already below the line: the wall is solid');
+  for (let i = 0; i < 200; i++) {
+    const b = ball(7 + (i * 53) % 946, 100 + (i * 37) % 400, (i % 2 ? 1 : -1) * (50 + (i * 71) % 700), 120 + (i * 29) % 600);
+    for (const l of [null, line]) { const x = R.landingX(b, 600, 960, l); assert.ok(x >= 7 - 1e-6 && x <= 953 + 1e-6, `on the field (${x})`); }
+  }
+});
+
+test('the Glitch meter overloads once, then has to fall back before it can again', () => {
+  assert.equal(R.overloadFires(99.5, 100, true), true);
+  assert.equal(R.overloadFires(99.5, 100, false), false, 'not while it is still spent');
+  assert.equal(R.overloadFires(100, 100, true), false, 'sitting at full is not reaching full');
+  assert.equal(R.overloadFires(60, 61, true), false);
+  assert.equal(R.overloadRearms(79.9), true);
+  assert.equal(R.overloadRearms(80), false);
+  assert.ok(R.OVERLOAD.rearm >= 75, 'it re-arms without the meter having to leave the x3 band');
+  // a meter that hovers near full, as it does in deep sectors: a brick every half second (+1.1) against a drain of 0.55 a second
+  let glitch = 90, armed = true, overloads = 0;
+  for (let step = 0; step < 240; step++) {                               // two minutes
+    const before = glitch;
+    glitch = Math.min(100, glitch + 1.1);
+    if (R.overloadFires(before, glitch, armed)) { overloads++; armed = false; }
+    glitch = Math.max(0, glitch - 0.55 * 0.5);
+    if (R.overloadRearms(glitch)) armed = true;
+  }
+  assert.equal(overloads, 1, 'one overload, not one every few seconds');
 });
 
 test('the codex lists everything in the game', () => {
