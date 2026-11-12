@@ -1542,7 +1542,9 @@ export function installFloor(ctx) {
     entry.use = () => {
       openList({
         title: 'EYE GAUNTLET',
-        sub: () => `BEAT THE EYE IN BOTH GAMES FOR ◎ ${GAUNTLET_REWARD} COINS  //  CLEARS: ${F().gauntlet.clears}`,
+        sub: () => F().gauntlet.clears
+          ? `BEAT THE EYE IN BOTH GAMES FOR ◎ ${GAUNTLET_REWARD} COINS  //  CLEARS: ${F().gauntlet.clears}`
+          : `BEAT THE EYE IN BOTH GAMES FOR ◎ ${GAUNTLET_REWARD} COINS AND A NEW GLITCH PONG ARENA`,
         items: () => {
           const g = F().gauntlet;
           return [
@@ -1562,8 +1564,15 @@ export function installFloor(ctx) {
       store.save();
       pay(GAUNTLET_REWARD);
       audio.redeem();
-      ctx.toast(`EYE GAUNTLET CLEARED: +${GAUNTLET_REWARD} COINS (CLEAR ${g.clears})`, 4200);
-      ctx.setRobotPending(`THE EYE BLINKED FIRST. ${GAUNTLET_REWARD} COINS. I HAVE NEVER PAID THAT OUT BEFORE. MY CIRCUITS ARE SHAKING.`);
+      // The first clear also opens THE EYE'S LAIR in Glitch Pong's arena menu
+      // (glitchpong-site.js reads gauntlet.clears from this save).
+      const firstClear = g.clears === 1;
+      ctx.toast(firstClear
+        ? `EYE GAUNTLET CLEARED: +${GAUNTLET_REWARD} COINS  //  NEW ARENA: THE EYE'S LAIR`
+        : `EYE GAUNTLET CLEARED: +${GAUNTLET_REWARD} COINS (CLEAR ${g.clears})`, firstClear ? 6000 : 4200);
+      ctx.setRobotPending(firstClear
+        ? `THE EYE BLINKED FIRST. ${GAUNTLET_REWARD} COINS. AND IT LEFT A DOOR OPEN: THE EYE'S LAIR IS IN GLITCH PONG'S ARENA LIST NOW. I WOULD NOT GO IN.`
+        : `THE EYE BLINKED FIRST. ${GAUNTLET_REWARD} COINS. I HAVE NEVER PAID THAT OUT BEFORE. MY CIRCUITS ARE SHAKING.`);
       draw();
     }
 

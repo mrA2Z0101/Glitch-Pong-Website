@@ -1,6 +1,6 @@
 # Arenas
 
-Glitch Pong has sixteen arenas. Three only change how the court looks and one (Black-Hole Nexus) bends the ball's path. The other twelve are covered here: four that change the walls, four that change the ball or the paddles, and four that put things on the court. This page says what each one does, where the numbers are, and how to add another.
+Glitch Pong has twenty arenas. Three only change how the court looks and one (Black-Hole Nexus) bends the ball's path. The other sixteen are covered here: four that change the walls, four that change the ball or the paddles, four that put things on the court, two that change what the players can see, and two that tell a story about the game. This page says what each one does, where the numbers are, and how to add another.
 
 ## Maps that change the walls
 
@@ -31,12 +31,28 @@ Glitch Pong has sixteen arenas. Three only change how the court looks and one (B
 
 On all four, a ball that is sent back the way it came turns neutral, the same as with a glitch wall or a teleport. It is worth 1 point and can never be an own goal.
 
+## Maps that change what you see
+
+| Arena | id | What changes | What Heat does |
+|---|---|---|---|
+| ECHO | `echo` | Every return sends out a ghost ball that replays an earlier shot from the same paddle, level with the real ball. | Ghosts are 20% solid at no Heat and 92% at Critical Heat. From 50% Heat a return sends out two. |
+| KERNEL PANIC | `panic` | The court is dark. The ball lights a small circle round itself, and every paddle hit lights the whole court for about a third of a second. | The ball's light shrinks from 17% of the court's height to 11%, and flickers at Critical Heat. |
+
+## Maps that tell a story
+
+| Arena | id | What changes | What Heat does |
+|---|---|---|---|
+| ARCHIVE BUILD 0.1 | `archive` | The game is drawn as an amber monochrome prototype: a square ball, two bars, a dotted net and block digits, with no glow, trail or camera shake. The ball does not teleport, juke or surge, and there are no power-ups or glitch walls. | From 15% Heat the modern game shows through in bands, and by 75% it has taken over. The glitches come back at about 35% Heat. |
+| THE EYE'S LAIR | `lair` | The Eye fills the backdrop all match and its pupil follows the ball. | The Eye arrives at 70% Heat here, not 100%. The backdrop's eye narrows and reddens as Heat rises, and shuts while the real one is on the court. |
+
+THE EYE'S LAIR is locked until the Eye Gauntlet (arcade cabinet 11, in the STAFF ONLY room) has been cleared once. See [glitchcade-floor.md](glitchcade-floor.md).
+
 ## Where things are
 
 | File | What's in it |
 |---|---|
 | `glitchpong-arenas.js` | The rules: where the walls and goal mouths are, what the ball does when it meets them, and how they change over a rally. No DOM and no canvas, so the tests run it under Node. |
-| `glitchpong-site.js` | The arena menu entries (`ARENA_REGISTRY`), the calls into the rules (search for `arenaRules`), all the drawing (the `COURT MAPS`, `BALL MAPS` and `OBJECT MAPS` sections), and the synthesised sound (`beatStep`, `beatHit`, `thunder`, `mapSfx`). |
+| `glitchpong-site.js` | The arena menu entries (`ARENA_REGISTRY`), the calls into the rules (search for `arenaRules`), all the drawing (the `COURT MAPS`, `BALL MAPS`, `OBJECT MAPS` and `SIGHT AND STORY MAPS` sections), and the synthesised sound (`beatStep`, `beatHit`, `thunder`, `mapSfx`). |
 | `tests/arenas.test.mjs` | Plays each rule on a desktop-sized and a phone-sized court. |
 
 Every number that shapes a map is in `TUNING` at the top of `glitchpong-arenas.js`, with a comment saying what it is.
@@ -144,12 +160,44 @@ Every number that shapes a map is in `TUNING` at the top of `glitchpong-arenas.j
 - Decoy balls vanish when they touch a brick, a lit bumper or the train.
 - The bricks, bumpers, portals and train are not drawn during the Eye's fight, which takes place in the middle of the court.
 
+### ECHO
+
+- A shot is recorded from the moment a paddle hits the ball until the next paddle does. Only shots that made it across the court are kept, eight from each paddle, and they are kept for the whole match.
+- A ghost crosses the court at whatever pace the real ball is going, so it stays level with it. It wears the ball's skin and has a trail. The only tell is how solid it looks.
+- The first return of a match has no ghosts, because there is nothing to replay yet.
+- Ghosts end when a point does.
+- The AI can be fooled too. When a shot comes its way it sometimes follows a ghost (up to half the time on Easy and up to about one time in eight on Hard, more often the more solid the ghosts look) until the balls are close, then corrects.
+
+### KERNEL PANIC
+
+- The dark is 94% black. Paddles keep a faint outline, so players can always find their own.
+- Power-ups and glitch walls are only visible in the ball's light or during a flash. Decoy balls carry a light too, or they would give themselves away.
+- The lights come back for the Eye's fight and for the end of the match.
+- **Reduced motion.** If the player's device asks for reduced motion there is no whole-court flash. The dark is shallower (76%), the ball's light is about a third bigger, and a hit swells that light instead.
+- The Custom Match screen-glitch setting scales the flash as well.
+- It shares its name and its idea with the arcade's KERNEL PANIC blackout event.
+
+### ARCHIVE BUILD 0.1
+
+- The prototype is drawn over the finished modern frame. The screen is cut into 30 bands, each with its own Heat threshold. Below it the band shows the prototype; above it, the modern game underneath.
+- Glitch walls, power-ups and decoys are drawn in amber inside prototype bands, so anything that affects play can always be seen.
+- Heat goes back to zero after every point, so every rally starts in the prototype.
+- The modern layer is the ordinary Glitch Arena. The HUD bar is not part of the court and stays as it is.
+
+### THE EYE'S LAIR
+
+- The Eye still comes at most once a match, and its fight is the usual one.
+- Because it comes at 70% Heat, it usually arrives before Critical Heat (80%) is ever reached in that rally.
+- The lock is read from the arcade's save (`glitchcade_floor_v1`, `gauntlet.clears`). Admin mode opens it as well, for testing. A locked card in the arena menu is greyed out and says how to open it.
+- Winning there counts towards WORLD TOUR like any other arena, so that achievement now needs the gauntlet.
+
 ## Things that hold on every arena
 
 - **Custom Match** rules apply as usual.
-- **Online matches don't use these rules.** The online referee (`server/authoritative-pong.js`, or the host's browser in a peer-to-peer game) runs plain Pong for everyone, so one of these twelve maps selected before an online match shows its backdrop only: no posts, seam or moving walls, no gravity, ice, wind or beat boost, and no bricks, bumpers, portals or train. See [multiplayer.md](multiplayer.md).
+- **Online matches don't use these rules.** The online referee (`server/authoritative-pong.js`, or the host's browser in a peer-to-peer game) runs plain Pong for everyone, so one of these sixteen maps selected before an online match shows its backdrop only: no posts, seam or moving walls, no gravity, ice, wind or beat boost, no bricks, bumpers, portals or train, no ghosts, no blackout, no prototype layer, and the Eye at its usual 100% Heat. See [multiplayer.md](multiplayer.md).
 - **The Eye.** The boss fight is the same on every arena.
-- **Arena wins** are recorded per arena in the player's stats, under the arena's `id`. The WORLD TOUR achievement asks for a win in all sixteen; `tests/arenas.test.mjs` fails if its goal and the number of arenas differ.
+- **Music.** An arena can have its own playlist; eleven of these sixteen do so far. See [soundtrack.md](soundtrack.md).
+- **Arena wins** are recorded per arena in the player's stats, under the arena's `id`. The WORLD TOUR achievement asks for a win in all twenty; `tests/arenas.test.mjs` fails if its goal and the number of arenas differ.
 
 ## Adding an arena
 
@@ -161,6 +209,6 @@ Every number that shapes a map is in `TUNING` at the top of `glitchpong-arenas.j
 
 ## Not tested
 
-- Play by people. An AI-against-AI match was run on each map in a headless browser to check that it plays and draws without errors, but nobody has yet judged whether the numbers feel right: mouth size, leak rate, block depth, the strength of gravity and wind, how slippery the ice is, the size of the beat window, how often bricks regrow and trains run, how hard bumpers kick. `TUNING` is where to change them.
+- Play by people. An AI-against-AI match was run on each map in a headless browser to check that it plays and draws without errors, but nobody has yet judged whether the numbers feel right: mouth size, leak rate, block depth, the strength of gravity and wind, how slippery the ice is, the size of the beat window, how often bricks regrow and trains run, how hard bumpers kick, how solid ghosts look, how dark the blackout is. `TUNING` is where to change them.
 - Sound. The headless browser has no audio output, so BEAT DROP's music, ROOFTOP's thunder and the object maps' effects (brick, bumper, portal, the train and its bell) have not been heard, only run without errors.
 - A real phone. Phone-sized screens were checked in the same headless browser with touch emulation.
