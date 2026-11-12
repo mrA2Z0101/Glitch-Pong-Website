@@ -1201,7 +1201,11 @@ export function installFloor(ctx) {
 
   // ── cosmetics rack: the Glitch Pong Store items that cost coins, sold here too ──
   // The catalog and the purchase both belong to glitchpong-cosmetics.js; this is
-  // only a second place to pay.
+  // only a second place to pay. The rack also carries the prizes that only the
+  // Breakpoint cabinet can wear (glitchcade-breakpoint-prizes.js): brick styles
+  // and break effects. This counter is the only place those are sold.
+  const bpPrizes = () => (typeof window !== 'undefined' && window.GlitchBreakpointPrizes ? window.GlitchBreakpointPrizes : null);
+  const bpForSale = () => { const bp = bpPrizes(); return bp ? bp.forSale().filter((it) => !it.owned) : []; };
   const cosmetics = () => (typeof window !== 'undefined' && window.GlitchCosmetics && window.GlitchCosmetics.coinItems ? window.GlitchCosmetics : null);
   const cosmeticsForSale = () => { const cos = cosmetics(); return cos ? cos.coinItems().filter((it) => !it.owned) : []; };
   (() => {
@@ -1235,16 +1239,16 @@ export function installFloor(ctx) {
       kind: 'cosmetics', center: new THREE.Vector3(x, counterY + 0.2, counterZ), radius: 0.28, range: 3.2,
       prompt: () => {
         if (!cosmetics()) return { soon: true, title: 'COSMETICS RACK', sub: 'OUT OF ORDER' };
-        const left = cosmeticsForSale().length;
-        return { title: 'BROWSE COSMETICS', sub: left ? `GLITCH PONG STORE ITEMS // ${left} FOR SALE` : 'GLITCH PONG STORE ITEMS // YOU OWN THEM ALL' };
+        const left = cosmeticsForSale().length + bpForSale().length;
+        return { title: 'BROWSE COSMETICS', sub: left ? `SKINS FOR BOTH CABINETS // ${left} FOR SALE` : 'SKINS FOR BOTH CABINETS // YOU OWN THEM ALL' };
       },
       use() {
         const cos = cosmetics();
         if (!cos) { audio.deny(); return true; }
         openList({
           title: 'COSMETICS RACK',
-          sub: () => `FOR YOUR GLITCH PONG LOCKER  //  ◎ ${Wallet.get().coins} COINS`,
-          items: () => cos.coinItems().map(({ slot, item, cost, owned }) => ({
+          sub: () => `GLITCH PONG AND BREAKPOINT  //  ◎ ${Wallet.get().coins} COINS`,
+          items: () => [...cos.coinItems().map(({ slot, item, cost, owned }) => ({
             label: `${item.name} · ${cos.SLOT_INFO[slot].noun}`,
             note: owned ? 'OWNED' : `◎ ${cost}`,
             disabled: owned,
@@ -1259,7 +1263,21 @@ export function installFloor(ctx) {
               ctx.toast(`COSMETIC BOUGHT: ${item.name} — EQUIP IT IN THE GLITCH PONG STORE`);
               ctx.robotSay(`THE ${item.name}. IT IS IN YOUR LOCKER. OPEN THE STORE ON THE GLITCH PONG MENU TO WEAR IT.`);
             }
-          }))
+          })), ...(bpPrizes() ? bpPrizes().forSale() : []).map(({ slot, item, cost, owned }) => ({
+            label: `${item.name} · ${bpPrizes().SLOTS[slot].noun}`,
+            note: owned ? 'OWNED' : `◎ ${cost}`,
+            disabled: owned,
+            stay: true,
+            pick() {
+              const result = bpPrizes().buy(slot, item.id, Wallet);
+              if (result === 'poor') { audio.deny(); ctx.robotSay(`THE ${item.name} COSTS ${cost} COINS. YOU ARE ${cost - Wallet.get().coins} SHORT.`); return; }
+              if (result !== 'ok') return;
+              audio.redeem();
+              ctx.pulseCoinHud();
+              ctx.toast(`BREAKPOINT PRIZE BOUGHT: ${item.name} — WEAR IT FROM BREAKPOINT'S SETTINGS`);
+              ctx.robotSay(`THE ${item.name}. IT ONLY WORKS ON THE BREAKPOINT CABINET. OPEN ITS SETTINGS TO WEAR IT.`);
+            }
+          }))]
         });
         return true;
       }

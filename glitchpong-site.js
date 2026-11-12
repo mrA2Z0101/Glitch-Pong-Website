@@ -697,6 +697,11 @@ const GlitchSave = (function() {
       return GlitchCosmetics.sanitize(v);
     },
     glitchcade_breakpoint_v1: (v) => (v && typeof v === "object" ? { sectors: Math.floor(num(v.sectors) || 0) } : null),
+    // Breakpoint-only prizes bought at the counter; glitchcade-breakpoint-prizes.js owns the shape.
+    glitchcade_breakpoint_prizes_v1: (v) => {
+      if (!v || typeof v !== "object" || typeof GlitchBreakpointPrizes === "undefined") return null;
+      return GlitchBreakpointPrizes.sanitize(v);
+    },
     glitchPongPaddleColors: (v) => (v && ID_RE.test(v.blue || "") && ID_RE.test(v.red || "") ? { blue: v.blue, red: v.red } : null),
     glitchPongPerformance: (v) => (v && typeof v === "object" ? { batterySaver: !!v.batterySaver } : null),
     // The arcade floor's own record (repairs, high scores, daily challenge...).

@@ -274,10 +274,27 @@ body.portrait .cx p{font-size:15px}
 body.portrait .cxlist.controls{font-size:16px}
 body.portrait .cxlist.controls .keys b{font-size:13px}
 body.portrait .screen .tabs button.small{font-size:9.5px;padding:12px 10px}
+/* the run recap on the game-over screen */
+.recap{display:grid;grid-template-columns:auto minmax(0,440px);gap:6px 16px;text-align:left;align-items:baseline;max-width:94%}
+.recap .rc{display:contents}
+.recap i{font-style:normal;font-family:'Orbitron',monospace;font-size:9px;font-weight:700;letter-spacing:2px;color:var(--cyan);text-align:right;white-space:nowrap}
+.recap span{font-size:13px;color:var(--text);line-height:1.4}
+.recap img{height:16px;width:16px;vertical-align:-3px;margin-right:6px}
+body.portrait .recap{grid-template-columns:1fr;gap:2px}
+body.portrait .recap i{text-align:left;font-size:11px;margin-top:8px}
+body.portrait .recap span{font-size:16px}
 /* settings: a switch and what it does, in two aligned columns */
 .setlist{display:grid;grid-template-columns:auto minmax(0,300px);gap:9px 16px;align-items:center;text-align:left}
 .setlist button{justify-self:stretch}
 .setlist .hint{font-size:12px;color:var(--muted);line-height:1.45;letter-spacing:.5px}
+.setlist .group{grid-column:1 / -1;border-top:1px solid var(--line);padding-top:7px}
+.setlist .gh{font-family:'Orbitron',monospace;font-size:9px;font-weight:700;letter-spacing:2px;color:var(--amber);margin-bottom:6px}
+.setlist .gh b{color:var(--muted);font-weight:700;margin-left:8px}
+.setlist .gb{display:flex;gap:8px;flex-wrap:wrap}
+.setlist .gb button{flex:1 1 0;min-width:0;font-size:8px;padding:11px 8px}
+body.portrait .setlist .gb button{flex-basis:100%;font-size:11px}
+#scrSettings{gap:9px}
+#scrOver{overflow-y:auto}
 .row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;align-items:center}
 .stat{font-size:11px;color:var(--muted);letter-spacing:2px;font-family:'Orbitron',monospace;text-transform:uppercase}
 .stat b{color:var(--text);font-family:'VT323',monospace;font-size:19px;letter-spacing:1px}
@@ -519,6 +536,14 @@ body.touch #scrMenu, body.saver #scrMenu{
         <span class="hint">Slower frames and smaller glows. Switches on by itself when the battery is low. Shared with Glitch Pong and the arcade.</span>
         <button id="btnPaddleColor" class="small">Paddle: ION CYAN</button>
         <span class="hint">Shared with Glitch Pong: changing it here changes your paddle there.</span>
+        <div class="group" id="skinRows">
+          <div class="gh">SKINS FROM GLITCH PONG'S STORE <b id="skinCount"></b></div>
+          <div class="gb"><button id="btnSkinPaddle" class="small">Paddle Skin</button><button id="btnSkinBall" class="small">Ball</button><button id="btnSkinTrail" class="small">Trail</button></div>
+        </div>
+        <div class="group" id="prizeRows">
+          <div class="gh">BREAKPOINT PRIZES FROM THE GLITCHCADE COUNTER <b id="prizeCount"></b></div>
+          <div class="gb"><button id="btnBricks" class="small">Bricks</button><button id="btnBurst" class="small">Break FX</button></div>
+        </div>
         <button id="btnSentience" class="small">Sentient Ball: ON</button>
         <span class="hint">The ball has moods of its own. The codex lists them.</span>
         <button id="btnAiRewards" class="small">AI Progression: OFF</button>
@@ -526,7 +551,6 @@ body.touch #scrMenu, body.saver #scrMenu{
         <button id="btnTutorial" class="small">Replay Tutorial</button>
         <span class="hint">Your next Classic run starts with the guided first sector.</span>
       </div>
-      <div class="stat" style="text-transform:none;letter-spacing:1px">Progress saves automatically to this device.</div>
       <button class="small warn" id="btnWipe">Erase Save Data</button>
       <button class="small" data-back>◀ BACK</button>
     </div>
@@ -598,15 +622,18 @@ body.touch #scrMenu, body.saver #scrMenu{
   </div>
 </div>
 <script src="../glitchcade-power.js?v=power-1"></script>
+<!-- shared with the arcade: Glitch Pong's skins and the prizes sold at the counter -->
+<script src="../glitchpong-cosmetics.js?v=cosmetics-4"></script>
+<script src="../glitchcade-breakpoint-prizes.js?v=bp-prizes-1"></script>
 <script src="js/config.js?v=9"></script>
-<script src="js/rules.js?v=2"></script>
+<script src="js/rules.js?v=3"></script>
 <script src="js/icons.js?v=2"></script>
 <script src="js/audio.js?v=10"></script>
 <script src="js/effects.js?v=7"></script>
 <script src="js/backdrops.js?v=2"></script>
-<script src="js/wallet.js?v=7"></script>
-<script src="js/entities.js?v=10"></script>
+<script src="js/wallet.js?v=8"></script>
+<script src="js/entities.js?v=11"></script>
 <script src="js/arenas.js?v=1"></script>
-<script src="js/game.js?v=14"></script>
+<script src="js/game.js?v=15"></script>
 </body>
 </html>

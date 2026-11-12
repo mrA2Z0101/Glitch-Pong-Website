@@ -246,7 +246,7 @@ const game = {
     this.score = 0; this.combo = 0; this.maxCombo = 0;
     this.lives = 3;
     this.glitch = 0; this.corruption = 0; this.time = 0;
-    this.stats = { bricks: 0, bosses: 0, powerups: 0, timeStart: performance.now() };
+    this.stats = { bricks: 0, bosses: 0, powerups: 0, timeStart: performance.now(), powers: {}, lives: [], comboSector: 0, newEntries: 0 };
     // open on a random sector so the demo showcases variety — including bosses / THE EYE
     this.level = 1 + Math.floor(Math.random() * 12);
     this.aiTargetX = CFG.W / 2;
@@ -337,6 +337,7 @@ const game = {
     if (!entry) return;
     Meta.data.seen[key] = true;
     Meta.save();
+    if (this.stats) this.stats.newEntries++;
     if (key === 'arena:standard') return;        // the plain court needs no explaining
     toast('CODEX // ' + entry.name, entry.line);
   },
@@ -461,7 +462,7 @@ const game = {
     this.glitch = Meta.rank('startmult') ? 25 : 0;
     this.corruption = 0;
     this.time = 0;
-    this.stats = { bricks: 0, bosses: 0, powerups: 0, timeStart: performance.now() };
+    this.stats = { bricks: 0, bosses: 0, powerups: 0, timeStart: performance.now(), powers: {}, lives: [], comboSector: 0, newEntries: 0 };
     this.runCoins = 0;
     this.level = 1;
     // a first run in an ordinary mode starts with the guided sector
@@ -801,7 +802,7 @@ const game = {
     b.alive = false;
     const def = BRICKS[b.type];
     this.combo++;
-    this.maxCombo = Math.max(this.maxCombo, this.combo);
+    if (this.combo > this.maxCombo) { this.maxCombo = this.combo; this.stats.comboSector = this.level; }
     if (this.combo >= 15) this.unlock('combo15');
     if (this.combo >= 30) this.unlock('combo30');
     this.stats.bricks++;
@@ -810,7 +811,7 @@ const game = {
     this.addScore(def.score, b.cxm, b.cym);
     this.addGlitch(1.1);
     AudioSys.sfx('brick', Math.min(this.combo, 12));
-    FX.spawn(b.cxm, b.cym, def.color, 14, { spd: 220 });
+    this.burst(b.cxm, b.cym, def.color);
     FX.shake(1);
 
     switch (b.type) {
@@ -856,6 +857,26 @@ const game = {
     } else if (!src.noDrop && chance(luck)) {
       const kind = pool[Math.floor(Math.random() * pool.length)];
       this.powerups.push(new PowerUp(b.cxm, b.cym, kind));
+    }
+  },
+
+  // What a brick does as it breaks: the effect you wear (a prize from the
+  // Glitchcade's counter; see Prizes in js/wallet.js).
+  burst(x, y, col) {
+    switch (Prizes.burst) {
+      case 'confetti':
+        for (const c of [COL.cyan, COL.magenta, COL.yellow, COL.green, col]) FX.spawn(x, y, c, 4, { spd: 270, grav: 430, size: 4, life: 0.95, dir: -Math.PI / 2, spread: 2.6 });
+        break;
+      case 'shards':
+        FX.spawn(x, y, '#dff6ff', 10, { spd: 150, grav: 640, size: 5, life: 0.85 });
+        FX.spawn(x, y, col, 4, { spd: 120, grav: 640, size: 3, life: 0.7 });
+        break;
+      case 'coins':
+        FX.spawn(x, y, '#ffd166', 9, { spd: 250, grav: 720, size: 6, life: 0.95, dir: -Math.PI / 2, spread: 1.5, square: false });
+        FX.spawn(x, y, col, 4, { spd: 160 });
+        break;
+      default:
+        FX.spawn(x, y, col, 14, { spd: 220 });
     }
   },
 
@@ -923,6 +944,9 @@ const game = {
       return;
     }
     this.paddle.stun = 2.2;
+    // for the recap: whose shot it was
+    const by = shot && shot.src;
+    this.stunBy = by ? (by.kind && ENEMY_INFO[by.kind] ? 'a ' + ENEMY_INFO[by.kind].name : by.name || null) : null;
     this.combo = 0;
     AudioSys.sfx('lose');
     FX.shake(6); FX.flash(COL.red, 0.2);
@@ -953,6 +977,7 @@ const game = {
     AudioSys.sfx('powerup');
     const d = POWERUPS[kind];
     if (kind !== 'random') {        // the randomizer names what it turned into
+      this.stats.powers[kind] = (this.stats.powers[kind] || 0) + 1;
       this.meet('power', kind);
       if (!this.attract) this.pickup = { kind, t: 2.4, life: 2.4 };
       if (this.tutor) this.tutor.e.powerups++;
@@ -1091,6 +1116,15 @@ const game = {
     // the boss is already dead and the sector is about to clear: no penalty
     if (this.boss && this.boss.dead) { this.serve(); this.state = 'serve'; return; }
     this.combo = 0;
+    // for the recap: what was going on when this ball got past
+    const gone = this.lastLost, p = this.paddle;
+    this.stats.lives.push({
+      sector: this.level, arena: this.arena.name, rule: this.rule,
+      event: this.activeEvent ? this.activeEvent.id : null,
+      stunnedBy: p.stun > 0 ? this.stunBy || 'an enemy' : null,
+      gap: gone ? Math.max(0, Math.abs(gone.x - p.x) - p.w / 2) : undefined,
+      speed: gone ? gone.speed / CFG.BALL_MAX : 0,
+    });
     this.restorePaddle(false);
     AudioSys.sfx('lose');
     FX.shake(10); FX.flash(COL.red, 0.3); FX.setRgb(0.8);
@@ -1238,7 +1272,11 @@ const game = {
             [newBest ? 'New Best!' : 'Best', (Meta.data.best[bestKey] ?? this.score).toLocaleString(), true],
           ])
         : `<div class="clear-bonus">AI AUTOPLAY — NO PROGRESSION EARNED</div>`) +
-      (newBest && prevBest ? `<div class="clear-bonus">NEW PERSONAL BEST — previous ${prevBest.toLocaleString()}</div>` : '');
+      (newBest && prevBest ? `<div class="clear-bonus">NEW PERSONAL BEST — previous ${prevBest.toLocaleString()}</div>` : '') +
+      '<div class="recap">' + Rules.runRecap({
+        mode: this.mode, won: !!won, maxCombo: this.maxCombo, comboSector: this.stats.comboSector,
+        powers: this.stats.powers, lives: this.stats.lives, newEntries: this.stats.newEntries,
+      }).map((row) => `<div class="rc"><i>${row.label}</i><span>${row.power ? `<img src="${powerIconUrl(row.power)}" alt="">` : ''}${row.text}</span></div>`).join('') + '</div>';
     if (newBest) AudioSys.sfx('achieve');
     showScreen('scrOver');
     refreshMenuStats();
@@ -1464,7 +1502,7 @@ const game = {
     }
     const before = this.balls.length;
     const lost = this.balls.find(b => b.dead);
-    if (lost) this.lastLostTrail = lost.trail.slice(0, 14);
+    if (lost) { this.lastLostTrail = lost.trail.slice(0, 14); this.lastLost = { x: lost.x, speed: lost.speed }; }
     this.balls = this.balls.filter(b => !b.dead);
     this.siblingRivalry();
     if (this.balls.length === 0 && before > 0 && this.state === 'play') this.loseLife();
@@ -1833,7 +1871,7 @@ const game = {
       ctx.restore();
     }
     if (this.ghost) this.renderGhost();
-    for (const ball of this.balls) ball.render(ctx);
+    for (const ball of this.balls) ball.render(ctx, this);
     for (const ball of this.balls) {
       if (ball.mood === 'curious' && !ball.stuck) {
         ctx.save();
@@ -2231,7 +2269,7 @@ function goMenu() {
 
 // wire buttons
 $('btnPlay').onclick = () => { AudioSys.init(); AudioSys.sfx('click'); buildModeGrid(); showScreen('scrModes'); };
-$('btnSettings').onclick = () => { AudioSys.init(); AudioSys.sfx('click'); showScreen('scrSettings'); };
+$('btnSettings').onclick = () => { AudioSys.init(); AudioSys.sfx('click'); Skins.refresh(); Prizes.refresh(); refreshLooks(); showScreen('scrSettings'); };
 $('btnShop').onclick = () => { AudioSys.init(); AudioSys.sfx('click'); buildShop(); showScreen('scrShop'); };
 $('btnAchv').onclick = () => { AudioSys.init(); AudioSys.sfx('click'); buildAchv(); showScreen('scrAchv'); };
 $('btnHelp').onclick = () => { AudioSys.init(); AudioSys.sfx('click'); buildCodex(); showScreen('scrHelp'); };
@@ -2290,6 +2328,44 @@ $('btnPaddleColor').onclick = () => {
   PaddleColor.cycle();
   refreshPaddleColorBtn();
 };
+// Skins from Glitch Pong's Store (paddle, ball, trail) and Break Point's own
+// prizes from the Glitchcade counter (bricks, break effect). Each button steps
+// through what you own.
+const LOOKS = [
+  { btn: 'btnSkinPaddle', label: 'Paddle Skin', from: Skins, slot: 'paddle' },
+  { btn: 'btnSkinBall',   label: 'Ball',        from: Skins, slot: 'ball' },
+  { btn: 'btnSkinTrail',  label: 'Trail',       from: Skins, slot: 'trail' },
+  { btn: 'btnBricks',     label: 'Bricks',      from: Prizes, slot: 'bricks' },
+  { btn: 'btnBurst',      label: 'Break FX',    from: Prizes, slot: 'burst' },
+];
+const looksOwned = (look) => (look.from === Skins ? Skins.wardrobe(look.slot).length : Prizes.owned(look.slot));
+function refreshLooks() {
+  $('skinRows').style.display = Skins.available ? '' : 'none';
+  $('prizeRows').style.display = Prizes.available ? '' : 'none';
+  for (const look of LOOKS) {
+    if (!look.from.available) continue;
+    const owned = looksOwned(look), all = look.from.total(look.slot);
+    $(look.btn).textContent = `${look.label}: ${look.from.name(look.slot)}`;
+    $(look.btn).title = `You own ${owned} of ${all}`;
+    $(look.btn).classList.toggle('ghostc', look.from === Skins ? Skins.get(look.slot) !== 'default' : Prizes[look.slot] !== 'default');
+  }
+  if (Skins.available) $('skinCount').textContent = LOOKS.slice(0, 3).map((l) => `${looksOwned(l)}/${Skins.total(l.slot)}`).join(' · ');
+  if (Prizes.available) $('prizeCount').textContent = LOOKS.slice(3).map((l) => `${looksOwned(l)}/${Prizes.total(l.slot)}`).join(' · ');
+}
+for (const look of LOOKS) {
+  $(look.btn).onclick = () => {
+    AudioSys.init();
+    if (looksOwned(look) < 2) {
+      AudioSys.sfx('powerdn');
+      toast(look.label.toUpperCase(), look.from === Skins ? 'You only own the standard one. Unlock more in Glitch Pong\'s Store.' : 'You only own the standard one. PRIZETRON-80 sells more at the Glitchcade prize counter.');
+      return;
+    }
+    AudioSys.sfx('click');
+    look.from.cycle(look.slot);
+    refreshLooks();
+  };
+}
+
 function refreshSentienceBtn() {
   $('btnSentience').textContent = 'Sentient Ball: ' + (game.sentient ? 'ON' : 'OFF');
   $('btnSentience').classList.toggle('ghostc', game.sentient);
@@ -2337,6 +2413,9 @@ if (Cabinet.active) $('btnArcade').style.display = '';
 window.addEventListener('storage', (e) => {
   if (e.key === Wallet.KEY) refreshMenuStats();
   if (e.key === PaddleColor.KEY) { PaddleColor.refresh(); refreshPaddleColorBtn(); }   // changed in Glitch Pong
+  // a skin equipped in Glitch Pong's Store, or a prize bought at the counter
+  if (e.key === Skins.COSMETICS_KEY || e.key === Skins.PROGRESSION_KEY) { Skins.refresh(); refreshLooks(); }
+  if (e.key && e.key === Prizes.KEY) { Prizes.refresh(); refreshLooks(); }
 });
 $('vol').oninput = (e) => {
   AudioSys.init();
@@ -2355,6 +2434,7 @@ refreshMenuStats();
 refreshAiRewardsBtn();
 refreshPaddleColorBtn();
 refreshSentienceBtn();
+refreshLooks();
 refreshSaverBtn();
 applyFxSetting();
 

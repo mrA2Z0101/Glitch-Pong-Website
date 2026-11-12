@@ -96,6 +96,73 @@ const Cabinet = {
   },
 };
 
+// ============ SKINS — shared with Glitch Pong ============
+// Paddle skins, ball skins and ball trails come from Glitch Pong's Store
+// (../glitchpong-cosmetics.js, which this page loads for its catalog and its
+// drawing code). You are the blue player there, so Break Point wears what the
+// blue side has equipped, and changing it here changes it there. What you have
+// unlocked is recorded in Glitch Pong's progression save.
+// If the file isn't there (Break Point copied out on its own) everything is
+// drawn the standard way.
+const hexRgb = (hex) => { const n = parseInt(String(hex).slice(1, 7), 16); return `${n >> 16 & 255},${n >> 8 & 255},${n & 255}`; };
+
+const Skins = (() => {
+  const cos = () => (typeof GlitchCosmetics !== 'undefined' ? GlitchCosmetics : null);
+  const PROGRESSION_KEY = 'glitchPong_progression_v1', COSMETICS_KEY = 'glitchPong_cosmetics_v1';
+  let worn = {};
+  function unlocked() {
+    try {
+      const d = JSON.parse(localStorage.getItem(PROGRESSION_KEY));
+      return Array.isArray(d && d.cosmeticsUnlocked) ? d.cosmeticsUnlocked : [];
+    } catch (e) { return []; }
+  }
+  function refresh() { const c = cos(); if (c) c.load(); worn = {}; }
+  // the id worn in 'paddle', 'ball' or 'trail' ('default' draws Break Point's own)
+  function get(slot) {
+    if (!(slot in worn)) { const c = cos(); worn[slot] = c ? c.getEquipped('blue', slot) : 'default'; }
+    return worn[slot];
+  }
+  function wardrobe(slot) {
+    const c = cos();
+    if (!c) return [];
+    const mine = unlocked();
+    return c.CATALOG[slot].filter((it) => it.id === 'default' || it.unlock.type === 'free' || mine.includes(slot + '-' + it.id));
+  }
+  function total(slot) { const c = cos(); return c ? c.CATALOG[slot].length : 0; }
+  function cycle(slot) {
+    const c = cos(), mine = wardrobe(slot);
+    if (!c || !mine.length) return null;
+    const next = mine[(mine.findIndex((it) => it.id === get(slot)) + 1) % mine.length];
+    c.equip('blue', slot, next.id);
+    worn = {};
+    return next;
+  }
+  function name(slot) { const c = cos(), it = c && c.find(slot, get(slot)); return it ? it.name : 'STANDARD'; }
+  return { PROGRESSION_KEY, COSMETICS_KEY, get available() { return !!cos(); }, get, wardrobe, total, cycle, name, refresh };
+})();
+
+// ============ PRIZES — Break Point only ============
+// Brick styles and break effects, sold by PRIZETRON-80 at the Glitchcade's prize
+// counter (../glitchcade-breakpoint-prizes.js holds the catalog and the record).
+// What is worn is read once and kept, because bricks ask every frame.
+const Prizes = (() => {
+  const api = () => (typeof GlitchBreakpointPrizes !== 'undefined' ? GlitchBreakpointPrizes : null);
+  let worn = { bricks: 'default', burst: 'default' };
+  function refresh() { const p = api(); if (p) worn = { bricks: p.equipped('bricks'), burst: p.equipped('burst') }; }
+  refresh();
+  return {
+    get available() { return !!api(); },
+    get KEY() { const p = api(); return p ? p.KEY : null; },
+    get bricks() { return worn.bricks; },
+    get burst() { return worn.burst; },
+    refresh,
+    cycle(slot) { const p = api(); if (!p) return null; const it = p.cycle(slot); refresh(); return it; },
+    name(slot) { const p = api(), it = p && p.find(slot, worn[slot]); return it ? it.name : 'STANDARD'; },
+    owned(slot) { const p = api(); return p ? p.wardrobe(slot).length : 1; },
+    total(slot) { const p = api(); return p ? p.CATALOG.filter((it) => it.slot === slot).length : 1; },
+  };
+})();
+
 // ============ PADDLE COLOUR — shared with Glitch Pong ============
 // Glitch Pong saves both players' paddle colours as {blue, red} under this key
 // (glitchpong-site.js → paddleColorSelection). You are the blue player when you

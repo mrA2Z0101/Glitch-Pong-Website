@@ -266,8 +266,69 @@ const Rules = (() => {
   }
   const TUTORIAL = { dropAfter: 4, drop: 'wide' };                // the fourth brick always drops a wide paddle
 
+  // ---------------- the run recap ----------------
+  // What the game-over screen says about a run, beyond the numbers. `run` is
+  // what the game kept track of:
+  //   mode, won, maxCombo, comboSector, powers: { kind: times caught },
+  //   lives: one record per life lost, the last being the one that ended the run:
+  //     { sector, arena, rule, event, stunnedBy, gap, speed }
+  //   newEntries: codex entries unlocked during the run
+  function favouritePower(powers) {
+    let best = null;
+    for (const kind of POWERUP_KEYS) {
+      const n = (powers && powers[kind]) || 0;
+      if (n > 0 && (!best || n > best.n)) best = { kind, n };       // a tie goes to the first in the catalog
+    }
+    return best;
+  }
+  // The sector that cost the most lives, if any cost more than one.
+  function toughestSector(lives) {
+    const by = {};
+    let worst = null;
+    for (const life of lives || []) {
+      const rec = by[life.sector] || (by[life.sector] = { sector: life.sector, arena: life.arena, n: 0 });
+      rec.n++;
+      if (!worst || rec.n > worst.n) worst = rec;
+    }
+    return worst && worst.n >= 2 ? worst : null;
+  }
+  const sectorName = (n) => 'sector ' + String(n).padStart(2, '0');
+  // One sentence on what ended the run.
+  function deathCause(run) {
+    if (run.won) return 'Nothing. You cleared it.';
+    const life = run.lives && run.lives[run.lives.length - 1];
+    if (!life) return 'The run was abandoned.';
+    const where = sectorName(life.sector) + ', ' + life.arena;
+    if (run.mode === 'puzzle') return 'You ran out of balls in ' + where + '.';
+    if (life.stunnedBy) return 'A shot from ' + life.stunnedBy + ' stunned your paddle and the ball got past, in ' + where + '.';
+    if (life.event) {
+      const ev = EVENTS.find((e) => e.id === life.event);
+      return 'The ball got past during ' + (ev ? ev.name : 'a glitch') + ', in ' + where + '.';
+    }
+    if (life.gap !== undefined && life.gap <= 24) return 'A near miss: the ball passed ' + Math.round(life.gap) + ' pixels from the end of the paddle, in ' + where + '.';
+    if (life.speed >= 0.85) return 'The ball was close to top speed when it got past, in ' + where + '.';
+    const rule = ARENA_RULES[life.rule];
+    if (rule && life.rule !== 'standard') return 'The ball got past in ' + where + ', where the rule is ' + rule.name + '.';
+    return 'The ball got past in ' + where + '.';
+  }
+  // The recap, as rows of { id, label, text, power? }.
+  function runRecap(run) {
+    const rows = [];
+    rows.push({ id: 'combo', label: 'BEST COMBO',
+      text: run.maxCombo > 0 ? 'x' + run.maxCombo + (run.comboSector ? ' in ' + sectorName(run.comboSector) : '') : 'None. Every brick was a single.' });
+    const fav = favouritePower(run.powers);
+    rows.push({ id: 'power', label: 'FAVOURITE POWER-UP', power: fav ? fav.kind : null,
+      text: fav ? POWERUPS[fav.kind].name + ', caught ' + (fav.n === 1 ? 'once' : fav.n + ' times') : 'None caught.' });
+    rows.push({ id: 'cause', label: run.won ? 'WHAT STOPPED YOU' : 'WHAT ENDED IT', text: deathCause(run) });
+    const tough = toughestSector(run.lives);
+    if (tough) rows.push({ id: 'tough', label: 'TOUGHEST SECTOR', text: sectorName(tough.sector) + ', ' + tough.arena + ': ' + tough.n + ' lives lost' });
+    if (run.newEntries > 0) rows.push({ id: 'codex', label: 'NEW IN THE CODEX', text: run.newEntries === 1 ? '1 entry' : run.newEntries + ' entries' });
+    return rows;
+  }
+
   return {
     levelFromXp,
+    favouritePower, toughestSector, deathCause, runRecap,
     codexSections, codexEntry, codexCount,
     TUTOR_STEPS, TUTORIAL, tutorNew, tutorTick, tutorProgress, tutorialLayout,
     ARENA_RULES, ARENA_TUNING, arenaRule, leakFactor, pulseTick, pulseKick,

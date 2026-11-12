@@ -45,15 +45,31 @@ class Paddle {
     // your Glitch Pong paddle colour, unless a powerup is recolouring it
     const col = this.hasLaser ? COL.red : this.magnetic ? COL.violet : PaddleColor.hex;
     ctx.save();
-    ctx.shadowColor = col; ctx.shadowBlur = 16 + this.glow * 20;
-    ctx.fillStyle = col;
-    ctx.fillRect(x - w / 2, y - h / 2, w, h);
-    ctx.fillStyle = 'rgba(255,255,255,.85)';
-    ctx.fillRect(x - w / 2 + 3, y - h / 2 + 3, w - 6, 3);
-    // edge nodes
-    ctx.fillStyle = COL.white;
-    ctx.fillRect(x - w / 2 - 2, y - h / 2, 4, h);
-    ctx.fillRect(x + w / 2 - 2, y - h / 2, 4, h);
+    const skin = Skins.get('paddle');
+    if (skin !== 'default') {
+      // A Glitch Pong paddle skin. Those paddles stand upright with the court to
+      // their right, so the skin is drawn upright and turned a quarter turn:
+      // its court-facing side ends up on top, toward the bricks.
+      const ball = this.g.balls[0];
+      ctx.save();
+      ctx.translate(x, y); ctx.rotate(-Math.PI / 2);
+      GlitchCosmetics.drawPaddleSkin(ctx, skin, -h / 2, -w / 2, h, w, {
+        rgb: hexRgb(col), hex: col, t: this.g.time, heat: this.g.glitch / 100, pulse: this.glow, hitFlash: this.glow,
+        quality: Glow.scale < 0.5 ? 0.5 : 1, ballY: ball ? ball.x - x : 0,
+      });
+      ctx.restore();
+    } else {
+      ctx.shadowColor = col; ctx.shadowBlur = 16 + this.glow * 20;
+      ctx.fillStyle = col;
+      ctx.fillRect(x - w / 2, y - h / 2, w, h);
+      ctx.fillStyle = 'rgba(255,255,255,.85)';
+      ctx.fillRect(x - w / 2 + 3, y - h / 2 + 3, w - 6, 3);
+      // edge nodes
+      ctx.fillStyle = COL.white;
+      ctx.fillRect(x - w / 2 - 2, y - h / 2, 4, h);
+      ctx.fillRect(x + w / 2 - 2, y - h / 2, 4, h);
+    }
+    ctx.shadowBlur = 0;
     if (this.hasLaser) {
       ctx.fillStyle = COL.red;
       ctx.fillRect(x - w / 2, y - h / 2 - 6, 3, 6);
@@ -179,12 +195,23 @@ class Ball {
     const trailLength = this.protecting ? 34 : this.showoff ? 28 : 14;
     if (this.trail.length > trailLength) this.trail.length = trailLength;
   }
-  render(ctx) {
+  render(ctx, g) {
     if (this.invisible > 0 && Math.floor(this.invisible * 10) % 2 === 0) return;
     ctx.save();
     const dim = this.mourn > 0 ? 0.5 + 0.5 * (1 - Math.min(1, this.mourn / 3.5)) : 1;
+    // Glitch Pong's ball skin and trail, if you wear one there (see Skins in js/wallet.js)
+    const trailSkin = Skins.get('trail'), ballSkin = Skins.get('ball');
+    const look = (trailSkin !== 'default' || ballSkin !== 'default') && {
+      rgb: hexRgb(this.color), hex: this.color, t: g ? g.time : 0, heat: g ? g.glitch / 100 : 0,
+      quality: Glow.scale < 0.5 ? 0.5 : 1, vx: this.vx, vy: this.vy, r: this.r,
+      charge: 2, speed: this.speed / 60, rally: g ? g.combo : 0,
+    };
     // trail
-    for (let i = this.trail.length - 1; i > 0; i--) {
+    if (trailSkin !== 'default') {
+      ctx.save(); ctx.globalAlpha = dim;
+      GlitchCosmetics.drawBallTrail(ctx, trailSkin, this.trail, look);
+      ctx.restore();
+    } else for (let i = this.trail.length - 1; i > 0; i--) {
       const t = this.trail[i], a = 1 - i / this.trail.length;
       ctx.globalAlpha = a * (this.protecting ? 0.7 : this.showoff ? 0.55 : 0.28) * dim;
       ctx.fillStyle = this.color;
@@ -201,12 +228,16 @@ class Ball {
       ctx.beginPath(); ctx.moveTo(-this.r + 1, -2); ctx.lineTo(-this.r - 14, 0); ctx.lineTo(-this.r + 1, 2); ctx.fill();
       ctx.restore();
     }
-    ctx.shadowColor = this.color; ctx.shadowBlur = this.showoff || this.protecting ? 30 : 18;
-    ctx.fillStyle = this.color;
-    ctx.beginPath(); ctx.arc(this.x, this.y, this.r, 0, 7); ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = '#fff';
-    ctx.beginPath(); ctx.arc(this.x - 2, this.y - 2, this.r * 0.4, 0, 7); ctx.fill();
+    if (ballSkin !== 'default') {
+      GlitchCosmetics.drawBallSkin(ctx, ballSkin, this.x, this.y, this.r + 1, look);
+    } else {
+      ctx.shadowColor = this.color; ctx.shadowBlur = this.showoff || this.protecting ? 30 : 18;
+      ctx.fillStyle = this.color;
+      ctx.beginPath(); ctx.arc(this.x, this.y, this.r, 0, 7); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(this.x - 2, this.y - 2, this.r * 0.4, 0, 7); ctx.fill();
+    }
     if (this.protecting) {
       ctx.strokeStyle = '#ffe4a0'; ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.arc(this.x, this.y, this.r + 3, 0, Math.PI * 2); ctx.stroke();
@@ -319,17 +350,50 @@ class Brick {
     if (this.corrupt > 0 && chance(this.corrupt * 0.3)) { jx = rand(-2, 2); jy = rand(-1, 1); }
     ctx.translate(jx, jy);
     ctx.globalAlpha = alpha;
-    Glow.draw(ctx, x, y, w, h, col);          // the halo, from a cached sprite (see effects.js)
-    ctx.fillStyle = this.flashT > 0 ? '#ffffff' : col;
-    ctx.globalAlpha = alpha * 0.28;
-    ctx.fillRect(x, y, w, h);
-    ctx.globalAlpha = alpha;
-    ctx.strokeStyle = this.flashT > 0 ? '#fff' : col;
-    ctx.lineWidth = 1.6;
-    ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+    // The brick's body, in the style you wear (a prize from the Glitchcade's
+    // counter; see Prizes in js/wallet.js). Every style keeps the type's colour,
+    // because the colour is how you tell bricks apart.
+    const style = Prizes.bricks, lit = this.flashT > 0;
+    let glyphCol = lit ? '#000' : 'rgba(255,255,255,.85)';
+    if (style === 'pixel') {
+      ctx.fillStyle = lit ? '#fff' : col;
+      ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = 'rgba(255,255,255,.38)'; ctx.fillRect(x, y, w, 3); ctx.fillRect(x, y, 3, h);
+      ctx.fillStyle = 'rgba(0,0,0,.42)'; ctx.fillRect(x, y + h - 4, w, 4); ctx.fillRect(x + w - 3, y, 3, h);
+      glyphCol = 'rgba(3,4,10,.85)';
+    } else if (style === 'glass') {
+      Glow.draw(ctx, x, y, w, h, col, 6);
+      ctx.fillStyle = lit ? '#fff' : col;
+      ctx.globalAlpha = alpha * 0.13; ctx.fillRect(x, y, w, h);
+      ctx.globalAlpha = alpha * 0.3; ctx.fillStyle = '#fff'; ctx.fillRect(x + 2, y + 2, w - 4, 4);
+      ctx.globalAlpha = alpha * 0.5; ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x + w * 0.62, y + h - 3); ctx.lineTo(x + w * 0.74, y + 3); ctx.moveTo(x + w * 0.7, y + h - 3); ctx.lineTo(x + w * 0.82, y + 3); ctx.stroke();
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = lit ? '#fff' : col; ctx.lineWidth = 1.2;
+      ctx.strokeRect(x + 0.6, y + 0.6, w - 1.2, h - 1.2);
+    } else if (style === 'bullion') {
+      const gold = ctx.createLinearGradient(0, y, 0, y + h);
+      gold.addColorStop(0, '#fff0b0'); gold.addColorStop(0.45, '#e8b53a'); gold.addColorStop(1, '#9c6a14');
+      ctx.fillStyle = lit ? '#fff' : gold;
+      ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = lit ? '#fff' : col;                       // the type's colour, as a band at each end
+      ctx.fillRect(x, y, 7, h); ctx.fillRect(x + w - 7, y, 7, h);
+      ctx.strokeStyle = 'rgba(255,246,200,.9)'; ctx.lineWidth = 1;
+      ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+      glyphCol = 'rgba(40,24,0,.9)';
+    } else {
+      Glow.draw(ctx, x, y, w, h, col);          // the halo, from a cached sprite (see effects.js)
+      ctx.fillStyle = lit ? '#ffffff' : col;
+      ctx.globalAlpha = alpha * 0.28;
+      ctx.fillRect(x, y, w, h);
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = lit ? '#fff' : col;
+      ctx.lineWidth = 1.6;
+      ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+    }
     // hp cracks
     if (this.maxHp > 1 && this.hp < this.maxHp && this.hp > 0) {
-      ctx.strokeStyle = 'rgba(255,255,255,.7)';
+      ctx.strokeStyle = style === 'pixel' || style === 'bullion' ? 'rgba(3,4,10,.8)' : 'rgba(255,255,255,.7)';   // dark cracks on the solid styles
       ctx.lineWidth = 1;
       const cracks = this.maxHp - this.hp;
       ctx.beginPath();
@@ -343,7 +407,7 @@ class Brick {
     }
     // glyph
     if (def.glyph) {
-      ctx.fillStyle = this.flashT > 0 ? '#000' : 'rgba(255,255,255,.85)';
+      ctx.fillStyle = glyphCol;
       ctx.font = '700 13px "Share Tech Mono", monospace';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(def.glyph, this.cxm, this.cym + 1);
