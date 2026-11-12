@@ -17,6 +17,116 @@ const Rules = (() => {
     return { level, progress: left / need, into: left, need };
   }
 
+  // ---------------- scoring ----------------
+  // The Glitch meter multiplies everything you score: x1.5 from 25%, x2 from
+  // 50%, x3 from 75%. SCORE x2 doubles that again.
+  function glitchMultiplier(glitch) { return glitch >= 75 ? 3 : glitch >= 50 ? 2 : glitch >= 25 ? 1.5 : 1; }
+  function scoreMultiplier(glitch, doubled) { return glitchMultiplier(glitch) * (doubled ? 2 : 1); }
+  // Each brick in a combo adds 5%, up to +200% at a combo of 40.
+  function comboBonus(combo) { return 1 + Math.min(Math.max(0, combo), 40) * 0.05; }
+  function points(base, combo, glitch, doubled) { return Math.round(base * comboBonus(combo) * scoreMultiplier(glitch, doubled)); }
+  function clearBonus(level) { return 500 + level * 100; }
+  // Time Attack: 4,000 at the start of the sector, 25 less every second.
+  function timeBonus(seconds) { return Math.max(0, Math.round(4000 - seconds * 25)); }
+  // What a finished run pays into the save.
+  function runRewards(score, level, xpBoostRank) {
+    return { xp: Math.round(score / 10 * (1 + (xpBoostRank || 0) * 0.2)), credits: Math.round(score / 55 + level * 15) };
+  }
+  function startingLives(mode, lifeRank) { return mode === 'hardcore' ? 1 : 3 + (lifeRank || 0); }
+  // The ball is served 1.5% faster each sector.
+  function serveSpeed(level, doubleSpeed) { return CFG.BALL_SPD * (doubleSpeed ? 1.5 : 1) * (1 + level * 0.015); }
+  // The chance that a broken brick drops a power-up.
+  function dropChance(luckRank, glitch) { return CFG.DROP_CHANCE + (luckRank || 0) * 0.04 + (glitch >= 50 ? 0.04 : 0); }
+
+  // ---------------- bricks ----------------
+  // Why a hit does nothing to a brick, or null if it lands. `src` says what hit
+  // it: { laser, fire, emp, explosion }.
+  function brickImmune(type, generatorsAlive, src) {
+    if (type === 'barrier') return 'BARRIER';
+    if (type === 'shield' && generatorsAlive) return 'SHIELDED';
+    if (type === 'bosscore' && generatorsAlive) return 'LOCKED';
+    if (type === 'firewall' && !(src && (src.laser || src.fire || src.emp || src.explosion))) return 'FIREWALL';
+    return null;
+  }
+  // With only firewall bricks left the ball can't finish the sector by itself,
+  // so the game sends power-ups that can.
+  const BREACH_KIT = ['fire', 'laser', 'boom', 'emp'];
+  function onlyFirewallsLeft(types) { return types.length > 0 && types.every((t) => t === 'firewall'); }
+
+  // ---------------- sectors ----------------
+  function arenaIndex(level) { return (level - 1) % ARENAS.length; }
+  // Every fifth sector is a boss (never in Puzzle); Boss Rush is nothing else.
+  function isBossSector(mode, level) { return mode === 'bossrush' || (level % 5 === 0 && mode !== 'puzzle'); }
+  // Which boss, and how strong. `boss` is 'eye' or a place in the list of the
+  // five mini bosses. THE EYE takes every tenth sector and the end of Boss Rush.
+  function bossFor(mode, level) {
+    if (mode === 'bossrush') return { boss: level % 6 === 0 ? 'eye' : (level - 1) % 5, tier: level };
+    return { boss: level % 10 === 0 ? 'eye' : (level / 5 - 1) % 5, tier: Math.floor(level / 5) };
+  }
+  // Enemies: at most this many at once, and which kinds a sector can send.
+  function enemyCap(level, triple) { return (1 + Math.floor(level / 4)) * (triple ? 3 : 1); }
+  function enemyKinds(level) {
+    const kinds = [];
+    if (level >= 3) kinds.push('drone');
+    if (level >= 6) kinds.push('virus', 'repair', 'turret');
+    return kinds;
+  }
+
+  // The wall of a sector. A sector has 4 rows, one more every two sectors, up to
+  // 9; one of six patterns decides which cells hold a brick, and 6% of those are
+  // left empty. Returns [{ r, c, type }]. `rng` is the run's random source, so
+  // the Daily Glitch lays out the same walls for everyone.
+  const PATTERNS = ['full', 'checker', 'diamond', 'pyramid', 'wave', 'columns'];
+  function sectorRows(level) { return Math.min(4 + Math.floor(level / 2), 9); }
+  function patternHolds(pattern, r, c, rows, cols) {
+    if (pattern === 'checker') return (r + c) % 2 === 0;
+    if (pattern === 'diamond') return Math.abs(c - cols / 2 + 0.5) + Math.abs(r - rows / 2) * 1.6 < cols / 2;
+    if (pattern === 'pyramid') return Math.abs(c - cols / 2 + 0.5) <= r + 1;
+    if (pattern === 'wave') return ((c + Math.round(Math.sin(r * 1.1) * 2)) % 4) !== 3;
+    if (pattern === 'columns') return c % 3 !== 2;
+    return true;
+  }
+  function pickWeighted(weights, roll) {
+    let total = 0;
+    for (const k in weights) total += weights[k];
+    let left = roll * total;
+    for (const k in weights) { left -= weights[k]; if (left <= 0) return k; }
+    return 'normal';
+  }
+  function layoutSector(level, cols, rng) {
+    const rows = sectorRows(level), weights = brickWeights(level);
+    const pattern = PATTERNS[Math.floor(rng() * PATTERNS.length)];
+    const cells = [];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        if (!patternHolds(pattern, r, c, rows, cols) || rng() < 0.06) continue;
+        cells.push({ r, c, type: pickWeighted(weights, rng()) });
+      }
+    }
+    let generators = 0;
+    // deep sectors: half of them hide a locked boss core, guarded by two generators
+    if (level >= 8 && rng() < 0.5 && cells.length > 10) {
+      cells[Math.floor(rng() * cells.length)].type = 'bosscore';
+      let placed = 0;
+      while (placed < 2) {
+        const host = cells[Math.floor(rng() * cells.length)];
+        if (host.type !== 'bosscore' && host.type !== 'generator') { host.type = 'generator'; generators++; placed++; }
+      }
+    }
+    // shield bricks need generators to be worth anything
+    const shields = cells.filter((cell) => cell.type === 'shield');
+    if (shields.length) {
+      const n = Math.min(2, Math.max(1, Math.floor(shields.length / 4)));
+      for (let i = 0; i < n; i++) {
+        const host = cells[Math.floor(rng() * cells.length)];
+        if (host && host.type !== 'shield' && host.type !== 'bosscore') { host.type = 'generator'; generators++; }
+      }
+      if (!generators) shields.forEach((cell) => { cell.type = 'normal'; });
+    }
+    cells.pattern = pattern;
+    return cells;
+  }
+
   // ---------------- upgrades ----------------
   // Three branches of four. A node can be bought once the node above it in its
   // branch has at least one rank, so each branch reads top to bottom.
@@ -328,6 +438,9 @@ const Rules = (() => {
 
   return {
     levelFromXp,
+    glitchMultiplier, scoreMultiplier, comboBonus, points, clearBonus, timeBonus, runRewards, startingLives, serveSpeed, dropChance,
+    brickImmune, onlyFirewallsLeft, BREACH_KIT,
+    arenaIndex, isBossSector, bossFor, enemyCap, enemyKinds, PATTERNS, sectorRows, patternHolds, pickWeighted, layoutSector,
     favouritePower, toughestSector, deathCause, runRecap,
     codexSections, codexEntry, codexCount,
     TUTOR_STEPS, TUTORIAL, tutorNew, tutorTick, tutorProgress, tutorialLayout,

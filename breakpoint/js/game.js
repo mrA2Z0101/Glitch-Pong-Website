@@ -458,7 +458,7 @@ const game = {
       toast('DAILY GLITCH // ' + today, names.join(' · '));
     }
     this.score = 0; this.combo = 0; this.maxCombo = 0;
-    this.lives = (mode === 'hardcore' ? 1 : 3 + Meta.rank('life_up'));
+    this.lives = Rules.startingLives(mode, Meta.rank('life_up'));
     this.glitch = Meta.rank('startmult') ? 25 : 0;
     this.corruption = 0;
     this.time = 0;
@@ -477,7 +477,7 @@ const game = {
 
   startLevel() {
     const lv = this.level;
-    this.arenaIdx = (lv - 1) % ARENAS.length;
+    this.arenaIdx = Rules.arenaIndex(lv);
     this.arena = ARENAS[this.arenaIdx];
     this.bricks = []; this.powerups = []; this.projectiles = []; this.lasers = [];
     this.enemies = []; this.drones = []; this.balls = [];
@@ -505,14 +505,11 @@ const game = {
     this.paddle = new Paddle(this);
     FX.reset();
 
-    const isBoss = this.mode === 'bossrush' || (lv % 5 === 0 && this.mode !== 'puzzle');
-    if (isBoss) {
-      const tier = this.mode === 'bossrush' ? lv : Math.floor(lv / 5);
+    if (Rules.isBossSector(this.mode, lv)) {
       // THE EYE — the entity from the Pong arena — claims every 10th sector
       // and the Boss Rush finale; the minibosses rotate through the rest.
-      let BossCls;
-      if (this.mode === 'bossrush') BossCls = lv % 6 === 0 ? TheEye : BOSS_LIST[(lv - 1) % BOSS_LIST.length];
-      else BossCls = lv % 10 === 0 ? TheEye : BOSS_LIST[(lv / 5 - 1) % BOSS_LIST.length];
+      const { boss, tier } = Rules.bossFor(this.mode, lv);
+      const BossCls = boss === 'eye' ? TheEye : BOSS_LIST[boss];
       this.boss = new BossCls(tier);
       this.genBossBricks();
       banner(this.boss instanceof TheEye ? 'THE EYE HAS FOUND YOU' : this.boss.name);
@@ -542,52 +539,11 @@ const game = {
   },
 
   genLevel(lv) {
-    const cols = CFG.BRICK_COLS;
-    const rows = Math.min(4 + Math.floor(lv / 2), 9);
-    const bw = CFG.BRICK_W + CFG.BRICK_GAP;
+    const cols = CFG.BRICK_COLS, bw = CFG.BRICK_W + CFG.BRICK_GAP;
     const ox = (CFG.W - cols * bw + CFG.BRICK_GAP) / 2;
-    const weights = brickWeights(lv);
-    const pattern = ['full', 'checker', 'diamond', 'pyramid', 'wave', 'columns'][Math.floor(this.rng() * 6)];
-    const pick = () => {
-      let tot = 0; for (const k in weights) tot += weights[k];
-      let r = this.rng() * tot;
-      for (const k in weights) { r -= weights[k]; if (r <= 0) return k; }
-      return 'normal';
-    };
-    let generators = 0, shields = [];
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        let place = true;
-        if (pattern === 'checker') place = (r + c) % 2 === 0;
-        if (pattern === 'diamond') place = Math.abs(c - cols / 2 + 0.5) + Math.abs(r - rows / 2) * 1.6 < cols / 2;
-        if (pattern === 'pyramid') place = Math.abs(c - cols / 2 + 0.5) <= r + 1;
-        if (pattern === 'wave') place = ((c + Math.round(Math.sin(r * 1.1) * 2)) % 4) !== 3;
-        if (pattern === 'columns') place = c % 3 !== 2;
-        if (!place || this.rng() < 0.06) continue;
-        let type = pick();
-        const b = new Brick(ox + c * bw, CFG.BRICK_TOP + r * (CFG.BRICK_H + CFG.BRICK_GAP), type);
-        if (type === 'shield') shields.push(b);
-        this.bricks.push(b);
-      }
-    }
-    // deep sectors: hide a locked boss core (huge bounty, guarded by generators)
-    if (lv >= 8 && this.rng() < 0.5 && this.bricks.length > 10) {
-      const core = this.bricks[Math.floor(this.rng() * this.bricks.length)];
-      core.morph('bosscore');
-      let placed = 0;
-      while (placed < 2) {
-        const host = this.bricks[Math.floor(this.rng() * this.bricks.length)];
-        if (host.type !== 'bosscore' && host.type !== 'generator') { host.morph('generator'); generators++; placed++; }
-      }
-    }
-    // shield bricks need generators
-    if (shields.length) {
-      const n = Math.min(2, Math.max(1, Math.floor(shields.length / 4)));
-      for (let i = 0; i < n; i++) {
-        const host = this.bricks[Math.floor(this.rng() * this.bricks.length)];
-        if (host && host.type !== 'shield' && host.type !== 'bosscore') { host.morph('generator'); generators++; }
-      }
-      if (!generators) shields.forEach(s => s.morph('normal'));
+    // which cells hold which bricks is decided in js/rules.js
+    for (const cell of Rules.layoutSector(lv, cols, this.rng)) {
+      this.bricks.push(new Brick(ox + cell.c * bw, CFG.BRICK_TOP + cell.r * (CFG.BRICK_H + CFG.BRICK_GAP), cell.type));
     }
   },
 
@@ -630,7 +586,7 @@ const game = {
   },
 
   serve() {
-    const b = new Ball(this.paddle.x, this.paddle.y - 20, -Math.PI / 2, CFG.BALL_SPD * (this.mods.doubleSpeed ? 1.5 : 1) * (1 + this.level * 0.015));
+    const b = new Ball(this.paddle.x, this.paddle.y - 20, -Math.PI / 2, Rules.serveSpeed(this.level, this.mods.doubleSpeed));
     b.stuck = true; b.stuckDx = 0;
     if (this.mournNext) { b.mournPending = true; this.mournNext = false; }
     // mid DATA SURGE the new ball must be surged too, or endEvent's /1.55 leaves it crawling
@@ -731,17 +687,9 @@ const game = {
   },
 
   // ======== scoring / glitch meter ========
-  get multiplier() {
-    let m = 1;
-    if (this.glitch >= 25) m = 1.5;
-    if (this.glitch >= 50) m = 2;
-    if (this.glitch >= 75) m = 3;
-    if (this.timers.mult > 0) m *= 2;
-    return m;
-  },
+  get multiplier() { return Rules.scoreMultiplier(this.glitch, this.timers.mult > 0); },
   addScore(base, x, y) {
-    const comboBonus = 1 + Math.min(this.combo, 40) * 0.05;
-    const pts = Math.round(base * comboBonus * this.multiplier);
+    const pts = Rules.points(base, this.combo, this.glitch, this.timers.mult > 0);
     this.score += pts;
     if (x !== undefined) FX.text(x, y, '+' + pts, COL.cyan, 12);
     if (this.score >= 10000) this.unlock('score10k');
@@ -765,19 +713,11 @@ const game = {
   damageBrick(b, dmg, src = {}) {
     if (!b.alive) return false;
     this.meet('brick', b.type);
-    if (b.type === 'barrier') { AudioSys.sfx('wall'); return false; }
-    if (b.type === 'shield' && this.generatorsAlive()) {
-      FX.text(b.cxm, b.cym, 'SHIELDED', COL.violet, 10);
-      AudioSys.sfx('wall');
-      return false;
-    }
-    if (b.type === 'bosscore' && this.generatorsAlive()) {
-      FX.text(b.cxm, b.cym, 'LOCKED', COL.red, 10);
-      AudioSys.sfx('wall');
-      return false;
-    }
-    if (b.type === 'firewall' && !(src.laser || src.fire || src.emp || src.explosion)) {
-      FX.text(b.cxm, b.cym, 'FIREWALL', '#ff5500', 10);
+    // some bricks shrug off some hits (see brickImmune in js/rules.js)
+    const immune = Rules.brickImmune(b.type, (b.type === 'shield' || b.type === 'bosscore') && this.generatorsAlive(), src);
+    if (immune) {
+      const col = { SHIELDED: COL.violet, LOCKED: COL.red, FIREWALL: '#ff5500' }[immune];
+      if (col) FX.text(b.cxm, b.cym, immune, col, 10);
       AudioSys.sfx('wall');
       return false;
     }
@@ -843,13 +783,12 @@ const game = {
     }
 
     // powerup drop
-    let luck = CFG.DROP_CHANCE + Meta.rank('luck') * 0.04 + (this.glitch >= 50 ? 0.04 : 0);
+    let luck = Rules.dropChance(Meta.rank('luck'), this.glitch);
     let pool = POWERUP_KEYS;
     // anti-softlock: if only firewall bricks remain, shower firewall-piercing drops
-    const alive = this.bricks.filter(x => x.alive && x.type !== 'barrier');
-    if (alive.length && alive.every(x => x.type === 'firewall')) {
+    if (Rules.onlyFirewallsLeft(this.bricks.filter(x => x.alive && x.type !== 'barrier').map(x => x.type))) {
       luck = 0.6;
-      pool = ['fire', 'laser', 'boom', 'emp'];
+      pool = Rules.BREACH_KIT;
     }
     if (this.tutor) {
       // the lesson has one certain drop, so there is something to catch
@@ -954,14 +893,11 @@ const game = {
   },
   spawnEnemy() {
     const lv = this.level;
-    const cap = (1 + Math.floor(lv / 4)) * (this.mods.tripleEnemy ? 3 : 1);
-    if (this.enemies.filter(e => !e.dead).length >= cap) return;
-    const kinds = [];
-    if (lv >= 3) kinds.push(DroneEnemy);
-    if (lv >= 6) kinds.push(VirusOrb);   // turns bricks green: held back with the virus and clone bricks
-    if (lv >= 6) kinds.push(RepairBot, Turret);
+    if (this.enemies.filter(e => !e.dead).length >= Rules.enemyCap(lv, this.mods.tripleEnemy)) return;
+    // drones from sector 3; the rest are held back to sector 6 with the virus and clone bricks
+    const kinds = Rules.enemyKinds(lv);
     if (!kinds.length) return;
-    const K = choice(kinds);
+    const K = ENEMY_CLASSES[choice(kinds)];
     const e = K === Turret
       ? new Turret(chance(0.5) ? 30 : CFG.W - 30, rand(200, 320))
       : new K(rand(100, CFG.W - 100), rand(60, 160));
@@ -1153,11 +1089,11 @@ const game = {
     this.clearProtectiveTarget();
     AudioSys.setEvent(null);
     AudioSys.sfx('life');
-    const clearBonus = 500 + this.level * 100;
+    const clearBonus = Rules.clearBonus(this.level);
     let bonus = clearBonus;
     let timeBonus = 0;
     if (this.mode === 'time') {
-      timeBonus = Math.max(0, Math.round(4000 - this.levelTime * 25));
+      timeBonus = Rules.timeBonus(this.levelTime);
       bonus += timeBonus;
     }
     this.score += bonus;
@@ -1235,8 +1171,9 @@ const game = {
     AudioSys.stopMusic();
     const secs = (performance.now() - this.stats.timeStart) / 1000;
     const earns = this.aiEarnsProgress();
-    const xpGain = earns ? Math.round(this.score / 10 * (1 + Meta.rank('xp_boost') * 0.2)) : 0;
-    const crGain = earns ? Math.round(this.score / 55 + this.level * 15) : 0;
+    const rewards = Rules.runRewards(this.score, this.level, Meta.rank('xp_boost'));
+    const xpGain = earns ? rewards.xp : 0;
+    const crGain = earns ? rewards.credits : 0;
     const bestKey = this.mode;
     const prevBest = Meta.data.best[bestKey] || 0;
     const newBest = earns && this.score > 0 && this.score > prevBest;
