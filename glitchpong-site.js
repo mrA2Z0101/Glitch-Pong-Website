@@ -144,7 +144,11 @@ const GlitchProgression = (function() {
         penalty:   { matches: 0, wins: 0, losses: 0 },
         overflow:  { matches: 0, wins: 0, losses: 0 },
         leak:      { matches: 0, wins: 0, losses: 0 },
-        defrag:    { matches: 0, wins: 0, losses: 0 }
+        defrag:    { matches: 0, wins: 0, losses: 0 },
+        freefall:  { matches: 0, wins: 0, losses: 0 },
+        coolant:   { matches: 0, wins: 0, losses: 0 },
+        rooftop:   { matches: 0, wins: 0, losses: 0 },
+        beat:      { matches: 0, wins: 0, losses: 0 }
       }
     };
   }
@@ -458,7 +462,7 @@ const GlitchAchievements = (function() {
     { id: "clutch",       name: "ICE IN THE VEINS", desc: "Win a match that went to Clutch Mode.",          stat: "clutchWins",      goal: 1 },
     { id: "hard_win",     name: "HARD RESET",       desc: "Beat the Hard AI.",                              stat: "hardWins",        goal: 1 },
     { id: "hard_wins_10", name: "OVERCLOCKED",      desc: "Beat the Hard AI 10 times.",                     stat: "hardWins",        goal: 10 },
-    { id: "world_tour",   name: "WORLD TOUR",       desc: "Win a match in all eight arenas.",               stat: "arenasWon",       goal: 8 },
+    { id: "world_tour",   name: "WORLD TOUR",       desc: "Win a match in all twelve arenas.",              stat: "arenasWon",       goal: 12 },
     { id: "critical",     name: "MELTDOWN",         desc: "Push a rally to Critical Heat (80%+).",          stat: "criticalHeat",    goal: 1 },
     { id: "boss",         name: "EYE CONTACT",      desc: "Survive the Eye.",                               stat: "bossSurvivals",   goal: 1 },
     { id: "boss_5",       name: "EYE OF THE STORM", desc: "Survive the Eye 5 times.",                       stat: "bossSurvivals",   goal: 5 },
@@ -2453,6 +2457,15 @@ function injectGameById(gameId, options = {}) {
       ArenaRules.start(arenaRules, id, courtNow());
     }
     function arenaRoundReset() { if (arenaRules.id) ArenaRules.roundReset(arenaRules, courtNow()); }
+    // COOLANT LEAK: how far a dash moved each paddle during this frame's input.
+    // A dash is a blink, so it is kept out of the slide.
+    const arenaDashShift = { left: 0, right: 0 };
+    // BEAT DROP: extra speed for a return that lands on the beat.
+    function beatReturn(side) {
+      const boost = ArenaRules.returnBoost(arenaRules, side);
+      if (boost) { glitchPulse = Math.max(glitchPulse, 12); pongAudio.beatHit(); }
+      return boost;
+    }
     // The ball against the map's top and bottom walls. True when it bounced.
     function arenaWalls() {
       arenaBall.x = ballX; arenaBall.y = ballY; arenaBall.vx = vx; arenaBall.vy = vy;
@@ -2472,6 +2485,13 @@ function injectGameById(gameId, options = {}) {
       const live = !roundFrozen && !countdownActive && !bossModeActive && !preBossActive && shakeFrames === 0
         && !gameOver && !finalScoreCinematic && progScreen !== "levelUp" && progScreen !== "perkSelect";
       ArenaRules.update(arenaRules, courtNow(), getHeatRatio(), criticalHeat, live);
+      // BEAT DROP makes its own music, one eighth note at a time, from the same
+      // clock that decides whether a return is on the beat.
+      if (arenaRules.id === "beat" && arenaRules.beat.ticked && !gameOver) pongAudio.beatStep(arenaRules.beat.step, getHeatRatio());
+      if (arenaRules.id === "rooftop" && arenaRules.rooftop.struck) {
+        pongAudio.thunder();
+        triggerCameraKick((Math.random() - 0.5) * 10, 6, 0.01);
+      }
       // Walls that move take whatever is in their way with them.
       leftY = clamp(leftY, paddleMinY(), paddleMaxY());
       rightY = clamp(rightY, paddleMinY(), paddleMaxY());
@@ -3234,6 +3254,98 @@ function injectGameById(gameId, options = {}) {
         }
       }
 
+      // ── Synthesised sound for the ball maps ───────────────────────────────
+      // BEAT DROP's music is made a step at a time, because its tempo follows
+      // Heat and a recording can't. ROOFTOP's thunder is made here too.
+      let synthNoise = null;   // { ac, buffer }: half a second of white noise
+      let beatBus = null;      // { ac, gain }: everything BEAT DROP plays goes through this
+      function noiseBuffer(ac) {
+        if (!synthNoise || synthNoise.ac !== ac) {
+          const buffer = ac.createBuffer(1, Math.floor(ac.sampleRate * 0.5), ac.sampleRate);
+          const data = buffer.getChannelData(0);
+          for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+          synthNoise = { ac, buffer };
+        }
+        return synthNoise.buffer;
+      }
+      function beatOut(ac) {
+        if (!beatBus || beatBus.ac !== ac) {
+          const gain = ac.createGain();
+          gain.gain.value = 0.3;      // sits about where a recorded match track does
+          gain.connect(ac.destination);
+          beatBus = { ac, gain };
+        }
+        return beatBus.gain;
+      }
+      // One enveloped note. `to` slides the pitch; `lowpass` dulls it.
+      function synthTone(ac, out, { type = "sine", from, to = from, at, length, level, lowpass = 0 }) {
+        const osc = ac.createOscillator(), gain = ac.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(from, at);
+        if (to !== from) osc.frequency.exponentialRampToValueAtTime(to, at + length * 0.6);
+        gain.gain.setValueAtTime(0.0001, at);
+        gain.gain.exponentialRampToValueAtTime(level, at + 0.004);
+        gain.gain.exponentialRampToValueAtTime(0.0001, at + length);
+        if (lowpass) {
+          const filter = ac.createBiquadFilter();
+          filter.type = "lowpass";
+          filter.frequency.value = lowpass;
+          osc.connect(filter); filter.connect(gain);
+        } else osc.connect(gain);
+        gain.connect(out);
+        osc.start(at);
+        osc.stop(at + length + 0.03);
+      }
+      // One enveloped burst of filtered noise.
+      function synthNoiseHit(ac, out, { at, length, level, filter = "highpass", freq = 6000, q = 0.7 }) {
+        const src = ac.createBufferSource(), band = ac.createBiquadFilter(), gain = ac.createGain();
+        src.buffer = noiseBuffer(ac);
+        src.loop = true;
+        band.type = filter;
+        band.frequency.value = freq;
+        band.Q.value = q;
+        gain.gain.setValueAtTime(0.0001, at);
+        gain.gain.exponentialRampToValueAtTime(level, at + 0.003);
+        gain.gain.exponentialRampToValueAtTime(0.0001, at + length);
+        src.connect(band); band.connect(gain); gain.connect(out);
+        src.start(at);
+        src.stop(at + length + 0.03);
+      }
+      // Two bars of eighth notes in A minor. 0 is a rest.
+      const BEAT_BASS = [55, 0, 55, 55, 0, 65.41, 0, 55, 43.65, 0, 43.65, 43.65, 0, 49, 0, 49];
+      const BEAT_LEAD = [440, 523.25, 659.25, 523.25, 783.99, 659.25, 523.25, 659.25];
+      function beatStep(step, heatRatio) {
+        if (!musicEnabled || visibilitySuspended) return;
+        const ac = getSynthContext();
+        if (!ac || ac.state !== "running") return;
+        const out = beatOut(ac), at = ac.currentTime + 0.012, n = ((step % 16) + 16) % 16;
+        if (n % 2 === 0) synthTone(ac, out, { from: 150, to: 46, at, length: 0.22, level: 0.9 });                          // kick on every beat
+        if (n % 4 === 2) synthNoiseHit(ac, out, { at, length: 0.13, level: 0.34, filter: "bandpass", freq: 1800, q: 0.8 }); // clap on 2 and 4
+        synthNoiseHit(ac, out, { at, length: 0.035, level: n % 2 ? 0.16 : 0.07, freq: 7000 });                              // hat, louder off the beat
+        if (BEAT_BASS[n]) synthTone(ac, out, { type: "sawtooth", from: BEAT_BASS[n], at, length: 0.17, level: 0.34, lowpass: 380 });
+        // From half Heat a lead joins in; at Critical Heat it jumps an octave.
+        if (heatRatio >= 0.5 && !savingPower()) {
+          synthTone(ac, out, { type: "square", from: BEAT_LEAD[n % 8] * (heatRatio >= 0.8 ? 2 : 1), at, length: 0.09, level: 0.05, lowpass: 3200 });
+        }
+      }
+      function beatHit() {
+        if (!sfxEnabled || visibilitySuspended) return;
+        const ac = getSynthContext();
+        if (!ac || ac.state !== "running") return;
+        const at = ac.currentTime + 0.005;
+        synthNoiseHit(ac, ac.destination, { at, length: 0.2, level: 0.1, freq: 5200 });
+        synthTone(ac, ac.destination, { type: "triangle", from: 880, to: 1320, at, length: 0.12, level: 0.07 });
+      }
+      function thunder() {
+        if (!sfxEnabled || visibilitySuspended) return;
+        const ac = getSynthContext();
+        if (!ac || ac.state !== "running") return;
+        const at = ac.currentTime + 0.01;
+        synthNoiseHit(ac, ac.destination, { at, length: 0.09, level: 0.16, freq: 2200 });                                    // the crack
+        synthNoiseHit(ac, ac.destination, { at: at + 0.04, length: 1.7, level: 0.3, filter: "lowpass", freq: 170, q: 0.4 }); // the roll
+        duckMusic(0.35, 900);
+      }
+
       // Plays `owner`'s equipped sound pack in place of a recording. Returns
       // true when it did, so the caller can skip the recording.
       function playPackSound(owner, kind, options) {
@@ -3282,6 +3394,9 @@ function injectGameById(gameId, options = {}) {
         const introVoice = getOneShot("introVoice", 0.88);
         introVoice.pause();
         try { introVoice.currentTime = 0; } catch (error) {}
+        // BEAT DROP makes its own music (beatStep), in time with its beat. Online
+        // it is only a backdrop, so the usual playlist plays there.
+        if (arenaRules.id === "beat") { stopGameMusic(); return; }
         // Select an arena-specific playlist when one is available.
         const matrixTks = SOUND_FILES.matrixTracks.filter(Boolean);
         const constructTks = SOUND_FILES.constructTracks.filter(Boolean);
@@ -3549,6 +3664,7 @@ function injectGameById(gameId, options = {}) {
         countdown2() { playOneShot("countdown2", { volume: 0.5, duck: 0.20, duckDuration: 180 }); },
         countdown1() { playOneShot("countdown1", { volume: 0.5, duck: 0.20, duckDuration: 180 }); },
         countdownGo() { playOneShot("countdownGo", { volume: 0.62, duck: 0.28, duckDuration: 260 }); },
+        beatStep, beatHit, thunder,
         isMusicEnabled() { return musicEnabled; },
         isSfxEnabled() { return sfxEnabled; },
         setMusicEnabled(enabled) {
@@ -4028,7 +4144,9 @@ function injectGameById(gameId, options = {}) {
       const trailScale = dashDistance / DASH_DISTANCE;
       if (side === "left") {
         if (leftDashCooldown > 0) return;
+        arenaDashShift.left -= leftY;
         leftY = clamp(leftY + direction * dashDistance, paddleMinY(), paddleMaxY());
+        arenaDashShift.left += leftY;
         leftDashCooldown = dashCooldown;
         leftDashTrail = [
           { x: leftX, y: leftY - direction * 18 * trailScale, life: 8 },
@@ -4045,7 +4163,9 @@ function injectGameById(gameId, options = {}) {
       }
 
       if (side !== "right" || rightDashCooldown > 0) return;
+      arenaDashShift.right -= rightY;
       rightY = clamp(rightY + direction * dashDistance, paddleMinY(), paddleMaxY());
+      arenaDashShift.right += rightY;
       rightDashCooldown = dashCooldown;
       rightDashTrail = [
         { x: rightX, y: rightY - direction * 18 * trailScale, life: 8 },
@@ -4073,7 +4193,10 @@ function injectGameById(gameId, options = {}) {
       const distanceToPaddle = Math.abs(targetBallX - courtEdge);
       // The ball's horizontal speed is in court units; boss shots are already in pixels.
       const xScale = typeof options.xScale === "number" ? options.xScale : courtSpeedScale();
-      const travelFrames = Math.max(1, distanceToPaddle / Math.max(1, Math.abs(targetVx || 1) * xScale));
+      // The real ball obeys the map (wind, gravity, wrapping); the Eye's shots don't.
+      const mapBall = arenaRules.id && typeof options.ballY !== "number";
+      const windDrift = mapBall ? ArenaRules.drift(arenaRules, targetVx) : 0;
+      const travelFrames = Math.max(1, distanceToPaddle / Math.max(1, Math.abs((targetVx || 1) + windDrift) * xScale));
       const retreatTarget = canvas.height * 0.5;
 
       // ── Difficulty profile ───────────────────────────────────────────────
@@ -4132,11 +4255,11 @@ function injectGameById(gameId, options = {}) {
         }
       }
 
-      // On STACK OVERFLOW the real ball wraps, so a read that runs off the top
-      // comes back in at the bottom. The Eye's shots still bounce.
-      const straightY = targetBallY + targetVy * Math.min(predictionFrames, travelFrames);
+      // On STACK OVERFLOW a read that runs off the top comes back in at the
+      // bottom, and on FREEFALL the ball arcs.
+      const lookAhead = Math.min(predictionFrames, travelFrames);
       const predictedY = clamp(
-        arenaRules.id && typeof options.ballY !== "number" ? ArenaRules.predictY(arenaRules, courtNow(), straightY) : straightY,
+        mapBall ? ArenaRules.aimY(arenaRules, courtNow(), targetBallY, targetVy, lookAhead) : targetBallY + targetVy * lookAhead,
         paddleMinY() + paddleH * 0.5,
         paddleMaxY() + paddleH * 0.5
       );
@@ -7336,8 +7459,62 @@ function injectGameById(gameId, options = {}) {
         courtRules: true,
         init:     null,
         cleanup:  null
+      },
+      // The four ball maps leave the walls alone and change the ball, or the
+      // paddles that meet it. Their rules are in glitchpong-arenas.js too.
+      {
+        id:       "freefall",
+        name:     "FREEFALL",
+        subtitle: "Gravity On // Until It Flips",
+        desc:     "The ball falls, arcs and bounces off the floor. At Critical Heat the floor becomes the ceiling.",
+        tags:     ["Gravity", "Arcing Shots", "Critical Flip"],
+        accent:   "#c9a7ff",
+        gradient: "linear-gradient(135deg,rgba(10,6,24,0.96) 0%,rgba(30,16,62,0.8) 100%)",
+        hasOverlay: false,
+        courtRules: true,
+        init:     null,
+        cleanup:  null
+      },
+      {
+        id:       "coolant",
+        name:     "COOLANT LEAK",
+        subtitle: "Frozen Floor // Melting",
+        desc:     "Paddles slide on ice and keep going when you let go. Heat melts it, but the ball is faster by then.",
+        tags:     ["Sliding Paddles", "Momentum", "Heat Melts Ice"],
+        accent:   "#a8ecff",
+        gradient: "linear-gradient(135deg,rgba(4,18,26,0.96) 0%,rgba(10,44,58,0.8) 100%)",
+        hasOverlay: false,
+        courtRules: true,
+        init:     null,
+        cleanup:  null
+      },
+      {
+        id:       "rooftop",
+        name:     "ROOFTOP",
+        subtitle: "Night Storm // Gusting",
+        desc:     "Wind carries the ball along the court. Watch the rain: it leans the way the wind is blowing.",
+        tags:     ["Wind Gusts", "Read The Rain", "Lightning"],
+        accent:   "#aab8d6",
+        gradient: "linear-gradient(135deg,rgba(7,11,22,0.96) 0%,rgba(22,30,52,0.8) 100%)",
+        hasOverlay: true,
+        courtRules: true,
+        init:     null,
+        cleanup:  null
+      },
+      {
+        id:       "beat",
+        name:     "BEAT DROP",
+        subtitle: "On The Beat // Faster",
+        desc:     "The court pulses in time. A return that lands on the beat comes off faster, and Heat speeds the tempo up.",
+        tags:     ["Rhythm", "Beat Boost", "Tempo Rises"],
+        accent:   "#c6ff3d",
+        gradient: "linear-gradient(135deg,rgba(7,6,13,0.96) 0%,rgba(28,36,8,0.8) 100%)",
+        hasOverlay: false,
+        courtRules: true,
+        init:     null,
+        cleanup:  null
       }
-    ].filter(arena => !arena.courtRules || ArenaRules);   // no rules file, no court maps
+    ].filter(arena => !arena.courtRules || ArenaRules);   // no rules file, none of these maps
 
     let currentArenaId = "classic";
     let pendingTwoPlayer = false;
@@ -8341,7 +8518,11 @@ function injectGameById(gameId, options = {}) {
       penalty: "rgba(214,255,226,0.20)",
       overflow: "rgba(255,157,60,0.22)",
       leak: "rgba(255,107,107,0.20)",
-      defrag: "rgba(90,169,255,0.22)"
+      defrag: "rgba(90,169,255,0.22)",
+      freefall: "rgba(201,167,255,0.22)",
+      coolant: "rgba(168,236,255,0.22)",
+      rooftop: "rgba(170,184,214,0.20)",
+      beat: "rgba(198,255,61,0.20)"
     };
 
     // Walls are filled with a small repeating tile, painted once, instead of
@@ -8389,7 +8570,10 @@ function injectGameById(gameId, options = {}) {
 
     // Returns false when the current arena isn't a court map.
     function drawCourtMapBackdrop(hr) {
-      const draw = { penalty: drawPenaltyBackdrop, overflow: drawOverflowBackdrop, leak: drawLeakBackdrop, defrag: drawDefragBackdrop }[currentArenaId];
+      const draw = {
+        penalty: drawPenaltyBackdrop, overflow: drawOverflowBackdrop, leak: drawLeakBackdrop, defrag: drawDefragBackdrop,
+        freefall: drawFreefallBackdrop, coolant: drawCoolantBackdrop, rooftop: drawRooftopBackdrop, beat: drawBeatBackdrop
+      }[currentArenaId];
       if (!draw) return false;
       ctx.save();
       draw(hr);
@@ -8404,17 +8588,20 @@ function injectGameById(gameId, options = {}) {
       ctx.save();
       if (arenaRules.id === "leak") drawLeakWalls(hr);
       else if (arenaRules.id === "defrag") drawDefragWalls(hr);
+      else if (arenaRules.id === "coolant") drawCoolantIce(hr);
+      else if (arenaRules.id === "beat") drawBeatWindow(hr);
       ctx.restore();
     }
 
-    // PENALTY BOX's posts and STACK OVERFLOW's seam sit on the screen edge. They
+    // PENALTY BOX's posts, STACK OVERFLOW's seam and FREEFALL's lit floor sit on
+    // the screen edge (COOLANT LEAK's skid marks sit on the paddles). They
     // are drawn with the paddles, after the camera: it zooms in as Heat rises
     // and would push anything out there off the screen just when it matters.
     function drawCourtMapEdges(hr) {
-      if (arenaRules.id !== "penalty" && arenaRules.id !== "overflow") return;
+      const draw = { penalty: drawPenaltyPosts, overflow: drawOverflowSeam, freefall: drawFreefallGravity, coolant: drawCoolantSkids }[arenaRules.id];
+      if (!draw) return;
       ctx.save();
-      if (arenaRules.id === "penalty") drawPenaltyPosts(hr);
-      else drawOverflowSeam(hr);
+      draw(hr);
       ctx.restore();
     }
 
@@ -8734,6 +8921,341 @@ function injectGameById(gameId, options = {}) {
       }
     }
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // BALL MAPS — FREEFALL, COOLANT LEAK, ROOFTOP, BEAT DROP
+    // Drawing only, like the court maps above. Each backdrop also has to look
+    // right with no rules running (an online match), so it falls back to a
+    // resting state: gravity down, solid ice, calm air, the slowest tempo.
+    // ═══════════════════════════════════════════════════════════════════════
+    const calmFlashes = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+
+    // ── FREEFALL: everything in the room is falling too ─────────────────────
+    let freefallDrift = 0;   // how far the dust has fallen, so a flip turns it round smoothly
+    function drawFreefallBackdrop(hr) {
+      const W = canvas.width, H = canvas.height;
+      const dir = arenaRules.id === "freefall" ? arenaRules.freefall.dir : 1;
+      courtMapFill("#0b0719", "#06040f");
+      ctx.fillStyle = "rgba(201,167,255,0.035)";
+      for (let i = 1; i < 12; i++) ctx.fillRect(W * i / 12, -60, 1, H + 120);
+
+      // Dust streaks fall the way gravity points. They are the quickest read of it.
+      freefallDrift += dir * (2.4 + hr * 2.6);
+      const motes = savingPower() ? 22 : 48;
+      for (let i = 0; i < motes; i++) {
+        const depth = 0.45 + courtMapNoise(i + 30) * 0.9, len = 10 + depth * 16;
+        const x = courtMapNoise(i) * W;
+        const y = (((courtMapNoise(i + 200) * (H + 80) + freefallDrift * depth) % (H + 80)) + H + 80) % (H + 80) - 40;
+        ctx.fillStyle = `rgba(201,167,255,${0.07 + depth * 0.1})`;
+        ctx.fillRect(x, y - (dir > 0 ? len : 0), 1.5, len);
+      }
+    }
+
+    function drawFreefallGravity(hr) {
+      const W = canvas.width, H = canvas.height, state = arenaRules.freefall;
+      const down = state.dir > 0, pull = Math.abs(state.dir), t = performance.now() * 0.001;
+
+      // The surface the ball is falling towards is lit; the other one is dark.
+      const edge = down ? H : 0, into = down ? -1 : 1;
+      const pad = ctx.createLinearGradient(0, edge, 0, edge + into * 70);
+      pad.addColorStop(0, `rgba(201,167,255,${0.30 * pull})`);
+      pad.addColorStop(1, "rgba(201,167,255,0)");
+      ctx.fillStyle = pad;
+      ctx.fillRect(0, down ? H - 70 : 0, W, 70);
+      ctx.shadowColor = "rgba(201,167,255,0.9)";
+      ctx.shadowBlur = 12;
+      ctx.fillStyle = `rgba(226,205,255,${0.25 + 0.6 * pull})`;
+      ctx.fillRect(0, down ? H - 4 : 0, W, 4);
+      ctx.shadowBlur = 0;
+
+      // Chevrons sliding the way things fall.
+      const slide = (t * 46) % 34;
+      ctx.strokeStyle = `rgba(201,167,255,${0.16 * pull})`;
+      ctx.lineWidth = 3;
+      ctx.lineJoin = "round";
+      [0.25, 0.75].forEach((share) => {
+        const x = W * share;
+        for (let k = -1; k < 3; k++) {
+          const y = H / 2 + (down ? 1 : -1) * (k * 34 + slide - 34);
+          ctx.beginPath();
+          ctx.moveTo(x - 16, y - (down ? 9 : -9)); ctx.lineTo(x, y); ctx.lineTo(x + 16, y - (down ? 9 : -9));
+          ctx.stroke();
+        }
+      });
+
+      if (state.flip > 0.02) {
+        ctx.font = "bold 13px monospace";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = `rgba(236,222,255,${Math.min(1, state.flip * 1.4)})`;
+        ctx.fillText(state.want < 0 ? "GRAVITY FLIP  ▲" : "GRAVITY RESTORED  ▼", W / 2, courtMapLabelY(0));
+      }
+    }
+
+    // ── COOLANT LEAK: a server hall frozen over ─────────────────────────────
+    // 1 on solid ice, 0 once Heat has melted it.
+    function coolantIce() {
+      if (arenaRules.id !== "coolant") return 1;
+      const cold = ArenaRules.TUNING.gripCold;
+      return 1 - (arenaRules.coolant.grip - cold) / (1 - cold);
+    }
+
+    function drawCoolantBackdrop(hr) {
+      const W = canvas.width, H = canvas.height, t = performance.now() * 0.001, ice = coolantIce();
+      courtMapFill("#05141d", "#020a10");
+
+      // Reflections on the ice: long pale streaks that fade as it melts.
+      ctx.save();
+      ctx.translate(W / 2, H / 2);
+      ctx.rotate(-0.42);
+      for (let i = 0; i < 9; i++) {
+        const y = (courtMapNoise(i + 11) - 0.5) * H * 1.6, w = 2 + courtMapNoise(i + 60) * 26;
+        ctx.fillStyle = `rgba(190,240,255,${(0.015 + courtMapNoise(i + 5) * 0.03) * (0.25 + ice * 0.75)})`;
+        ctx.fillRect(-W, y, W * 2, w);
+      }
+      ctx.restore();
+
+      // Coolant pipes along the top and bottom, and the joints that are leaking.
+      [[18, 1], [H - 30, -1]].forEach(([y, dir], row) => {
+        ctx.fillStyle = "rgba(120,200,230,0.10)";
+        ctx.fillRect(-60, y, W + 120, 12);
+        ctx.fillStyle = "rgba(190,240,255,0.14)";
+        ctx.fillRect(-60, y + 2, W + 120, 2);
+        for (let i = 0; i < 7; i++) {
+          const x = W * (i + 0.5) / 7 + (row ? W / 14 : 0);
+          ctx.fillStyle = "rgba(150,220,245,0.22)";
+          ctx.fillRect(x - 9, y - 3, 18, 18);
+          if (dir > 0 && i % 2 === 0) {
+            // drips from the upper pipe
+            const fall = ((t * (0.55 + courtMapNoise(i) * 0.4) + courtMapNoise(i + 9)) % 1);
+            ctx.fillStyle = `rgba(168,236,255,${0.5 * (1 - fall)})`;
+            ctx.fillRect(x - 1.5, y + 16 + fall * H * 0.22, 3, 9);
+          }
+        }
+      });
+
+      // Frost crystals.
+      const flakes = savingPower() ? 12 : 26;
+      ctx.strokeStyle = `rgba(210,245,255,${0.05 + ice * 0.10})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let i = 0; i < flakes; i++) {
+        const x = courtMapNoise(i + 300) * W, y = courtMapNoise(i + 340) * H, r = 5 + courtMapNoise(i + 380) * 9;
+        for (let a = 0; a < 3; a++) {
+          const ang = a * Math.PI / 3 + courtMapNoise(i) * 0.6;
+          ctx.moveTo(x - Math.cos(ang) * r, y - Math.sin(ang) * r);
+          ctx.lineTo(x + Math.cos(ang) * r, y + Math.sin(ang) * r);
+        }
+      }
+      ctx.stroke();
+    }
+
+    function drawCoolantIce(hr) {
+      const W = canvas.width, H = canvas.height, ice = coolantIce();
+      // Frost creeping in from the top and bottom; it retreats as the ice melts.
+      [[0, 1], [H, -1]].forEach(([y, dir]) => {
+        const reach = 30 + ice * 70;
+        const frost = ctx.createLinearGradient(0, y, 0, y + dir * reach);
+        frost.addColorStop(0, `rgba(205,245,255,${0.05 + ice * 0.22})`);
+        frost.addColorStop(1, "rgba(205,245,255,0)");
+        ctx.fillStyle = frost;
+        ctx.fillRect(-60, dir > 0 ? 0 : H - reach, W + 120, reach);
+      });
+      ctx.font = "bold 11px monospace";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      const grip = Math.round(arenaRules.coolant.grip * 100);
+      ctx.fillStyle = grip >= 100 ? "rgba(255,190,130,0.75)" : `rgba(190,240,255,${0.5 + (grip / 100) * 0.3})`;
+      ctx.fillText(grip >= 100 ? "ICE MELTED  //  FULL GRIP" : `GRIP ${grip}%`, W / 2, courtMapLabelY(0));
+    }
+
+    // Skid marks behind a sliding paddle. Drawn with the paddles, after the camera.
+    function drawCoolantSkids() {
+      [["left", leftX, leftY, "168,236,255"], ["right", rightX, rightY, "255,190,236"]].forEach(([side, x, y, rgb]) => {
+        const v = arenaRules.coolant.v[side], speed = Math.abs(v);
+        if (speed < 0.8) return;
+        for (let k = 1; k <= 3; k++) {
+          ctx.fillStyle = `rgba(${rgb},${Math.min(0.2, speed * 0.03) / k})`;
+          ctx.fillRect(x, y - v * k * 2.6, paddleW, paddleH);
+        }
+        // ice thrown up off the leading edge
+        ctx.fillStyle = `rgba(230,250,255,${Math.min(0.7, speed * 0.09)})`;
+        const lead = v > 0 ? y + paddleH : y;
+        for (let k = 0; k < 4; k++) {
+          const spray = courtMapNoise(k + Math.floor(performance.now() / 50));
+          ctx.fillRect(x - 6 + spray * (paddleW + 12), lead + Math.sign(v) * (2 + courtMapNoise(k + 7) * 9), 2, 2);
+        }
+      });
+    }
+
+    // ── ROOFTOP: a storm over the city ──────────────────────────────────────
+    function drawRooftopBackdrop(hr) {
+      const W = canvas.width, H = canvas.height, t = performance.now() * 0.001;
+      courtMapFill("#080c18", "#0c1322");
+
+      // Storm cloud along the top.
+      for (let i = 0; i < 6; i++) {
+        const cx = courtMapNoise(i + 20) * W + Math.sin(t * 0.05 + i) * 30, cy = courtMapNoise(i + 40) * H * 0.16;
+        const cloud = ctx.createRadialGradient(cx, cy, 10, cx, cy, W * 0.24);
+        cloud.addColorStop(0, "rgba(120,136,170,0.10)");
+        cloud.addColorStop(1, "rgba(120,136,170,0)");
+        ctx.fillStyle = cloud;
+        ctx.fillRect(-60, -60, W + 120, H * 0.5 + 60);
+      }
+
+      // Two rows of skyline behind the roof, far then near.
+      [[0.40, 0.22, "#0d1424", 70, 0.10], [0.30, 0.14, "#090e1a", 0, 0.20]].forEach(([tall, low, colour, seed, lit]) => {
+        let x = -20, i = 0;
+        while (x < W + 20) {
+          const w = 46 + courtMapNoise(seed + i) * 74, h = H * (low + courtMapNoise(seed + i + 31) * (tall - low));
+          ctx.fillStyle = colour;
+          ctx.fillRect(x, H - h, w, h + 60);
+          for (let k = 0; k < 7; k++) {
+            if (courtMapNoise(seed + i * 9 + k) > 0.55) continue;
+            ctx.fillStyle = `rgba(255,214,140,${lit * (0.5 + courtMapNoise(seed + i + k * 3) * 0.5)})`;
+            ctx.fillRect(x + 6 + courtMapNoise(seed + i * 5 + k) * (w - 14), H - h + 8 + courtMapNoise(seed + i * 7 + k) * (h - 16), 3, 4);
+          }
+          x += w + 3;
+          i++;
+        }
+      });
+
+      // An aerial with a warning light, and the roof's wet edge.
+      const mastX = W * 0.86;
+      ctx.fillStyle = "#070b14";
+      ctx.fillRect(mastX, H * 0.34, 3, H * 0.66);
+      ctx.fillRect(mastX - 12, H * 0.42, 27, 2);
+      ctx.fillStyle = `rgba(255,70,70,${0.25 + 0.6 * (Math.sin(t * 2.2) > 0.4 ? 1 : 0)})`;
+      ctx.beginPath(); ctx.arc(mastX + 1.5, H * 0.34, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "rgba(170,184,214,0.06)";
+      for (let i = 0; i < 5; i++) ctx.fillRect(courtMapNoise(i + 3) * W * 0.8, H * (0.2 + courtMapNoise(i + 13) * 0.6), W * 0.2, 1);
+    }
+
+    // Rain, the wind readout and lightning go over the court, ball included.
+    let rainFall = 0, rainSlide = 0;
+    function drawRooftopStorm(hr) {
+      const W = canvas.width, H = canvas.height, live = arenaRules.id === "rooftop";
+      const state = live ? arenaRules.rooftop : { wind: 0, flash: 0, bolt: 0 };
+      // The ball's speed is in court units; turn the wind into pixels a frame.
+      const gust = state.wind * courtSpeedScale();
+      ctx.save();
+
+      // Rain leans the way the wind blows, and leans further the harder it blows.
+      const speed = 11 + hr * 5, lean = gust * 2.4;
+      rainFall += speed;
+      rainSlide += lean;
+      const drops = savingPower() ? 40 : 96, spanX = W + 240, spanY = H + 60;
+      ctx.strokeStyle = "rgba(176,196,236,0.30)";
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      for (let i = 0; i < drops; i++) {
+        const depth = 0.6 + courtMapNoise(i + 500) * 0.8;
+        const x = (((courtMapNoise(i + 520) * spanX + rainSlide * depth) % spanX) + spanX) % spanX - 120;
+        const y = ((courtMapNoise(i + 560) * spanY + rainFall * depth) % spanY) - 30;
+        ctx.moveTo(x, y);
+        ctx.lineTo(x - lean * depth * 1.5, y - speed * depth * 1.5);
+      }
+      ctx.stroke();
+
+      if (live) {
+        // Say it in words as well: arrows for strength, pointing the way the ball is pushed.
+        const strongest = ArenaRules.TUNING.windCalm + ArenaRules.TUNING.windHeat;
+        const bars = Math.min(4, Math.round(Math.abs(state.wind) / strongest * 5));
+        const arrows = bars ? (state.wind > 0 ? "›" : "‹").repeat(bars) : "";
+        ctx.font = "bold 12px monospace";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = `rgba(200,214,244,${bars ? 0.55 + bars * 0.1 : 0.4})`;
+        ctx.fillText(bars ? (state.wind > 0 ? `WIND ${arrows}` : `${arrows} WIND`) : "CALM", W / 2, courtMapLabelY(0));
+      }
+
+      if (state.flash > 0.01) {
+        const strength = (calmFlashes ? 0.25 : 1) * Math.min(1, rules.fx);
+        if (state.flash > 0.55 && strength > 0) {
+          // the bolt: a jagged line from the cloud, there for a few frames
+          let x = W * (0.12 + state.bolt * 0.76), y = 0;
+          ctx.strokeStyle = `rgba(240,246,255,${0.9 * strength})`;
+          ctx.shadowColor = "rgba(190,210,255,0.9)";
+          ctx.shadowBlur = 18;
+          ctx.lineWidth = 2.5;
+          ctx.beginPath();
+          ctx.moveTo(x, y);
+          for (let k = 0; k < 9; k++) {
+            x += (courtMapNoise(state.bolt * 97 + k) - 0.5) * 70;
+            y += H * 0.065;
+            ctx.lineTo(x, y);
+          }
+          ctx.stroke();
+          ctx.shadowBlur = 0;
+        }
+        ctx.fillStyle = `rgba(214,226,255,${state.flash * state.flash * 0.30 * strength})`;
+        ctx.fillRect(0, 0, W, H);
+      }
+      ctx.restore();
+    }
+
+    // ── BEAT DROP: a dance floor ────────────────────────────────────────────
+    // The beat clock. With no rules running it ticks at the slowest tempo.
+    function beatClock() {
+      if (arenaRules.id === "beat") return arenaRules.beat.phase;
+      return performance.now() / 60000 * (ArenaRules ? ArenaRules.TUNING.bpm[0] : 104);
+    }
+
+    function drawBeatBackdrop(hr) {
+      const W = canvas.width, H = canvas.height;
+      const phase = beatClock(), beat = Math.floor(phase), part = phase - beat;
+      const pulse = Math.pow(1 - part, 3);          // 1 on the beat, fading to the next one
+      const tints = ["198,255,61", "255,79,216", "103,239,255"];
+      courtMapFill("#08070f", "#050409");
+
+      // Floor tiles: every other one lights on each beat, then they swap.
+      const cols = 8, rows = 4, tw = W / cols, th = H / rows;
+      for (let c = 0; c < cols; c++) {
+        for (let r = 0; r < rows; r++) {
+          const on = (c + r + beat) % 2 === 0;
+          ctx.fillStyle = `rgba(${tints[(c + r * 2 + beat) % 3]},${on ? 0.04 + pulse * 0.12 : 0.018})`;
+          ctx.fillRect(c * tw + 2, r * th + 2, tw - 4, th - 4);
+        }
+      }
+
+      // Level meters along the top and bottom edges.
+      const bars = savingPower() ? 20 : 40, bw = W / bars;
+      ctx.fillStyle = `rgba(198,255,61,${0.10 + pulse * 0.14})`;
+      for (let i = 0; i < bars; i++) {
+        const level = (0.2 + 0.8 * courtMapNoise(i + beat * 13)) * (0.45 + 0.55 * pulse) * H * 0.09;
+        ctx.fillRect(i * bw + 2, H - level, bw - 4, level);
+        ctx.fillRect(i * bw + 2, 0, bw - 4, level * 0.7);
+      }
+
+      // A ring that closes on the centre spot exactly on the beat.
+      const inner = Math.min(H * 0.12, W * 0.07), outer = inner * 3.2;
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = `rgba(198,255,61,${0.16 + pulse * 0.4})`;
+      ctx.beginPath(); ctx.arc(W / 2, H / 2, inner * (1 + pulse * 0.08), 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = `rgba(198,255,61,${0.06 + part * 0.3})`;
+      ctx.beginPath(); ctx.arc(W / 2, H / 2, inner + (outer - inner) * (1 - part), 0, Math.PI * 2); ctx.stroke();
+    }
+
+    function drawBeatWindow(hr) {
+      const W = canvas.width, H = canvas.height, state = arenaRules.beat;
+      // The frame lights for as long as a return would count as on the beat.
+      if (ArenaRules.onBeat(arenaRules)) {
+        const near = 1 - ArenaRules.beatDistance(arenaRules) / (ArenaRules.TUNING.beatWindow + 1);
+        ctx.strokeStyle = `rgba(198,255,61,${0.25 + near * 0.5})`;
+        ctx.lineWidth = 5;
+        ctx.strokeRect(6, 6, W - 12, H - 12);
+      }
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.font = "bold 11px monospace";
+      ctx.fillStyle = "rgba(198,255,61,0.55)";
+      ctx.fillText(`${Math.round(state.bpm)} BPM`, W / 2, courtMapLabelY(0));
+      if (state.hit > 0.02) {
+        ctx.font = "bold 20px monospace";
+        ctx.fillStyle = `rgba(226,255,150,${Math.min(1, state.hit * 1.5)})`;
+        ctx.fillText("ON BEAT", W * (state.hitSide === "left" ? 0.2 : 0.8), H * 0.5 - 40 - (1 - state.hit) * 26);
+      }
+    }
+
     function drawArenaOverlay() {
       if (currentArenaId === "matrix") {
         drawMatrixArena(getHeatRatio());
@@ -8741,6 +9263,8 @@ function injectGameById(gameId, options = {}) {
         drawConstructOverlay(getHeatRatio());
       } else if (currentArenaId === "blackhole") {
         drawBlackHoleNexusOverlay(getHeatRatio());
+      } else if (currentArenaId === "rooftop") {
+        drawRooftopStorm(getHeatRatio());
       }
     }
 
@@ -11221,8 +11745,11 @@ function injectGameById(gameId, options = {}) {
       "top:50%",
       "transform:translate(-50%,-50%)",
       "z-index:2147483648",
-      "width:min(680px,90vw)",
-      "padding:28px 26px 24px",
+      "width:min(920px,94vw)",        // four cards across on a desktop: twelve arenas in three rows
+      "max-height:calc(100% - 24px)",
+      "overflow-y:auto",
+      "box-sizing:border-box",
+      "padding:22px 26px 18px",
       "border:1px solid rgba(103,239,255,0.28)",
       "border-radius:24px",
       "background:linear-gradient(180deg,rgba(8,15,28,0.97),rgba(5,9,18,0.97))",
@@ -11256,7 +11783,7 @@ function injectGameById(gameId, options = {}) {
           <button type="button" class="gp-arena-card" data-arena-i="${i}" style="
             ${bg}
             border-radius:16px;
-            padding:18px 10px 16px;
+            padding:14px 10px 12px;
             cursor:pointer;
             color:#eafcff;
             font:14px monospace;
@@ -11287,14 +11814,15 @@ function injectGameById(gameId, options = {}) {
           SELECT ARENA
         </div>
         <div class="gp-arena-hint" style="text-align:center;font:12px monospace;color:#5a7a8a;
-          letter-spacing:.1em;margin-bottom:22px;">
+          letter-spacing:.1em;margin-bottom:16px;">
           ← → NAVIGATE &nbsp;·&nbsp; ENTER CONFIRM &nbsp;·&nbsp; ESC BACK
         </div>
         <div class="gp-arena-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
-          gap:14px;margin-bottom:22px;">
+          gap:12px;margin-bottom:14px;">
           ${ARENA_REGISTRY.map((a, i) => makeCard(a, i)).join("")}
         </div>
-        <div class="gp-mobile-sticky-actions" style="text-align:center;">
+        <div class="gp-mobile-sticky-actions" style="text-align:center;position:sticky;bottom:-18px;
+          padding:8px 0 4px;background:linear-gradient(180deg,rgba(5,9,18,0),rgba(5,9,18,0.97) 40%);">
           <button type="button" data-arena-i="back" style="
             padding:10px 28px;border-radius:12px;
             border:1px solid rgba(103,239,255,0.22);
@@ -11519,6 +12047,11 @@ function injectGameById(gameId, options = {}) {
       rightDashTrail = rightDashTrail.map((trail) => ({ ...trail, life: trail.life - 1 })).filter((trail) => trail.life > 0);
       updateArenaPowerup();
 
+      // COOLANT LEAK turns this frame's paddle movement into a push on a
+      // sliding paddle, whoever asked for it: keys, touch or the AI.
+      const leftFromY = leftY, rightFromY = rightY;
+      arenaDashShift.left = 0; arenaDashShift.right = 0;
+
       if (aiVsAiMode) {
         updateAiPaddle("left");
       } else {
@@ -11533,6 +12066,10 @@ function injectGameById(gameId, options = {}) {
         updateAiPaddle("right");
       }
 
+      if (arenaRules.id === "coolant") {
+        leftY = ArenaRules.slide(arenaRules, "left", leftFromY, leftY, arenaDashShift.left, paddleMinY(), paddleMaxY());
+        rightY = ArenaRules.slide(arenaRules, "right", rightFromY, rightY, arenaDashShift.right, paddleMinY(), paddleMaxY());
+      }
       leftY = clamp(leftY, paddleMinY(), paddleMaxY());
       rightY = clamp(rightY, paddleMinY(), paddleMaxY());
 
@@ -11609,7 +12146,9 @@ function injectGameById(gameId, options = {}) {
         for (let i = decoys.length - 1; i >= 0; i--) {
           const decoy = decoys[i];
           const decoyTimeScale = 1;
-          decoy.x += decoy.vx * decoyTimeScale * courtSpeedScale();
+          // Decoys fall and blow about like the real ball, or they would give themselves away.
+          if (arenaRules.id === "freefall") decoy.vy = ArenaRules.fall(arenaRules, courtNow(), decoy.vy);
+          decoy.x += (decoy.vx + (arenaRules.id === "rooftop" ? ArenaRules.drift(arenaRules, decoy.vx) : 0)) * decoyTimeScale * courtSpeedScale();
           decoy.y += decoy.vy * decoyTimeScale;
           decoy.life -= 1;
           if (arenaRules.id === "overflow") decoy.y = ((decoy.y % canvas.height) + canvas.height) % canvas.height;
@@ -11686,8 +12225,12 @@ function injectGameById(gameId, options = {}) {
         const clutchVelocityScale = clutchMode ? (1.08 + GlitchProgression.getPerkStat("clutchBoost")) : 1;
         const roundTimeScale = 1;
         updateBlackHoleNexusGameplay(heatRatio);
+        // FREEFALL pulls the ball down (or up); ROOFTOP's wind carries it along
+        // the court without changing its speed.
+        if (arenaRules.id === "freefall") vy = ArenaRules.fall(arenaRules, courtNow(), vy);
+        const ballDrift = arenaRules.id === "rooftop" ? ArenaRules.drift(arenaRules, vx) : 0;
         wallSweepFromX = ballX; wallSweepFromY = ballY;
-        ballX += vx * clutchVelocityScale * roundTimeScale * courtSpeedScale();
+        ballX += (vx * clutchVelocityScale * roundTimeScale + ballDrift) * courtSpeedScale();
         ballY += vy * clutchVelocityScale * roundTimeScale;
 
         // ── Ball Sentience ─────────────────────────────────────────────────
@@ -11737,8 +12280,9 @@ function injectGameById(gameId, options = {}) {
 
         if (rules.maxSpeed && Math.abs(vx) > rules.maxSpeed) vx = Math.sign(vx) * rules.maxSpeed;
         // Speed cap — only reduce vy, never erode vx
+        // FREEFALL is left out: at top speed this would flatten the ball's arc.
         const _spd = Math.hypot(vx, vy);
-        if (_spd > 22) {
+        if (_spd > 22 && arenaRules.id !== "freefall") {
           const maxVy = Math.sqrt(Math.max(0, 22 * 22 - vx * vx));
           if (Math.abs(vy) > maxVy) vy = Math.sign(vy) * maxVy;
         }
@@ -11768,7 +12312,9 @@ function injectGameById(gameId, options = {}) {
           // Two bounces inside a second means the ball is stuck going up and down.
           // A narrowed court is crossed sooner, so the window narrows with it.
           const stuckWindow = 1000 * (courtBand().bottom - courtBand().top) / canvas.height;
-          if (now - lastWallBounceTime < stuckWindow) {
+          // (Not on FREEFALL: gravity bounces the ball off the floor all the time.)
+          if (arenaRules.id === "freefall") lastWallBounceTime = 0;
+          else if (now - lastWallBounceTime < stuckWindow) {
             lastWallBounceTime = 0;
             ballX = canvas.width * (0.28 + Math.random() * 0.44);
             ballY = courtYAt(0.22 + Math.random() * 0.56);
@@ -11794,7 +12340,7 @@ function injectGameById(gameId, options = {}) {
         if (ballX <= leftX + paddleW && ballY >= leftY - leftShieldPad && ballY <= leftY + paddleH + leftShieldPad && !(goalBehind && (vx > 0 || cameFromX < leftX))) {
           const returnHeat = getHeatRatio();
           const leftState = powerState.blue;
-          const strikeBoost = leftState.powerStrikeReady ? 0.22 : 0;
+          const strikeBoost = (leftState.powerStrikeReady ? 0.22 : 0) + (arenaRules.id === "beat" ? beatReturn("left") : 0);
           vx = Math.max(4.0, Math.abs(vx)) * (1 + (returnHeat * 0.035 + Math.min(combo * 0.01, 0.08)) * rules.speedGain + strikeBoost);
           // A fast ball can be behind the paddle face when it's caught. Put it back in
           // front so this same frame can't also count the return as a goal.
@@ -11828,7 +12374,7 @@ function injectGameById(gameId, options = {}) {
         if (ballX >= rightX && ballY >= rightY - rightShieldPad && ballY <= rightY + paddleH + rightShieldPad && !(goalBehind && (vx < 0 || cameFromX > rightX + paddleW))) {
           const returnHeat = getHeatRatio();
           const rightState = powerState.red;
-          const strikeBoost = rightState.powerStrikeReady ? 0.22 : 0;   // same as the left paddle
+          const strikeBoost = (rightState.powerStrikeReady ? 0.22 : 0) + (arenaRules.id === "beat" ? beatReturn("right") : 0);   // same as the left paddle
           vx = -Math.max(4.0, Math.abs(vx)) * (1 + (returnHeat * 0.035 + Math.min(combo * 0.01, 0.08)) * rules.speedGain + strikeBoost);
           ballX = rightX - BALL_R;
           vy += (ballY - (rightY + paddleH / 2)) * 0.04;

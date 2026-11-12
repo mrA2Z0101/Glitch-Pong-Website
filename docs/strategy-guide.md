@@ -105,8 +105,12 @@ An orb appears in the middle third of the court every 6–13 seconds and lasts a
 - **Stack Overflow.** The top and bottom edges wrap: the ball leaves one and comes back through the other. Paddles don't wrap, so a ball that crosses your line right at the seam is a full screen away from a paddle parked at the near edge. Hold the middle. From 50% Heat the ball comes back in offset sideways; the numbered markers on the two edges show where.
 - **Memory Leak.** Every return narrows the court from both sides until it is a corridor about two paddles tall, and it opens again when someone scores. Early in a rally, angles win points. Late in one there is no room for angles, and it comes down to speed, dashes and glitches.
 - **Defrag.** The top and bottom walls are slanted blocks, so a bounce can come off steeper or flatter than it went in. They rearrange between points, and from 50% Heat one wall at a time moves mid-rally (its new shape is outlined first). Read the bounce off the block, not off habit.
+- **Freefall.** The ball falls. A flat shot drops on the way across, so meet it lower than it left, and expect it to come up off the floor. At Critical Heat gravity flips and everything happens against the ceiling instead; the lit edge of the court is the one the ball is falling towards.
+- **Coolant Leak.** Your paddle slides. Start moving early and let go before you arrive, or tap against the slide to brake. Dash still works as an instant jump and is the one precise move you have on solid ice. Grip comes back as Heat rises and is complete at 80%.
+- **Rooftop.** Wind hurries the ball towards one player and holds it up for the other. The rain leans the way it is blowing, and a readout shows the strength. Into the wind the ball arrives later and further up or down the court than you'd expect. At Critical Heat every lightning flash turns the wind round.
+- **Beat Drop.** A return that lands on the beat comes off faster. You can't choose when the ball reaches you, but you can see it coming: if the ball is going to meet a paddle as the court pulses, be ready for the quicker one. The tempo rises with Heat, so more returns land on the beat late in a rally.
 
-How these four are built and tuned: [arenas.md](arenas.md).
+How these eight are built and tuned: [arenas.md](arenas.md).
 
 ---
 

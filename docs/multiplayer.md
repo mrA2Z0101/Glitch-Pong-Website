@@ -34,7 +34,7 @@ The client picks for itself: if `window.io` exists (the server's `/socket.io/soc
 - **Host:** Glitch Pong → Play → Player 2 → Host a game. Share the six digits. Press Start when the opponent shows as connected.
 - **Guest:** Play → Player 2 → Join game → type the code.
 - If the guest drops, "Resume last session" brings them back for 45 seconds. If the host leaves, the game ends and the code is released.
-- Online matches are plain Pong on every arena. Each player sees the backdrop of the arena they last picked, but arena rules (Black-Hole Nexus gravity, and the posts, wrapping and moving walls of the four court maps in [arenas.md](arenas.md)) only apply to local matches.
+- Online matches are plain Pong on every arena. Each player sees the backdrop of the arena they last picked, but arena rules (Black-Hole Nexus gravity, and everything the eight maps in [arenas.md](arenas.md) do) only apply to local matches.
 
 **Keep the host's tab open and in front.** Browsers slow down timers in background tabs, and a host that sleeps stops the match for both players. A phone host also stops if the screen locks. The lobby tells the host this.
 
