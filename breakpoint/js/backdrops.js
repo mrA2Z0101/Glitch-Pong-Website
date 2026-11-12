@@ -12,6 +12,7 @@
 
 const Backdrop = (() => {
   let layer = null, layerKey = '', fontsReady = false;
+  const thumbs = new Map();
   const rgba = (hex, a) => { const n = parseInt(hex.slice(1, 7), 16); return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})`; };
   const TAU = Math.PI * 2;
 
@@ -492,7 +493,17 @@ const Backdrop = (() => {
       if (live && p && p.live) { ctx.save(); p.live(ctx, W, H, t, arena); ctx.restore(); }
     },
     // the web fonts arrive after the first frame: repaint the text-bearing backdrops with them
-    fontsLoaded() { fontsReady = true; },
+    fontsLoaded() { fontsReady = true; thumbs.clear(); },
+    // a small picture of an arena, for the codex (painted once at full size and kept)
+    thumb(arena, w, h) {
+      if (!thumbs.has(arena.name)) {
+        const cv = document.createElement('canvas');
+        cv.width = w; cv.height = h;
+        cv.getContext('2d').drawImage(build(arena, 960, 640), 0, 0, w, h);
+        thumbs.set(arena.name, cv);
+      }
+      return thumbs.get(arena.name);
+    },
     has(name) { return !!PAINT[name]; },
     names() { return Object.keys(PAINT); },
   };

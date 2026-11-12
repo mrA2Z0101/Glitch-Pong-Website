@@ -67,6 +67,65 @@ const BRICKS = {
   barrier:   { hp: -1,score: 0,   color: '#ff5500',   glyph: '▦' }, // event firewall, temporary
 };
 
+// What the codex says about each brick, once a ball of yours has met one.
+const BRICK_INFO = {
+  normal:    { name: 'DATA BRICK',     line: 'One hit.' },
+  heavy:     { name: 'HEAVY BRICK',    line: 'Three hits. It cracks as it goes.' },
+  shield:    { name: 'SHIELD BRICK',   line: 'Cannot be hurt while any generator brick is alive.' },
+  generator: { name: 'GENERATOR',      line: 'Powers every shield brick and locks the boss core. Break these first.' },
+  virus:     { name: 'VIRUS BRICK',    line: 'When it breaks it can turn up to two bricks near it into something worse.' },
+  healing:   { name: 'HEALING BRICK',  line: 'Repairs a damaged brick near it every few seconds.' },
+  teleport:  { name: 'TELEPORT BRICK', line: 'Moves somewhere else the first time you hit it.' },
+  clone:     { name: 'CLONE BRICK',    line: 'Copies itself into an empty space beside it every 10 to 16 seconds.' },
+  explosive: { name: 'EXPLOSIVE BRICK',line: 'Blows up and damages every brick near it. Aim for these.' },
+  firewall:  { name: 'FIREWALL BRICK', line: 'The ball alone cannot break it. Fire, lasers, explosions and the EMP can.' },
+  quantum:   { name: 'QUANTUM BRICK',  line: 'Turns into a different kind of brick every few seconds.' },
+  invisible: { name: 'INVISIBLE BRICK',line: 'Fades out of sight and back. It is still there.' },
+  moving:    { name: 'MOVING BRICK',   line: 'Slides from side to side.' },
+  rotating:  { name: 'ORBITING BRICK', line: 'Circles a fixed point.' },
+  bosscore:  { name: 'BOSS CORE',      line: 'Eight hits and worth 1,000. Locked while a generator is alive. Explodes when it goes.' },
+  barrier:   { name: 'BARRIER',        line: 'Put up by FIREWALL ACTIVATED. Cannot be broken; it goes when the event ends.' },
+};
+
+// Enemies, bosses, glitch events and the ball's moods, as the codex describes them.
+const ENEMY_INFO = {
+  drone:  { name: 'DRONE',      line: 'Hovers above the wall and shoots straight down. Two hits. From sector 3.' },
+  virus:  { name: 'VIRUS ORB',  line: 'Drifts about and turns the bricks it touches into virus bricks. One hit. From sector 6.' },
+  repair: { name: 'REPAIR BOT', line: 'Patrols and repairs damaged bricks. Two hits. From sector 6.' },
+  turret: { name: 'TURRET',     line: 'Sits at the side and aims at your paddle. Three hits. From sector 6.' },
+};
+const BOSS_INFO = {
+  'MEMORY GUARDIAN': { line: 'Three shield arcs turn around it and deflect the ball. Shoot through the gaps.' },
+  'VIRUS QUEEN':     { line: 'Turns bricks into virus bricks and sends out virus orbs.' },
+  'FIREWALL TITAN':  { line: 'Armoured underneath. Hit it from the sides or above, or use a fire ball.' },
+  'QUANTUM CORE':    { line: 'Teleports every few seconds and cannot be hurt for a moment after each jump.' },
+  'DATA HYDRA':      { line: 'Three heads, each with its own health. All three must go.' },
+  'THE EYE':         { line: 'From the Pong arena. It blinks to armour itself, fires volleys of six, and teleports. Sector 10, and the end of Boss Rush.' },
+};
+const EVENT_INFO = {
+  systemError:  'The picture jumps about for six seconds.',
+  packetLoss:   'The ball flickers in and out of sight for five seconds.',
+  timeFreeze:   'Bricks and enemies stop for seven seconds.',
+  memoryLeak:   'Up to three bricks are copied over six seconds.',
+  kernelPanic:  'A flash and a hard shake. Nothing else.',
+  dataSurge:    'The ball runs 55% faster for eight seconds.',
+  firewallOn:   'Three to five unbreakable barriers appear for ten seconds.',
+  lagSpike:     'Everything runs at under half speed for five seconds.',
+  overclock:    'Everything runs half as fast again for six seconds.',
+  quantumShift: 'Every brick swaps places with another.',
+};
+const MOOD_INFO = {
+  bored:      { name: 'BORED',      color: '#8d97ad', line: 'Five returns without breaking a brick and it bends its own path toward the nearest one.' },
+  grudge:     { name: 'GRUDGE',     color: '#ff8fb8', line: 'It remembers THE EYE from the Pong arena and leans toward it.' },
+  loyal:      { name: 'LOYAL',      color: '#00ff96', line: 'On your last life it refuses to fall past a near miss, once a sector. Never in Hardcore.' },
+  rampage:    { name: 'RAMPAGE',    color: '#ffd166', line: 'Behind the wall it turns gold, speeds up and scores double until it drops back out.' },
+  protective: { name: 'PROTECTIVE', color: '#ff8a3d', line: 'A shot that hits your paddle sends it after the shooter. Enemies take double damage.' },
+  rivalry:    { name: 'RIVALRY',    color: '#ffd166', line: 'In multi-ball the ball with the most bricks wears a crown and scores 50% more.' },
+  showoff:    { name: 'SHOW-OFF',   color: '#ff58d9', line: 'Six bricks without touching the paddle: a longer trail and a little more speed.' },
+  curious:    { name: 'CURIOUS',    color: '#eef7ff', line: 'Teleport, quantum and clone bricks it has not touched pull it gently toward them.' },
+  mourning:   { name: 'MOURNING',   color: '#9aa7c7', line: 'After a lost life the next ball starts slow and dim for a few seconds.' },
+};
+
 // weighted introduction of brick types by level
 function brickWeights(lv) {
   const w = { normal: 60, heavy: 8 + lv * 2 };
@@ -121,27 +180,29 @@ const MUSIC = {
 };
 
 // ---------- powerups ----------
+// `desc` is what the pickup card and the codex say; `tag` is the old two-letter
+// label, still used as a fallback where an icon can't be drawn.
 const POWERUPS = {
-  triple:  { name: 'TRIPLE BALL',   color: COL.cyan,    tag: '3X',  good: true },
-  split:   { name: 'SPLIT SHOT',    color: COL.cyan,    tag: 'SP',  good: true },
-  laser:   { name: 'LASER PADDLE',  color: COL.red,     tag: 'LZ',  good: true,  dur: 12 },
-  emp:     { name: 'EMP BLAST',     color: COL.yellow,  tag: 'EM',  good: true },
-  gravity: { name: 'GRAVITY BALL',  color: COL.violet,  tag: 'GR',  good: true,  dur: 10 },
-  fire:    { name: 'FIRE BALL',     color: COL.orange,  tag: 'FB',  good: true,  dur: 10 },
-  freeze:  { name: 'FREEZE TIME',   color: COL.blue,    tag: 'FZ',  good: true,  dur: 5 },
-  shield:  { name: 'FIREWALL SHIELD',color: COL.green,  tag: 'SH',  good: true,  dur: 15 },
-  pulse:   { name: 'ENERGY PULSE',  color: COL.white,   tag: 'EP',  good: true },
-  magnet:  { name: 'MAGNET PADDLE', color: COL.violet,  tag: 'MG',  good: true,  dur: 14 },
-  pierce:  { name: 'PIERCING BALL', color: COL.magenta, tag: 'PC',  good: true,  dur: 9 },
-  boom:    { name: 'EXPLOSIVE BALL',color: COL.red,     tag: 'EX',  good: true,  dur: 9 },
-  slow:    { name: 'SLOW MOTION',   color: COL.blue,    tag: 'SL',  good: true,  dur: 6 },
-  warp:    { name: 'TIME WARP',     color: COL.white,   tag: 'TW',  good: true,  dur: 4 },
-  gbomb:   { name: 'GLITCH BOMB',   color: COL.magenta, tag: 'GB',  good: true },
-  drone:   { name: 'DRONE ASSIST',  color: COL.green,   tag: 'DR',  good: true,  dur: 16 },
-  random:  { name: 'RANDOMIZER',    color: COL.white,   tag: '??',  good: true },
-  life:    { name: 'EXTRA LIFE',    color: COL.red,     tag: '+1',  good: true },
-  mult:    { name: 'SCORE x2',      color: COL.yellow,  tag: 'x2',  good: true,  dur: 20 },
-  wide:    { name: 'WIDE PADDLE',   color: COL.cyan,    tag: 'W+',  good: true,  dur: 15 },
+  triple:  { name: 'TRIPLE BALL',    color: COL.cyan,    tag: '3X',  good: true,            desc: 'Every ball in play becomes three.' },
+  split:   { name: 'SPLIT SHOT',     color: COL.cyan,    tag: 'SP',  good: true,            desc: 'One ball splits two more off itself.' },
+  laser:   { name: 'LASER PADDLE',   color: COL.red,     tag: 'LZ',  good: true,  dur: 12,  desc: 'Fire lasers from the paddle. Lasers break firewall bricks.' },
+  emp:     { name: 'EMP BLAST',      color: COL.yellow,  tag: 'EM',  good: true,            desc: 'One hit on every brick, and every enemy shot is wiped.' },
+  gravity: { name: 'GRAVITY BALL',   color: COL.violet,  tag: 'GR',  good: true,  dur: 10,  desc: 'The ball is pulled downward, so it arcs.' },
+  fire:    { name: 'FIRE BALL',      color: COL.orange,  tag: 'FB',  good: true,  dur: 10,  desc: 'Double damage, burns straight through, and breaks firewall bricks.' },
+  freeze:  { name: 'FREEZE TIME',    color: COL.blue,    tag: 'FZ',  good: true,  dur: 5,   desc: 'Bricks and enemies stop. You and the ball do not.' },
+  shield:  { name: 'FIREWALL SHIELD',color: COL.green,   tag: 'SH',  good: true,  dur: 15,  desc: 'A floor under the paddle that bounces the ball back, and blocks enemy shots.' },
+  pulse:   { name: 'ENERGY PULSE',   color: COL.white,   tag: 'EP',  good: true,            desc: 'A burst of speed and a short spell of passing through bricks.' },
+  magnet:  { name: 'MAGNET PADDLE',  color: COL.violet,  tag: 'MG',  good: true,  dur: 14,  desc: 'The paddle catches the ball. Launch it again from where it sits to aim.' },
+  pierce:  { name: 'PIERCING BALL',  color: COL.magenta, tag: 'PC',  good: true,  dur: 9,   desc: 'The ball goes through the bricks it breaks.' },
+  boom:    { name: 'EXPLOSIVE BALL', color: COL.red,     tag: 'EX',  good: true,  dur: 9,   desc: 'Every brick it touches explodes and damages the ones around it.' },
+  slow:    { name: 'SLOW MOTION',    color: COL.blue,    tag: 'SL',  good: true,  dur: 6,   desc: 'Everything runs at about half speed.' },
+  warp:    { name: 'TIME WARP',      color: COL.white,   tag: 'TW',  good: true,  dur: 4,   desc: 'Everything runs at a third of its speed, briefly.' },
+  gbomb:   { name: 'GLITCH BOMB',    color: COL.magenta, tag: 'GB',  good: true,            desc: 'Deletes up to eight bricks at random.' },
+  drone:   { name: 'DRONE ASSIST',   color: COL.green,   tag: 'DR',  good: true,  dur: 16,  desc: 'A drone hovers over the paddle and shoots bricks for you.' },
+  random:  { name: 'RANDOMIZER',     color: COL.white,   tag: '??',  good: true,            desc: 'Becomes one of the other power-ups.' },
+  life:    { name: 'EXTRA LIFE',     color: COL.red,     tag: '+1',  good: true,            desc: 'One more life.' },
+  mult:    { name: 'SCORE x2',       color: COL.yellow,  tag: 'x2',  good: true,  dur: 20,  desc: 'Everything scores double.' },
+  wide:    { name: 'WIDE PADDLE',    color: COL.cyan,    tag: 'W+',  good: true,  dur: 15,  desc: 'The paddle is nearly half as long again.' },
 };
 const POWERUP_KEYS = Object.keys(POWERUPS);
 

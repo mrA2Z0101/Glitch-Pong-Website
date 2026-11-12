@@ -362,7 +362,7 @@ class Brick {
 class PowerUp {
   constructor(x, y, kind) {
     this.x = x; this.y = y; this.kind = kind;
-    this.vy = 110; this.w = 42; this.h = 18; this.dead = false; this.t = 0;
+    this.vy = 110; this.w = 36; this.h = 28; this.dead = false; this.t = 0;
   }
   update(dt, g) {
     this.t += dt;
@@ -386,10 +386,7 @@ class PowerUp {
     ctx.fillRect(-this.w / 2, -this.h / 2 + bob, this.w, this.h);
     ctx.strokeRect(-this.w / 2, -this.h / 2 + bob, this.w, this.h);
     ctx.shadowBlur = 0;
-    ctx.fillStyle = d.color;
-    ctx.font = '700 11px Orbitron, monospace';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(d.tag, 0, 1 + bob);
+    drawPowerIcon(ctx, this.kind, 0, bob, 22, d.color);   // what it is, as a picture (js/icons.js)
     ctx.restore();
   }
 }

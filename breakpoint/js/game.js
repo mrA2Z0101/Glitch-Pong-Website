@@ -6,8 +6,8 @@ const Meta = {
   data: null,
   load() {
     try { this.data = JSON.parse(localStorage.getItem('gb_save')) || null; } catch (e) { this.data = null; }
-    if (!this.data) this.data = { xp: 0, credits: 0, up: {}, ach: {}, best: {}, daily: {}, bossKills: {}, vol: 70 };
-    for (const k of ['up', 'ach', 'best', 'daily', 'bossKills']) if (!this.data[k]) this.data[k] = {};
+    if (!this.data) this.data = { xp: 0, credits: 0, up: {}, ach: {}, best: {}, daily: {}, bossKills: {}, seen: {}, vol: 70 };
+    for (const k of ['up', 'ach', 'best', 'daily', 'bossKills', 'seen']) if (!this.data[k]) this.data[k] = {};
   },
   save() { try { localStorage.setItem('gb_save', JSON.stringify(this.data)); } catch (e) {} },
   rank(id) { return this.data.up[id] || 0; },
@@ -325,6 +325,109 @@ const game = {
     return this.aiInput;
   },
 
+  // ======== the codex ========
+  // The first time you meet something (a brick, a power-up, an enemy, a boss,
+  // an arena's rule, a glitch, a mood of the ball) its codex entry unlocks and
+  // a note says what it is. The menu demo and unrewarded AI runs unlock nothing.
+  meet(kind, id) {
+    if (this.attract || !this.aiEarnsProgress()) return;
+    const key = kind + ':' + id;
+    if (Meta.data.seen[key]) return;
+    const entry = Rules.codexEntry(key);
+    if (!entry) return;
+    Meta.data.seen[key] = true;
+    Meta.save();
+    if (key === 'arena:standard') return;        // the plain court needs no explaining
+    toast('CODEX // ' + entry.name, entry.line);
+  },
+
+  // ======== the guided first sector ========
+  startTutorial() {
+    this.tutor = {
+      t: Rules.tutorNew(), step: null, lastX: null,
+      e: { moved: 0, returns: 0, bricks: 0, bestCombo: 0, falling: 0, powerups: 0, cleared: false },
+    };
+  },
+  endTutorial() {
+    if (!this.tutor) return;
+    this.tutor = null;
+    Meta.data.tutorialDone = true;
+    Meta.save();
+    $('glitchLab').classList.remove('teach');
+    $('btnSkipTut').style.display = 'none';
+  },
+  tickTutorial(rawDt) {
+    const tu = this.tutor;
+    if (tu.lastX !== null) tu.e.moved += Math.abs(this.paddle.x - tu.lastX);
+    tu.lastX = this.paddle.x;
+    tu.e.falling = this.powerups.length;
+    tu.step = Rules.tutorTick(tu.t, tu.e, rawDt);
+    $('glitchLab').classList.toggle('teach', !!tu.step && tu.step.id === 'glitch');
+  },
+  genTutorialLevel() {
+    const cols = CFG.BRICK_COLS, bw = CFG.BRICK_W + CFG.BRICK_GAP;
+    const ox = (CFG.W - cols * bw + CFG.BRICK_GAP) / 2;
+    for (const cell of Rules.tutorialLayout(cols)) {
+      this.bricks.push(new Brick(ox + cell.c * bw, CFG.BRICK_TOP + cell.r * (CFG.BRICK_H + CFG.BRICK_GAP), cell.type));
+    }
+  },
+  renderTutorial() {
+    const step = this.tutor && this.tutor.step;
+    if (!step) return;
+    const k = IS_TOUCH ? 1.4 : 1, w = Math.min(CFG.W - 40, 640), lineH = 20 * k;
+    const text = IS_TOUCH && step.touch ? step.touch : step.text;
+    ctx.save();
+    ctx.font = `${Math.round(15 * k)}px "Share Tech Mono", monospace`;
+    // how many lines it will take, to size the panel
+    let lines = 1, line = '';
+    for (const word of text.split(' ')) {
+      const next = line ? line + ' ' + word : word;
+      if (line && ctx.measureText(next).width > w - 36) { lines++; line = word; } else line = next;
+    }
+    const h = lines * lineH + 34 * k, x = (CFG.W - w) / 2, y = CFG.PADDLE_Y - 96 - h;
+    ctx.fillStyle = 'rgba(3,4,10,.8)'; ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = COL.yellow; ctx.lineWidth = 1.5; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    ctx.fillStyle = COL.yellow; ctx.fillRect(x, y, 4, h);
+    const prog = Rules.tutorProgress(this.tutor.t);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.font = `700 ${Math.round(9 * k)}px Orbitron, monospace`;
+    ctx.fillText(step.filler ? 'TUTORIAL' : `TUTORIAL ${Math.min(prog.total, prog.done + 1)} / ${prog.total}`, x + 18, y + 9 * k);
+    ctx.fillStyle = COL.white; ctx.textAlign = 'center';
+    ctx.font = `${Math.round(15 * k)}px "Share Tech Mono", monospace`;
+    wrapText(ctx, text, CFG.W / 2, y + 24 * k, w - 36, lineH);
+    ctx.restore();
+  },
+
+  // the name of a power-up and what it does, shown for a moment when you catch one
+  renderPickup() {
+    const p = this.pickup;
+    if (!p) return;
+    const d = POWERUPS[p.kind], k = IS_TOUCH ? 1.4 : 1;
+    const fade = Math.min(1, p.t / 0.35, (p.life - p.t) / 0.12);
+    const rise = (1 - Math.min(1, (p.life - p.t) / 0.18)) * 10;
+    const y = CFG.PADDLE_Y - (this.tutor && this.tutor.step ? 250 : 150) + rise;
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, fade);
+    ctx.font = `${Math.round(13 * k)}px "Share Tech Mono", monospace`;
+    const maxDesc = CFG.W - 60 - 46 * k - 28;
+    const dw = Math.min(maxDesc, ctx.measureText(d.desc).width);
+    const descLines = Math.ceil(ctx.measureText(d.desc).width / maxDesc);
+    ctx.font = `900 ${Math.round(20 * k)}px Orbitron, monospace`;
+    const w = Math.max(ctx.measureText(d.name).width, dw) + 46 * k + 28, x = (CFG.W - w) / 2;
+    ctx.fillStyle = 'rgba(3,4,10,.78)'; ctx.fillRect(x, y - 24 * k, w, (46 + 16 * descLines) * k);
+    ctx.fillStyle = d.color; ctx.fillRect(x, y - 24 * k, w, 2);
+    drawPowerIcon(ctx, p.kind, x + 14 + 17 * k, y + 6 * k, 34 * k, d.color);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    ctx.shadowColor = d.color; ctx.shadowBlur = 12;
+    ctx.fillStyle = d.color;
+    ctx.fillText(d.name, x + 28 + 34 * k, y + 2 * k);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = COL.white;
+    ctx.font = `${Math.round(13 * k)}px "Share Tech Mono", monospace`;
+    wrapText(ctx, d.desc, x + 28 + 34 * k, y + 21 * k, maxDesc, 16 * k);
+    ctx.restore();
+  },
+
   // ======== run lifecycle ========
   get sentient() { return Meta.data.sentience !== false; },
   // the arena's one rule (see ARENA_RULES in js/rules.js)
@@ -361,6 +464,13 @@ const game = {
     this.stats = { bricks: 0, bosses: 0, powerups: 0, timeStart: performance.now() };
     this.runCoins = 0;
     this.level = 1;
+    // a first run in an ordinary mode starts with the guided sector
+    this.tutor = null;
+    $('btnSkipTut').style.display = 'none';
+    if (!Meta.data.tutorialDone && !this.autoplay && !Cabinet.startMode && ['classic', 'endless', 'corrupt', 'hardcore', 'time'].includes(mode)) {
+      this.startTutorial();
+      $('btnSkipTut').style.display = '';
+    }
     this.startLevel();
   },
 
@@ -381,6 +491,8 @@ const game = {
     this.ballsPrev = 0;
     this.ghost = null;
     this.mournNext = false;
+    this.pickup = null;
+    if (this.tutor && lv > 1) this.endTutorial();
     this.countdown = null;
     if (!this.attract) {
       this.countdown = { i: 0, t: 0 };
@@ -407,11 +519,14 @@ const game = {
       if (this.boss instanceof TheEye) { FX.setRgb(1); FX.tear(0.8); FX.flash(COL.violet, 0.25); }
       $('bossBar').style.display = 'block';
       $('bossName').textContent = this.boss.name;
+      this.meet('boss', this.boss.name);
     } else {
       $('bossBar').style.display = 'none';
-      if (this.mode === 'puzzle') this.genPuzzleLevel(lv);
+      if (this.tutor) { this.genTutorialLevel(); this.nextEventT = 9999; }   // no glitch events during the lesson
+      else if (this.mode === 'puzzle') this.genPuzzleLevel(lv);
       else this.genLevel(lv);
     }
+    this.meet('arena', this.arena.rule);
     if (this.mode === 'puzzle') this.ballsLeft = 3 + Math.floor(lv / 3);
     this.hazards = [];
     if (this.arena.hazard && lv > 1) this.hazards.push(new HAZARDS[this.arena.hazard]());
@@ -550,6 +665,7 @@ const game = {
         if (b.mournPending && this.sentient) {
           b.mournPending = false;
           b.mourn = 3.5;
+          this.meet('mood', 'mourning');
           b.setSpeed(b.speed * 0.78);
           FX.text(b.x, b.y - 24, '...', '#9aa7c7', 14);
         }
@@ -647,6 +763,7 @@ const game = {
 
   damageBrick(b, dmg, src = {}) {
     if (!b.alive) return false;
+    this.meet('brick', b.type);
     if (b.type === 'barrier') { AudioSys.sfx('wall'); return false; }
     if (b.type === 'shield' && this.generatorsAlive()) {
       FX.text(b.cxm, b.cym, 'SHIELDED', COL.violet, 10);
@@ -688,6 +805,7 @@ const game = {
     if (this.combo >= 15) this.unlock('combo15');
     if (this.combo >= 30) this.unlock('combo30');
     this.stats.bricks++;
+    if (this.tutor) { this.tutor.e.bricks++; this.tutor.e.bestCombo = Math.max(this.tutor.e.bestCombo, this.combo); }
     this.unlock('first');
     this.addScore(def.score, b.cxm, b.cym);
     this.addGlitch(1.1);
@@ -732,7 +850,10 @@ const game = {
       luck = 0.6;
       pool = ['fire', 'laser', 'boom', 'emp'];
     }
-    if (!src.noDrop && chance(luck)) {
+    if (this.tutor) {
+      // the lesson has one certain drop, so there is something to catch
+      if (this.tutor.e.bricks === Rules.TUTORIAL.dropAfter) this.powerups.push(new PowerUp(b.cxm, b.cym, Rules.TUTORIAL.drop));
+    } else if (!src.noDrop && chance(luck)) {
       const kind = pool[Math.floor(Math.random() * pool.length)];
       this.powerups.push(new PowerUp(b.cxm, b.cym, kind));
     }
@@ -821,6 +942,7 @@ const game = {
       ? new Turret(chance(0.5) ? 30 : CFG.W - 30, rand(200, 320))
       : new K(rand(100, CFG.W - 100), rand(60, 160));
     this.enemies.push(e);
+    this.meet('enemy', e.kind);
     FX.spawn(e.x, e.y, COL.red, 12);
   },
 
@@ -830,7 +952,11 @@ const game = {
     this.restorePaddle(true);       // MEMORY LEAK: a power-up puts the paddle back to full length
     AudioSys.sfx('powerup');
     const d = POWERUPS[kind];
-    FX.text(x, y - 12, d.name, d.color, 13);
+    if (kind !== 'random') {        // the randomizer names what it turned into
+      this.meet('power', kind);
+      if (!this.attract) this.pickup = { kind, t: 2.4, life: 2.4 };
+      if (this.tutor) this.tutor.e.powerups++;
+    } else this.meet('power', 'random');
     FX.spawn(x, y, d.color, 12, { spd: 140 });
     const liveBalls = this.balls.filter(b => !b.dead);
     const src = liveBalls[0] || new Ball(this.paddle.x, this.paddle.y - 20, -Math.PI / 2);
@@ -915,6 +1041,7 @@ const game = {
   triggerEvent() {
     const ev = choice(EVENTS);
     this.activeEvent = ev;
+    this.meet('event', ev.id);
     AudioSys.setEvent(ev.id);
     this.eventT = Math.min(ev.dur, EVENT_MAX_DUR);
     banner(ev.name);
@@ -987,6 +1114,7 @@ const game = {
 
   levelCleared() {
     if (this.attract) { this.level++; this.startLevel(); showScreen('scrMenu'); return; }
+    if (this.tutor) { this.tutor.e.cleared = true; this.endTutorial(); }
     this.state = 'clear';
     this.clearProtectiveTarget();
     AudioSys.setEvent(null);
@@ -1068,6 +1196,7 @@ const game = {
 
   endRun(won) {
     this.state = 'over';
+    this.endTutorial();
     this.clearProtectiveTarget();
     AudioSys.stopMusic();
     const secs = (performance.now() - this.stats.timeStart) / 1000;
@@ -1188,6 +1317,8 @@ const game = {
     } else {
       this.paddle.update(dt, input);
     }
+    if (this.pickup && (this.pickup.t -= rawDt) <= 0) this.pickup = null;
+    if (this.tutor) this.tickTutorial(rawDt);
 
     // 3-2-1-GO: only the paddle moves; everything else waits for the launch
     if (this.countdown) {
@@ -1396,6 +1527,7 @@ const game = {
     ball.vy = Math.sin(angle) * ball.speed;
     ball.y = p.y - p.h / 2 - ball.r - 1;
     this.combo = 0;
+    if (this.tutor) this.tutor.e.returns++;
     if (this.rule === 'leak') this.leakReturns = (this.leakReturns || 0) + 1;
     p.glow = 1;
     AudioSys.sfx('paddle', (rel + 1) / 2);
@@ -1434,6 +1566,7 @@ const game = {
     }
     if (changed) {
       FX.text(CFG.W / 2, this.paddle.y - 58, 'RETALIATION — TARGET LOCKED', '#ff8a3d', 13);
+      this.meet('mood', 'protective');
       AudioSys.sfx('click');
     }
   },
@@ -1481,6 +1614,7 @@ const game = {
     if (mood !== ball.mood && mood && !this.attract) {
       const say = { bored: ['BORED...', '#8d97ad'], grudge: ['GRUDGE', '#ff8fb8'], curious: ['?', '#eef7ff'] }[mood];
       FX.text(ball.x, ball.y - 26, say[0], say[1], 12);
+      this.meet('mood', mood);
     }
     ball.mood = mood;
     if (mood !== 'protective') ball.protecting = null;
@@ -1536,6 +1670,7 @@ const game = {
       ball.rampage = 0;
       ball.setSpeed(ball.speed * 1.08);
       FX.text(ball.x, ball.y + 26, 'RAMPAGE!', '#ffd166', 15);
+      this.meet('mood', 'rampage');
       AudioSys.sfx('event');
       return;
     }
@@ -1564,7 +1699,10 @@ const game = {
   siblingRivalry() {
     const n = this.balls.length, prev = this.ballsPrev;
     this.ballsPrev = n;
-    if (n > 1 && prev <= 1) for (const b of this.balls) b.breaks = 0;   // a fresh multi-ball: everyone starts level
+    if (n > 1 && prev <= 1) {
+      for (const b of this.balls) b.breaks = 0;   // a fresh multi-ball: everyone starts level
+      if (this.sentient) this.meet('mood', 'rivalry');
+    }
     if (n === 1 && prev > 1 && this.sentient && !this.attract) {
       const last = this.balls[0];
       if (last.breaks > 0) {
@@ -1602,6 +1740,7 @@ const game = {
     ball.setSpeed(ball.speed);
     banner('THE BALL REFUSED TO FALL');
     FX.text(ball.x, p.y - 30, 'LOYAL', COL.green, 14);
+    this.meet('mood', 'loyal');
     FX.spawn(ball.x, p.y, COL.green, 14, { spd: 160, dir: -Math.PI / 2, spread: 1.4 });
     AudioSys.sfx('event');
   },
@@ -1633,6 +1772,7 @@ const game = {
           ball.showoff = true;
           ball.setSpeed(ball.speed * 1.06);
           FX.text(ball.x, ball.y - 24, 'SHOW-OFF', '#ff58d9', 13);
+          this.meet('mood', 'showoff');
         }
         const base = BRICKS[b.type]?.score || 0;
         if (ball.rampaging) { ball.rampage++; this.addScore(base); }                     // RAMPAGE: double
@@ -1735,6 +1875,8 @@ const game = {
       ctx.restore();
     }
     FX.render(ctx);
+    this.renderPickup();
+    this.renderTutorial();
     if (this.countdown) this.renderCountdown();
     FX.composite(mainCtx, scene);
     this.renderHud();
@@ -1862,7 +2004,7 @@ const game = {
     } else hudHtml(ab, '');
     // powerup tags
     const tags = [];
-    const push = (kind, t) => { if (t > 0) tags.push(`<span class="puTag" style="color:${POWERUPS[kind].color};border-color:${POWERUPS[kind].color}">${POWERUPS[kind].tag} ${Math.ceil(t)}</span>`); };
+    const push = (kind, t) => { if (t > 0) tags.push(`<span class="puTag" title="${POWERUPS[kind].name}" style="color:${POWERUPS[kind].color};border-color:${POWERUPS[kind].color}"><img src="${powerIconUrl(kind)}" alt="${POWERUPS[kind].name}">${Math.ceil(t)}</span>`); };
     push('mult', this.timers.mult); push('slow', this.timers.slow); push('warp', this.timers.warp);
     push('freeze', this.timers.freezeP); push('shield', this.timers.shield);
     if (this.paddle) { push('laser', this.paddle.laserT); push('magnet', this.paddle.magnetT); push('wide', this.paddle.wideT); }
@@ -1967,6 +2109,102 @@ function buildShop() {
   $('shopHint').textContent = affordable ? `${affordable} YOU CAN AFFORD` : 'PLAY RUNS TO EARN CREDITS';
 }
 
+// ---------------- the codex ----------------
+// Controls, then one tab per kind of thing in the game. An entry shows its
+// picture, name and what it does once you have met it; before that it is a "???".
+let codexTab = 'controls';
+const ENEMY_CLASSES = { drone: DroneEnemy, virus: VirusOrb, repair: RepairBot, turret: Turret };
+const THUMB_GAME = { mods: {}, time: 0, generatorsAlive: () => false };
+
+function codexThumb(cv, e, known) {
+  const c = cv.getContext('2d'), w = cv.width, h = cv.height;
+  c.clearRect(0, 0, w, h);
+  if (!known) {
+    c.fillStyle = 'rgba(122,154,184,.35)'; c.font = '900 22px Orbitron, monospace'; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillText('?', w / 2, h / 2 + 1);
+    return;
+  }
+  try {
+    if (e.kind === 'brick') {
+      const b = new Brick((w - CFG.BRICK_W) / 2, (h - CFG.BRICK_H) / 2, e.id);
+      b.visT = -0.1;                                   // the invisible brick, caught while it shows
+      b.render(c, THUMB_GAME);
+    } else if (e.kind === 'power') {
+      drawPowerIcon(c, e.id, w / 2, h / 2, 32);
+    } else if (e.kind === 'enemy') {
+      const en = new ENEMY_CLASSES[e.id](w / 2, h / 2);
+      c.save(); c.translate(w / 2, h / 2); c.scale(1.25, 1.25); c.translate(-w / 2, -h / 2); en.render(c); c.restore();
+    } else if (e.kind === 'boss') {
+      const K = [...BOSS_LIST, TheEye].find((B) => new B(1).name === e.id);
+      const boss = new K(1);
+      // sized so each one's widest part fits the frame
+      const k = e.id === 'MEMORY GUARDIAN' ? 0.24 : e.id === 'THE EYE' ? 0.3 : 0.4;
+      boss.x = CFG.W / 2;
+      if (boss.heads) boss.heads.forEach((head, i) => { head.x = CFG.W / 2 + (i - 1) * 62; head.y = boss.y; });   // the hydra's heads, drawn together
+      c.save(); c.translate(w / 2, h / 2); c.scale(k, k); c.translate(-CFG.W / 2, -boss.y); boss.render(c); c.restore();
+    } else if (e.kind === 'arena') {
+      c.drawImage(Backdrop.thumb(ARENAS.find((a) => a.name === e.id), w, h), 0, 0);
+    } else if (e.kind === 'event') {
+      c.strokeStyle = c.fillStyle = COL.magenta; c.lineWidth = 2; c.lineJoin = 'round';
+      c.beginPath(); c.moveTo(w / 2, 8); c.lineTo(w / 2 + 17, h - 9); c.lineTo(w / 2 - 17, h - 9); c.closePath(); c.stroke();
+      c.font = '900 16px Orbitron, monospace'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.fillText('!', w / 2, h / 2 + 5);
+    } else if (e.kind === 'mood') {
+      const col = MOOD_INFO[e.id].color;
+      for (let i = 5; i > 0; i--) { c.globalAlpha = 0.08 * (6 - i); c.fillStyle = col; c.fillRect(w / 2 - 4 - i * 5, h / 2 - 4 + i * 2, 9 - i, 9 - i); }
+      c.globalAlpha = 1; c.shadowColor = col; c.shadowBlur = 12; c.fillStyle = col;
+      c.beginPath(); c.arc(w / 2 + 6, h / 2 - 2, 8, 0, 7); c.fill();
+      c.shadowBlur = 0; c.fillStyle = '#fff'; c.beginPath(); c.arc(w / 2 + 4, h / 2 - 4, 3, 0, 7); c.fill();
+    }
+  } catch (err) { /* a thumbnail that can't be drawn is left blank */ }
+}
+
+function buildCodex() {
+  const sections = Rules.codexSections(), count = Rules.codexCount(Meta.data.seen);
+  $('cxCount').innerHTML = `DISCOVERED <b>${count.seen}</b> / ${count.total}`;
+  const tabs = $('cxTabs');
+  tabs.innerHTML = '';
+  const tabDefs = [{ id: 'controls', name: 'CONTROLS' }, ...sections];
+  for (const t of tabDefs) {
+    const b = document.createElement('button');
+    b.className = 'small' + (t.id === codexTab ? ' ghostc' : '');
+    const n = count.sections[t.id];
+    b.textContent = t.name + (n ? ` ${n.seen}/${n.total}` : '');
+    b.onclick = () => { AudioSys.sfx('click'); codexTab = t.id; buildCodex(); };
+    tabs.appendChild(b);
+  }
+  const list = $('cxList');
+  list.innerHTML = '';
+  list.scrollTop = 0;
+  if (codexTab === 'controls') {
+    list.className = 'cxlist controls';
+    const rows = IS_TOUCH
+      ? [['DRAG', 'move the paddle'], ['TAP', 'launch the ball, fire the laser paddle'], ['ROUND BUTTON', 'your special ability, once you own one'],
+         ['II', 'pause'], ['AI BADGE', 'take the paddle back from the AI']]
+      : [['◀ ▶ / A D / MOUSE', 'move the paddle'], ['SPACE / CLICK', 'launch the ball, fire the laser paddle'], ['X', 'special ability (EMP or laser array), once you own one'],
+         ['T', 'hand the paddle to the AI, or take it back'], ['P / ESC', 'pause'], ['R', 'restart the run']];
+    list.innerHTML = '<div class="keys">' + rows.map(([k, v]) => `<b>${k}</b><span>${v}</span>`).join('') + '</div>' +
+      '<p>Break every brick to clear a sector. Every fifth sector is a boss. The <span style="color:var(--pink)">GLITCH</span> meter fills as you break bricks: it multiplies your score and makes the machine fight back harder.</p>' +
+      '<p>Everything else is in the other tabs, and unlocks the first time you meet it in a run.</p>';
+    return;
+  }
+  list.className = 'cxlist';
+  const section = sections.find((s) => s.id === codexTab);
+  for (const e of section.entries) {
+    const known = !!Meta.data.seen[e.key];
+    const row = document.createElement('div');
+    row.className = 'cx' + (known ? '' : ' locked');
+    const cv = document.createElement('canvas');
+    cv.width = 78; cv.height = 46;
+    row.appendChild(cv);
+    const text = document.createElement('div');
+    text.innerHTML = known ? `<h3>${e.name}</h3><p>${e.line}</p>` : '<h3>???</h3><p>Not met yet.</p>';
+    row.appendChild(text);
+    list.appendChild(row);
+    codexThumb(cv, e, known);
+  }
+}
+
 function buildAchv() {
   const grid = $('achvGrid');
   grid.innerHTML = '';
@@ -1996,7 +2234,7 @@ $('btnPlay').onclick = () => { AudioSys.init(); AudioSys.sfx('click'); buildMode
 $('btnSettings').onclick = () => { AudioSys.init(); AudioSys.sfx('click'); showScreen('scrSettings'); };
 $('btnShop').onclick = () => { AudioSys.init(); AudioSys.sfx('click'); buildShop(); showScreen('scrShop'); };
 $('btnAchv').onclick = () => { AudioSys.init(); AudioSys.sfx('click'); buildAchv(); showScreen('scrAchv'); };
-$('btnHelp').onclick = () => { AudioSys.init(); AudioSys.sfx('click'); showScreen('scrHelp'); };
+$('btnHelp').onclick = () => { AudioSys.init(); AudioSys.sfx('click'); buildCodex(); showScreen('scrHelp'); };
 $('btnMute').onclick = () => {
   AudioSys.init(); AudioSys.sfx('click');
   const cur = +$('vol').value;
@@ -2081,6 +2319,13 @@ $('btnWipe').onclick = () => {
 };
 document.querySelectorAll('[data-back]').forEach(b => b.onclick = () => { AudioSys.sfx('click'); goMenu(); });
 $('btnResume').onclick = () => game.togglePause();
+$('btnSkipTut').onclick = () => { AudioSys.sfx('click'); game.endTutorial(); game.togglePause(); };
+$('btnTutorial').onclick = () => {
+  AudioSys.init(); AudioSys.sfx('click');
+  Meta.data.tutorialDone = false;
+  Meta.save();
+  toast('TUTORIAL', 'Your next Classic run starts with the guided sector.');
+};
 $('btnRestart').onclick = () => game.startRun(game.mode);
 $('btnQuit').onclick = () => goMenu();
 $('btnNext').onclick = () => game.nextLevel();

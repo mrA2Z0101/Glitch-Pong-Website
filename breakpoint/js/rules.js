@@ -174,8 +174,102 @@ const Rules = (() => {
     return x;
   }
 
+  // ---------------- codex ----------------
+  // Everything the game can show you, in the order the codex lists it. An entry
+  // unlocks the first time you meet the thing: `key` is what is saved.
+  function codexSections() {
+    const from = (kind, table, name) => Object.keys(table).map((id) => ({
+      key: kind + ':' + id, kind, id, name: name ? name(id) : table[id].name, line: table[id].line || table[id],
+    }));
+    return [
+      { id: 'brick', name: 'BRICKS', entries: from('brick', BRICK_INFO) },
+      { id: 'power', name: 'POWER-UPS', entries: POWERUP_KEYS.map((id) => ({
+        key: 'power:' + id, kind: 'power', id, name: POWERUPS[id].name,
+        line: POWERUPS[id].desc + (POWERUPS[id].dur ? ' Lasts ' + POWERUPS[id].dur + ' seconds.' : ''),
+      })) },
+      { id: 'enemy', name: 'ENEMIES', entries: from('enemy', ENEMY_INFO) },
+      { id: 'boss', name: 'BOSSES', entries: from('boss', BOSS_INFO, (id) => id) },
+      { id: 'arena', name: 'ARENAS', entries: ARENAS.map((a) => ({
+        key: 'arena:' + a.rule, kind: 'arena', id: a.name, name: a.name,
+        line: ARENA_RULES[a.rule].name + '. ' + ARENA_RULES[a.rule].line,
+      })) },
+      { id: 'event', name: 'GLITCHES', entries: EVENTS.map((e) => ({ key: 'event:' + e.id, kind: 'event', id: e.id, name: e.name, line: EVENT_INFO[e.id] })) },
+      { id: 'mood', name: 'THE BALL', entries: from('mood', MOOD_INFO) },
+    ];
+  }
+  function codexEntry(key) {
+    for (const s of codexSections()) for (const e of s.entries) if (e.key === key) return e;
+    return null;
+  }
+  // How many entries a save has unlocked, overall and in each section.
+  function codexCount(seen) {
+    const out = { seen: 0, total: 0, sections: {} };
+    for (const s of codexSections()) {
+      const got = s.entries.filter((e) => seen && seen[e.key]).length;
+      out.sections[s.id] = { seen: got, total: s.entries.length };
+      out.seen += got; out.total += s.entries.length;
+    }
+    return out;
+  }
+
+  // ---------------- the guided first sector ----------------
+  // A new player's first sector is laid out by hand and comes with a coach: one
+  // line at a time, each staying until the player has done the thing it
+  // describes (or has had time to read it). `e` is what has happened so far:
+  //   moved (pixels the paddle has travelled), returns, bricks, bestCombo,
+  //   falling (capsules in the air), powerups (caught), cleared
+  const TUTOR_STEPS = [
+    { id: 'move',   text: 'Move the paddle with the mouse or the arrow keys.', touch: 'Drag anywhere to move the paddle.',
+      done: (e) => e.moved >= 160 },
+    { id: 'aim',    text: 'Where the ball lands on the paddle sets its angle. The edges send it wide. The middle sends it straight up.',
+      done: (e, shown) => e.returns >= 2 && shown >= 5 },
+    { id: 'combo',  text: 'Bricks broken between two touches of the paddle chain into a COMBO. Each brick in the chain is worth more.',
+      done: (e, shown) => (e.bestCombo >= 3 || e.bricks >= 8) && shown >= 5 },
+    { id: 'power',  text: 'A power-up is falling. Catch it with the paddle.',
+      when: (e) => e.falling > 0, done: (e, shown) => e.powerups >= 1 || (e.falling === 0 && shown >= 1) },
+    { id: 'glitch', text: 'The GLITCH meter at the bottom fills as you break bricks. 25% scores x1.5, 50% x2, 75% x3. The fuller it is, the harder the machine fights back.',
+      when: (e) => e.bricks >= 5, done: (e, shown) => shown >= 9 },
+    { id: 'ball',   text: 'The ball is alive. Go five returns without breaking a brick and it gets BORED and steers itself at one. The codex lists its other moods as you meet them.',
+      when: (e) => e.bricks >= 10, done: (e, shown) => shown >= 9 },
+    // shown only while nothing above has anything to say
+    { id: 'clear',  text: 'Break every brick to clear the sector.', filler: true, done: (e) => !!e.cleared },
+  ];
+  function tutorNew() { return { done: {}, at: null, shown: 0 }; }
+  // Moves the coach on by `dt` seconds and returns the step to show, or null.
+  function tutorTick(t, e, dt) {
+    const eligible = (s) => !t.done[s.id] && (!s.when || s.when(e));
+    let cur = t.at ? TUTOR_STEPS.find((s) => s.id === t.at) : null;
+    if (cur) {
+      t.shown += dt;
+      if (cur.done(e, t.shown)) { t.done[cur.id] = true; t.at = null; cur = null; }
+      else if (cur.filler && TUTOR_STEPS.some((s) => !s.filler && eligible(s))) { t.at = null; cur = null; }
+    }
+    if (!cur) {
+      cur = TUTOR_STEPS.find((s) => !s.filler && eligible(s)) || TUTOR_STEPS.find(eligible) || null;
+      if (cur) { t.at = cur.id; t.shown = 0; }
+    }
+    return cur;
+  }
+  function tutorProgress(t) {
+    const real = TUTOR_STEPS.filter((s) => !s.filler);
+    return { done: real.filter((s) => t.done[s.id]).length, total: real.length };
+  }
+  // The first sector's layout: three plain rows with two heavy bricks in the
+  // middle. Returns [{ r, c, type }].
+  function tutorialLayout(cols) {
+    const cells = [], mid = Math.floor(cols / 2);
+    for (let r = 0; r < 3; r++) for (let c = 0; c < cols; c++) {
+      if (r === 0 && (c === 0 || c === cols - 1)) continue;      // open corners: an easy way behind the wall
+      cells.push({ r, c, type: r === 1 && (c === mid - 1 || c === mid) ? 'heavy' : 'normal' });
+    }
+    return cells;
+  }
+  const TUTORIAL = { dropAfter: 4, drop: 'wide' };                // the fourth brick always drops a wide paddle
+
   return {
     levelFromXp,
+    codexSections, codexEntry, codexCount,
+    TUTOR_STEPS, TUTORIAL, tutorNew, tutorTick, tutorProgress, tutorialLayout,
     ARENA_RULES, ARENA_TUNING, arenaRule, leakFactor, pulseTick, pulseKick,
     defenderStep, defenderBlocks, descendTick, descendRoom, driftAccel, wrapX,
     UPGRADE_TREE, upgradeCost, upgradeParent, upgradeState, buyUpgrade,
