@@ -1,6 +1,6 @@
 # Arenas
 
-Glitch Pong has twelve arenas. Three only change how the court looks and one (Black-Hole Nexus) bends the ball's path. The other eight are covered here: four that change the walls and four that change the ball or the paddles. This page says what each one does, where the numbers are, and how to add another.
+Glitch Pong has sixteen arenas. Three only change how the court looks and one (Black-Hole Nexus) bends the ball's path. The other twelve are covered here: four that change the walls, four that change the ball or the paddles, and four that put things on the court. This page says what each one does, where the numbers are, and how to add another.
 
 ## Maps that change the walls
 
@@ -20,12 +20,23 @@ Glitch Pong has twelve arenas. Three only change how the court looks and one (Bl
 | ROOFTOP | `rooftop` | Wind gusts carry the ball along the court, towards one player or the other. The rain leans the way the wind is blowing. | Gusts get stronger with Heat. At Critical Heat lightning strikes every few seconds, and each strike turns the wind round at full strength. |
 | BEAT DROP | `beat` | The court pulses to a beat. A return that lands within 5 frames of a beat comes off 14% faster. | Heat raises the tempo from 104 to 160 beats a minute, so more returns land on the beat. |
 
+## Maps that put things on the court
+
+| Arena | id | What changes | What Heat does |
+|---|---|---|---|
+| BREAKPOINT CROSSOVER | `bricks` | A column of bricks runs down the centre line. A brick breaks when the ball hits it, and the ball bounces back. A broken brick can leave a power-up in the gap. | Broken bricks regrow sooner: after 10 seconds at no Heat, 3 at full Heat. |
+| TILT | `tilt` | Lit pinball bumpers kick the ball away 12% faster than it arrived. | More bumpers light: 2 at the start, then the centre one at 25% Heat, two more at 45% and the last two at 65%. |
+| QUANTUM SHIFT | `portal` | Two linked portals on the centre line. The ball goes into one and comes out of the other with the same speed and direction. | From 50% Heat the portals circle away from the centre line, in opposite directions. |
+| LAST TRAIN | `train` | A train runs down the centre line every so often and blocks the court while it passes. Signals flash for a second and a half first. | Trains come more often (every 10 seconds at no Heat, every 4 at full). From 50% Heat they are expresses: nearly twice as fast, shorter, with a one-second warning. |
+
+On all four, a ball that is sent back the way it came turns neutral, the same as with a glitch wall or a teleport. It is worth 1 point and can never be an own goal.
+
 ## Where things are
 
 | File | What's in it |
 |---|---|
 | `glitchpong-arenas.js` | The rules: where the walls and goal mouths are, what the ball does when it meets them, and how they change over a rally. No DOM and no canvas, so the tests run it under Node. |
-| `glitchpong-site.js` | The arena menu entries (`ARENA_REGISTRY`), the calls into the rules (search for `arenaRules`), all the drawing (the `COURT MAPS` and `BALL MAPS` sections), and the synthesised sound (`beatStep`, `beatHit`, `thunder`). |
+| `glitchpong-site.js` | The arena menu entries (`ARENA_REGISTRY`), the calls into the rules (search for `arenaRules`), all the drawing (the `COURT MAPS`, `BALL MAPS` and `OBJECT MAPS` sections), and the synthesised sound (`beatStep`, `beatHit`, `thunder`, `mapSfx`). |
 | `tests/arenas.test.mjs` | Plays each rule on a desktop-sized and a phone-sized court. |
 
 Every number that shapes a map is in `TUNING` at the top of `glitchpong-arenas.js`, with a comment saying what it is.
@@ -95,23 +106,61 @@ Every number that shapes a map is in `TUNING` at the top of `glitchpong-arenas.j
 - The boost stacks with a Power Strike (which is 22%).
 - A player cannot choose when the ball reaches them, so this is something to read rather than something to time: watch whether the ball will arrive on a pulse, and expect it back faster if it does.
 
+### BREAKPOINT CROSSOVER
+
+- The column has an odd number of bricks, each about 78 pixels tall: nine on a 720-pixel-tall screen, five on a phone.
+- Every point starts with the wall rebuilt except the middle brick, because the serve starts inside the column.
+- A ball that hits the side of a brick comes back neutral. A ball that clips the top or bottom of a brick while passing through a gap breaks it and is only turned up or down.
+- A broken brick has a 40% chance of leaving a power-up in its gap (75% with Custom Match power-ups on "frequent", none with them off). Only one power-up is on the court at a time, and on this map they come from bricks only.
+- A brick shows as a dashed outline for 36 frames before it is solid again, and it waits if the ball is in the gap.
+
+### TILT
+
+- There are seven bumper positions. A dark one is drawn as a dashed ring and the ball passes straight over it.
+- Along the court the ball always leaves a bumper faster, up to a speed of 18, and never slower. Which way it leaves depends on where it hit: head on it comes straight back (and turns neutral), a glancing hit only deflects it.
+- A bumper rests for 10 frames after a kick, and never lights up while the ball is on top of it.
+- The layout is the same seen from either end, and bumpers light in matching pairs.
+
+### QUANTUM SHIFT
+
+- The ball comes out at the same spot on the second portal as it went into the first, so it carries on across that portal and out the far side.
+- A ball that has just come out of a portal can't go back in until it has left it.
+- While both portals are on the centre line a trip only moves the ball up or down. Once they roam, a trip can also carry the ball towards a paddle or away from one.
+- The portals move in opposite directions, so the court still looks the same from both ends. They go home when a point is scored.
+- Decoy balls go through portals too.
+
+### LAST TRAIN
+
+- The first signal comes 5 seconds into a rally. Trains then alternate between coming from the top and from the bottom.
+- A departures readout counts down to the next train. Chevrons on the track show which way it will come, amber for a local and red for an express.
+- A local takes about 3 seconds to pass and an express about a second and a half.
+- A ball that hits the side of the train bounces back neutral. A ball that is on the track when the train arrives is thrown clear on the side it was heading for, with a push in the train's direction.
+- The track is cleared when a point is scored and when the Eye arrives, and the schedule does not run between points.
+- Train length and speed are scaled to the court, so a train is on screen for the same time on a phone.
+
+### All four object maps
+
+- Power-ups and glitch walls never appear on top of the bricks, a bumper, a portal or the track.
+- Decoy balls vanish when they touch a brick, a lit bumper or the train.
+- The bricks, bumpers, portals and train are not drawn during the Eye's fight, which takes place in the middle of the court.
+
 ## Things that hold on every arena
 
 - **Custom Match** rules apply as usual.
-- **Online matches don't use these rules.** The online referee (`server/authoritative-pong.js`, or the host's browser in a peer-to-peer game) runs plain Pong for everyone, so one of these eight maps selected before an online match shows its backdrop only: no posts, seam or moving walls, no gravity, ice, wind or beat boost. See [multiplayer.md](multiplayer.md).
+- **Online matches don't use these rules.** The online referee (`server/authoritative-pong.js`, or the host's browser in a peer-to-peer game) runs plain Pong for everyone, so one of these twelve maps selected before an online match shows its backdrop only: no posts, seam or moving walls, no gravity, ice, wind or beat boost, and no bricks, bumpers, portals or train. See [multiplayer.md](multiplayer.md).
 - **The Eye.** The boss fight is the same on every arena.
-- **Arena wins** are recorded per arena in the player's stats, under the arena's `id`. The WORLD TOUR achievement asks for a win in all twelve; `tests/arenas.test.mjs` fails if its goal and the number of arenas differ.
+- **Arena wins** are recorded per arena in the player's stats, under the arena's `id`. The WORLD TOUR achievement asks for a win in all sixteen; `tests/arenas.test.mjs` fails if its goal and the number of arenas differ.
 
 ## Adding an arena
 
 1. Add an entry to `ARENA_REGISTRY` in `glitchpong-site.js`. Never rename an `id` after release: saves store arena wins under it.
 2. If it only changes the look, give it `init`, `cleanup` and a backdrop, the way The Construct does.
-3. If it changes the rules, add its id to `IDS` in `glitchpong-arenas.js`, put its state in `createState()`, and teach the functions the game already calls (`update`, `walls`, `topAt`, `bottomAt`, `band`, `paddleBand`, `roundReset`) what to do for it. Set `courtRules: true` on the registry entry. A rule that needs a new hook (the way `fall`, `drift`, `slide` and `returnBoost` do) also needs one call from the game loop in `glitchpong-site.js`.
+3. If it changes the rules, add its id to `IDS` in `glitchpong-arenas.js`, put its state in `createState()`, and teach the functions the game already calls (`update`, `walls`, `topAt`, `bottomAt`, `band`, `paddleBand`, `roundReset`) what to do for it. Set `courtRules: true` on the registry entry. A rule that needs a new hook (the way `fall`, `drift`, `slide` and `returnBoost` do) also needs one call from the game loop in `glitchpong-site.js`. Something solid on the court goes through `objects`, with `obstacles` and `blocked` saying where it is.
 4. Draw it: a backdrop in `drawCourtMapBackdrop`, and anything that shows the rule in `drawCourtMapRules` (drawn with the court) or `drawCourtMapEdges` (drawn with the paddles; use this for anything on the screen edge, because the camera zooms in as Heat rises). Something that has to go over the ball, like ROOFTOP's rain, goes in `drawArenaOverlay`.
 5. Raise the WORLD TOUR goal, and run `node --test tests/*.mjs`.
 
 ## Not tested
 
-- Play by people. An AI-against-AI match was run on each map in a headless browser to check that it plays and draws without errors, but nobody has yet judged whether the numbers feel right: mouth size, leak rate, block depth, the strength of gravity and wind, how slippery the ice is, the size of the beat window. `TUNING` is where to change them.
-- Sound. The headless browser has no audio output, so BEAT DROP's music and ROOFTOP's thunder have not been heard, only run without errors.
+- Play by people. An AI-against-AI match was run on each map in a headless browser to check that it plays and draws without errors, but nobody has yet judged whether the numbers feel right: mouth size, leak rate, block depth, the strength of gravity and wind, how slippery the ice is, the size of the beat window, how often bricks regrow and trains run, how hard bumpers kick. `TUNING` is where to change them.
+- Sound. The headless browser has no audio output, so BEAT DROP's music, ROOFTOP's thunder and the object maps' effects (brick, bumper, portal, the train and its bell) have not been heard, only run without errors.
 - A real phone. Phone-sized screens were checked in the same headless browser with touch emulation.

@@ -3,9 +3,10 @@ import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 
-// The rules for the eight maps that change how a rally plays: PENALTY BOX,
-// STACK OVERFLOW, MEMORY LEAK and DEFRAG (the court), and FREEFALL, COOLANT
-// LEAK, ROOFTOP and BEAT DROP (the ball and paddles). The file is a plain
+// The rules for the twelve maps that change how a rally plays: PENALTY BOX,
+// STACK OVERFLOW, MEMORY LEAK and DEFRAG (the court), FREEFALL, COOLANT LEAK,
+// ROOFTOP and BEAT DROP (the ball and paddles), and BREAKPOINT CROSSOVER, TILT,
+// QUANTUM SHIFT and LAST TRAIN (things on the court). The file is a plain
 // script that also exports under Node; the drawing lives in glitchpong-site.js
 // and is not covered here.
 const A = createRequire(import.meta.url)('../glitchpong-arenas.js');
@@ -27,7 +28,7 @@ function seeded(seed) {
 const begin = (id, c = court(), rand = seeded(7)) => { const s = A.createState(); A.start(s, id, c, rand); return s; };
 const frames = (s, c, n, heat, critical = false, live = true, rand = seeded(11)) => { for (let i = 0; i < n; i++) A.update(s, c, heat, critical, live, rand); };
 
-test('only the eight rule maps switch rules on', () => {
+test('only the twelve rule maps switch rules on', () => {
   for (const id of A.IDS) assert.equal(begin(id).id, id);
   for (const id of ['classic', 'matrix', 'construct', 'blackhole', null, undefined, 'nope']) {
     const s = begin(id), c = court();
@@ -42,6 +43,9 @@ test('only the eight rule maps switch rules on', () => {
     assert.equal(A.slide(s, 'left', 100, 108, 0, 0, 580), 108);
     assert.equal(A.returnBoost(s, 'left'), 0);
     assert.equal(A.aimY(s, c, 300, 4, 10), 340);
+    assert.equal(A.objects(s, c, { x: 640, y: 360, vx: 8, vy: 0, px: 600, py: 360 }), null);
+    assert.deepEqual(A.obstacles(s, c), []);
+    assert.equal(A.blocked(s, c, 640, 360, 10), false);
   }
 });
 
@@ -677,16 +681,367 @@ test('BEAT DROP: only an on-beat return gets the extra speed', () => {
   assert.ok(T.beatBoost < 0.22, 'smaller than a Power Strike');
 });
 
+// ── BREAKPOINT CROSSOVER ────────────────────────────────────────────────────
+
+// A ball fired straight along the court from `fromX` at height y.
+const shot = (c, fromX, y, vx, vy = 0) => ({ x: fromX + vx * c.xScale, y: y + vy, vx, vy, px: fromX, py: y, lock: -1 });
+
+test('BREAKPOINT CROSSOVER: an odd column of bricks fills the centre line, with a hole for the serve', () => {
+  for (const c of [court(), phone()]) {
+    const s = begin('bricks', c), list = s.bricks.list, mid = (list.length - 1) / 2;
+    assert.equal(list.length % 2, 1);
+    assert.ok(list.length >= 5);
+    list.forEach((brick, i) => assert.equal(brick.on, i !== mid));
+    // top to bottom with no gaps
+    assert.equal(A.brickBox(s, c, 0).y, 0);
+    assert.ok(Math.abs(A.brickBox(s, c, list.length - 1).y + A.brickBox(s, c, 0).h - c.height) < 1e-9);
+    // the serve starts in the hole and gets out without touching anything
+    const ball = { x: c.width / 2, y: c.height / 2, vx: 6, vy: 3.8, lock: -1 };
+    for (let f = 0; f < 20; f++) {
+      ball.px = ball.x; ball.py = ball.y;
+      ball.x += ball.vx * c.xScale; ball.y += ball.vy;
+      assert.equal(A.objects(s, c, ball), null, `frame ${f}`);
+    }
+    assert.ok(A.brickBox(s, c, mid).h > c.ballR * 3, 'the hole is comfortably taller than the ball');
+  }
+});
+
+test('BREAKPOINT CROSSOVER: a brick breaks when hit, and the ball comes back', () => {
+  const c = court(), s = begin('bricks', c), box = A.brickBox(s, c, 1);
+  const ball = shot(c, box.x - 40, box.y + box.h / 2, 60);            // fast enough to jump the brick in one frame
+  const hit = A.objects(s, c, ball);
+  assert.equal(hit.type, 'brick');
+  assert.equal(hit.index, 1);
+  assert.equal(hit.reversed, true, 'it turned round, so the game makes it neutral');
+  assert.ok(ball.vx < 0);
+  assert.ok(ball.x < box.x - c.ballR, 'left on the side it came from, not the far side');
+  assert.equal(s.bricks.list[1].on, false);
+  assert.equal(s.bricks.list.filter((b) => b.on).length, s.bricks.list.length - 2, 'only that one broke');
+
+  // the next ball through the same spot goes straight through
+  const next = shot(c, box.x - 40, box.y + box.h / 2, 60);
+  assert.equal(A.objects(s, c, next), null);
+  assert.equal(next.vx, 60);
+
+  // from the other side it comes back the other way
+  const other = A.brickBox(s, c, 6), back = shot(c, other.x + other.w + 15, other.y + other.h / 2, -12);
+  assert.equal(A.objects(s, c, back).reversed, true);
+  assert.ok(back.vx > 0);
+});
+
+test('BREAKPOINT CROSSOVER: clipping the edge of a brick from inside a gap only turns the ball up or down', () => {
+  const c = court(), s = begin('bricks', c), mid = (s.bricks.list.length - 1) / 2, below = A.brickBox(s, c, mid + 1);
+  // travelling right through the serve hole, drifting down into the brick underneath
+  const ball = { x: below.x + 6, y: below.y - c.ballR + 2, vx: 3, vy: 4, px: below.x + 3, py: below.y - c.ballR - 2, lock: -1 };
+  const hit = A.objects(s, c, ball);
+  assert.equal(hit.type, 'brick');
+  assert.equal(hit.reversed, false);
+  assert.equal(ball.vx, 3);
+  assert.ok(ball.vy < 0);
+});
+
+test('BREAKPOINT CROSSOVER: bricks regrow, sooner at high Heat, with a warning and never on the ball', () => {
+  const c = court();
+  const regrowTime = (heat) => {
+    const s = begin('bricks', c), far = { x: 100, y: 100 };
+    A.objects(s, c, shot(c, 600, A.brickBox(s, c, 0).h / 2, 60));
+    assert.equal(s.bricks.list[0].on, false);
+    let warned = 0;
+    for (let f = 1; f < 2000; f++) {
+      A.update(s, c, heat, false, true, seeded(1), far);
+      if (s.bricks.list[0].warn > 0) warned++;
+      if (s.bricks.list[0].on) { assert.ok(warned >= T.regrowWarn - 1, 'outlined first'); return f; }
+    }
+    return Infinity;
+  };
+  const cool = regrowTime(0), hot = regrowTime(1);
+  assert.ok(Math.abs(cool - (T.regrow[0] + T.regrowWarn)) <= 2, `about ${T.regrow[0]} frames at no Heat (${cool})`);
+  assert.ok(Math.abs(hot - (T.regrow[1] + T.regrowWarn)) <= 2, `about ${T.regrow[1]} at full Heat (${hot})`);
+
+  // a ball sitting in the gap holds the brick off until it leaves
+  const s = begin('bricks', c), box = A.brickBox(s, c, 0), inGap = { x: box.x + box.w / 2, y: box.y + box.h / 2 };
+  A.objects(s, c, shot(c, 600, box.h / 2, 60));
+  frames(s, c, 1500, 1, false, true, seeded(1));       // (frames() passes no ball)
+  for (let f = 0; f < 1500; f++) A.update(s, c, 1, false, true, seeded(1), inGap);
+  assert.equal(s.bricks.list[0].on, true, 'sanity: with no ball in the way it had already regrown');
+  const s2 = begin('bricks', c);
+  A.objects(s2, c, shot(c, 600, box.h / 2, 60));
+  for (let f = 0; f < 1500; f++) A.update(s2, c, 1, false, true, seeded(1), inGap);
+  assert.equal(s2.bricks.list[0].on, false, 'waits for the ball');
+  A.update(s2, c, 1, false, true, seeded(1), { x: 100, y: 100 });
+  assert.equal(s2.bricks.list[0].on, true, 'and closes as soon as it has gone');
+});
+
+test('BREAKPOINT CROSSOVER: every point starts with the wall rebuilt', () => {
+  const c = court(), s = begin('bricks', c);
+  for (const i of [0, 2, 5, 7]) A.objects(s, c, shot(c, 600, A.brickBox(s, c, i).y + 20, 60));
+  assert.ok(s.bricks.list.filter((b) => b.on).length <= s.bricks.list.length - 5);
+  A.roundReset(s, c);
+  assert.equal(s.bricks.list.filter((b) => b.on).length, s.bricks.list.length - 1);
+});
+
+// ── TILT ────────────────────────────────────────────────────────────────────
+
+test('TILT: more bumpers light as Heat rises, and the table looks the same from both ends', () => {
+  const c = court(), s = begin('tilt', c), far = { x: 60, y: 60 };
+  const litAt = (heat) => { A.update(s, c, heat, false, true, seeded(1), far); return s.tilt.lit.filter(Boolean).length; };
+  let last = 0;
+  for (let heat = 0; heat <= 1.001; heat += 0.05) {
+    const lit = litAt(heat);
+    assert.ok(lit >= last, 'never fewer at higher Heat');
+    last = lit;
+  }
+  assert.equal(litAt(0), 2);
+  assert.equal(litAt(1), T.bumperSlots.length);
+  assert.equal(litAt(0), 2, 'and they go dark again when Heat drops');
+  // every bumper has a twin on the far side of the centre spot
+  const spots = T.bumperSlots.map((unused, i) => A.bumperAt(c, i));
+  spots.forEach((b, i) => {
+    const twin = spots.findIndex((o, k) => T.bumperHeat[k] === T.bumperHeat[i] && Math.abs(o.x - (c.width - b.x)) < 1e-6 && Math.abs(o.y - (c.height - b.y)) < 1e-6);
+    assert.ok(twin >= 0, `bumper ${i} has a twin that lights at the same Heat`);
+  });
+});
+
+test('TILT: a lit bumper kicks the ball away faster; a dark one lets it through', () => {
+  const c = court(), s = begin('tilt', c), b = A.bumperAt(c, 0);
+  A.update(s, c, 0, false, true, seeded(1), { x: 60, y: 60 });
+  assert.equal(s.tilt.lit[0], true);
+
+  // head on: straight back, faster
+  const ball = { x: b.x - b.r - c.ballR + 3, y: b.y, vx: 8, vy: 0, lock: -1 };
+  const hit = A.objects(s, c, ball);
+  assert.equal(hit.type, 'bumper');
+  assert.equal(hit.reversed, true);
+  assert.ok(Math.abs(ball.vx + 8 * T.kick) < 1e-9, `left at ${ball.vx}`);
+  assert.ok(Math.hypot(ball.x - b.x, ball.y - b.y) > b.r + c.ballR, 'clear of the bumper');
+
+  // the same bumper rests for a moment, so one touch is one kick
+  assert.equal(A.objects(s, c, { x: b.x - b.r, y: b.y, vx: 8, vy: 0 }), null);
+  frames(s, c, T.bumperRest, 0);
+
+  // a glancing hit off the top keeps the ball going the same way, deflected up
+  const glance = { x: b.x - 6, y: b.y - b.r - c.ballR + 2, vx: 8, vy: 3, lock: -1 };
+  const graze = A.objects(s, c, glance);
+  assert.equal(graze.reversed, false);
+  assert.ok(glance.vx > 8);
+  assert.ok(glance.vy < 0);
+
+  // the centre bumper is dark at no Heat
+  const centre = A.bumperAt(c, 2), through = { x: centre.x, y: centre.y, vx: 8, vy: 0, lock: -1 };
+  assert.equal(s.tilt.lit[2], false);
+  assert.equal(A.objects(s, c, through), null);
+  assert.equal(through.vx, 8);
+});
+
+test('TILT: bumpers speed the ball up only so far, and never slow it down', () => {
+  const c = court(), s = begin('tilt', c), b = A.bumperAt(c, 0);
+  const kick = (vx) => {
+    frames(s, c, T.bumperRest + 1, 0);
+    const ball = { x: b.x - b.r - c.ballR + 3, y: b.y, vx, vy: 0, lock: -1 };
+    A.objects(s, c, ball);
+    return Math.abs(ball.vx);
+  };
+  assert.ok(Math.abs(kick(17) - T.kickMax) < 1e-9, 'capped at kickMax');
+  assert.equal(kick(22), 22, 'a ball already faster than that keeps its speed');
+  assert.ok(kick(2) >= 4, 'and it always leaves at a playable pace');
+});
+
+test('TILT: a bumper never lights up on top of the ball', () => {
+  const c = court(), s = begin('tilt', c), centre = A.bumperAt(c, 2);
+  for (let f = 0; f < 200; f++) A.update(s, c, 0.9, true, true, seeded(1), { x: centre.x + 5, y: centre.y });
+  assert.equal(s.tilt.lit[2], false);
+  A.update(s, c, 0.9, true, true, seeded(1), { x: 60, y: 60 });
+  assert.equal(s.tilt.lit[2], true);
+});
+
+// ── QUANTUM SHIFT ───────────────────────────────────────────────────────────
+
+test('QUANTUM SHIFT: the ball goes in one portal and out of the other with the same velocity', () => {
+  for (const c of [court(), phone()]) {
+    const s = begin('portal', c), a = A.portalAt(s, c, 0), b = A.portalAt(s, c, 1);
+    assert.equal(a.x, c.width / 2);
+    assert.equal(b.x, c.width / 2, 'both start on the centre line');
+    const ball = { x: a.x - a.r + 4, y: a.y + 6, vx: 9, vy: -2, lock: -1 };
+    const hit = A.objects(s, c, ball);
+    assert.equal(hit.type, 'portal');
+    assert.equal(ball.vx, 9);
+    assert.equal(ball.vy, -2);
+    assert.ok(Math.abs(ball.x - (b.x - a.r + 4)) < 1e-9 && Math.abs(ball.y - (b.y + 6)) < 1e-9, 'same place on the other portal');
+    assert.ok(ball.y > c.ballR && ball.y < c.height - c.ballR, 'still on the court');
+
+    // it flies on across the portal it came out of without being sent back...
+    let jumps = 0;
+    for (let f = 0; f < 40; f++) { ball.x += ball.vx * c.xScale; ball.y += ball.vy; if (A.objects(s, c, ball)) jumps++; }
+    assert.equal(jumps, 0);
+    assert.equal(ball.lock, -1, 'and once clear, portals work for it again');
+
+    // ...and the trip works in both directions
+    const back = { x: b.x, y: b.y + b.r - 3, vx: -5, vy: -6, lock: -1 };
+    assert.equal(A.objects(s, c, back).type, 'portal');
+    assert.ok(Math.abs(back.y - (a.y + a.r - 3)) < 1e-9);
+  }
+});
+
+test('QUANTUM SHIFT: the portals hold still until high Heat, then roam, mirrored, and stay on the court', () => {
+  const c = court(), s = begin('portal', c), home = [A.portalAt(s, c, 0), A.portalAt(s, c, 1)];
+  frames(s, c, 600, T.portalHeat);
+  assert.deepEqual(A.portalAt(s, c, 0), home[0]);
+
+  let farX = 0, farY = 0;
+  for (let f = 0; f < 2400; f++) {
+    A.update(s, c, 1, true, true);
+    const a = A.portalAt(s, c, 0), b = A.portalAt(s, c, 1);
+    farX = Math.max(farX, Math.abs(a.x - home[0].x));
+    farY = Math.max(farY, Math.abs(a.y - home[0].y));
+    assert.ok(Math.abs((a.x - home[0].x) + (b.x - home[1].x)) < 1e-9 && Math.abs((a.y - home[0].y) + (b.y - home[1].y)) < 1e-9, 'they move in opposite directions');
+    for (const p of [a, b]) {
+      assert.ok(p.y - p.r > 0 && p.y + p.r < c.height, 'never off the top or bottom');
+      assert.ok(p.x - p.r > c.leftFace + 100 && p.x + p.r < c.rightFace - 100, 'never near a paddle');
+    }
+  }
+  const span = c.rightFace - c.leftFace;
+  assert.ok(farX > span * T.portalReach[0] * 0.9 && farY > c.height * T.portalReach[1] * 0.9, 'they really travel');
+
+  frames(s, c, 400, 0, false, false);
+  assert.deepEqual(A.portalAt(s, c, 0), home[0], 'home again for the next serve');
+});
+
+// ── LAST TRAIN ──────────────────────────────────────────────────────────────
+
+// Runs the schedule and reports each train: when the signals started, when it
+// arrived and left, and what kind it was.
+function timetable(c, heat, totalFrames) {
+  const s = begin('train', c), trains = [];
+  let seen = 'idle';
+  for (let f = 0; f < totalFrames; f++) {
+    A.update(s, c, heat, heat >= 0.8, true, seeded(1), { x: 100, y: 100 });
+    const phase = s.train.phase;
+    if (phase !== seen) {
+      if (phase === 'warning') trains.push({ signal: f, express: s.train.express, dir: s.train.dir });
+      else if (phase === 'passing') trains[trains.length - 1].arrive = f;
+      else trains[trains.length - 1].leave = f;
+      seen = phase;
+    }
+  }
+  return trains;
+}
+
+test('LAST TRAIN: trains keep to a schedule, announced by the signals, from alternate ends', () => {
+  for (const c of [court(), phone()]) {
+    const trains = timetable(c, 0.2, 6000);
+    assert.ok(trains.length >= 5, `several trains in 100 seconds (${trains.length})`);
+    assert.equal(trains[0].signal, T.trainFirst - 1, 'nothing on the track for the first few seconds of a rally');
+    const wait = Math.round(T.trainEvery[0] + (T.trainEvery[1] - T.trainEvery[0]) * 0.2);
+    trains.forEach((train, i) => {
+      assert.equal(train.express, false);
+      if (train.arrive === undefined) return;                       // the last one may still be on its way
+      assert.equal(train.arrive - train.signal, T.trainWarn[0], 'the signals always give the same warning');
+      if (i) {
+        assert.equal(train.dir, -trains[i - 1].dir, 'the next one comes from the other end');
+        assert.equal(train.signal - trains[i - 1].leave, wait, 'the same gap every time');
+      }
+    });
+    // on a phone the train is scaled to the court, so it is on screen just as long
+    const passing = trains[0].leave - trains[0].arrive;
+    assert.ok(Math.abs(passing - (1 + T.trainLength[0]) * 720 / T.trainSpeed[0]) <= 2, `on the court for ${passing} frames`);
+  }
+});
+
+test('LAST TRAIN: Heat brings expresses: more often, faster, with a shorter warning', () => {
+  const c = court(), local = timetable(c, 0.2, 6000), express = timetable(c, 0.9, 6000);
+  assert.ok(express.every((train) => train.express));
+  assert.ok(express.length > local.length * 1.5, `${express.length} expresses against ${local.length} locals`);
+  const done = (list) => list.find((train) => train.leave !== undefined);
+  assert.ok(done(express).leave - done(express).arrive < (done(local).leave - done(local).arrive) / 2, 'through in under half the time');
+  assert.equal(done(express).arrive - done(express).signal, T.trainWarn[1]);
+  assert.ok(T.trainWarn[1] >= 45, 'still most of a second to react');
+});
+
+test('LAST TRAIN: the ball bounces off the side of the train', () => {
+  const c = court(), s = begin('train', c);
+  while (s.train.phase !== 'passing') A.update(s, c, 0, false, true);
+  frames(s, c, 60, 0);                                              // let it get well onto the court
+  const box = A.trainBox(s, c), lane = A.trainLane(c);
+  assert.ok(box && box.x === lane.x && box.w === lane.w);
+  const y = box.y + box.h - 40;
+  const ball = shot(c, lane.x - 60, y, 70);                         // would jump the whole train in one frame
+  const hit = A.objects(s, c, ball);
+  assert.equal(hit.type, 'train');
+  assert.equal(hit.reversed, true);
+  assert.ok(ball.vx < 0 && ball.x < lane.x - c.ballR);
+  // ahead of the train the track is clear
+  assert.equal(A.objects(s, c, shot(c, lane.x - 60, box.y + box.h + 60, 70)), null);
+});
+
+test('LAST TRAIN: a ball caught on the track is thrown clear the way it was going, never turned round', () => {
+  const c = court(), s = begin('train', c);
+  while (s.train.phase !== 'passing') A.update(s, c, 0, false, true);
+  frames(s, c, 30, 0);
+  const lane = A.trainLane(c), box = A.trainBox(s, c);
+  for (const vx of [6, -6]) {
+    const ball = { x: lane.x + lane.w / 2, y: box.y + box.h - 4, vx, vy: 0, px: lane.x + lane.w / 2 - vx, py: box.y + box.h - 4, lock: -1 };
+    const hit = A.objects(s, c, ball);
+    assert.equal(hit.shoved, true);
+    assert.equal(hit.reversed, false);
+    assert.equal(ball.vx, vx);
+    assert.ok(vx > 0 ? ball.x > lane.x + lane.w + c.ballR : ball.x < lane.x - c.ballR, 'out on the far side');
+    assert.equal(ball.vy, s.train.dir * T.trainShove, 'dragged along with the train');
+    assert.equal(A.blocked(s, c, ball.x, ball.y, c.ballR - 1), false);
+  }
+});
+
+test('LAST TRAIN: the track is cleared for every serve, and the schedule waits while play is stopped', () => {
+  const c = court(), s = begin('train', c);
+  while (s.train.phase !== 'passing') A.update(s, c, 0, false, true);
+  A.openCourt(s);
+  assert.equal(A.trainBox(s, c), null, 'no train runs through the Eye');
+  while (s.train.phase !== 'passing') A.update(s, c, 0, false, true);
+  A.roundReset(s, c);
+  assert.equal(A.trainBox(s, c), null);
+  assert.equal(s.train.timer, T.trainFirst);
+  frames(s, c, 5000, 0, false, false);
+  assert.equal(s.train.phase, 'idle');
+  assert.equal(s.train.timer, T.trainFirst, 'the clock does not run between points');
+});
+
+// ── Keeping other things clear of them ──────────────────────────────────────
+
+test('object maps say where power-ups and glitch walls must not go, and what is solid', () => {
+  const c = court();
+  const bricks = begin('bricks', c);
+  assert.deepEqual(A.obstacles(bricks, c), [{ x: c.width / 2 - T.brickWide / 2, y: 0, w: T.brickWide, h: c.height }]);
+  assert.equal(A.blocked(bricks, c, c.width / 2, 20, 8), true);
+  assert.equal(A.blocked(bricks, c, c.width / 2, c.height / 2, 8), false, 'the serve hole is not solid');
+
+  const tilt = begin('tilt', c);
+  A.update(tilt, c, 0, false, true, seeded(1), { x: 60, y: 60 });
+  assert.equal(A.obstacles(tilt, c).length, T.bumperSlots.length, 'dark bumpers are kept clear too: they may light');
+  const lit = A.bumperAt(c, 0), dark = A.bumperAt(c, 2);
+  assert.equal(A.blocked(tilt, c, lit.x, lit.y, 8), true);
+  assert.equal(A.blocked(tilt, c, dark.x, dark.y, 8), false);
+
+  const portal = begin('portal', c);
+  assert.equal(A.obstacles(portal, c).length, 2);
+  assert.equal(A.blocked(portal, c, c.width / 2, c.height * 0.27, 8), false, 'a portal is not solid');
+
+  const train = begin('train', c);
+  assert.deepEqual(A.obstacles(train, c), [A.trainLane(c)]);
+  assert.equal(A.blocked(train, c, c.width / 2, 300, 8), false, 'an empty track is not solid');
+  while (train.train.phase !== 'passing') A.update(train, c, 0, false, true);
+  frames(train, c, 40, 0);
+  assert.equal(A.blocked(train, c, c.width / 2, A.trainBox(train, c).y + 10, 8), true);
+});
+
 // ── A whole rally on every map ──────────────────────────────────────────────
 
 test('a long rally on any rule map keeps the ball on the court', () => {
   for (const id of A.IDS) {
     for (const c of [court(), phone()]) {
       const rand = seeded(id.length * 31 + c.width), s = begin(id, c, rand);
-      const ball = { x: c.width / 2, y: c.height / 2, vx: 7, vy: 3.1 };
+      const ball = { x: c.width / 2, y: c.height / 2, vx: 7, vy: 3.1, lock: -1 };
       for (let f = 0; f < 6000; f++) {
         const heat = Math.min(1, f / 3000);
-        A.update(s, c, heat, heat >= 0.8, true, rand);
+        A.update(s, c, heat, heat >= 0.8, true, rand, ball);
         ball.px = ball.x;
         ball.vy = A.fall(s, c, ball.vy);
         const drift = A.drift(s, ball.vx);
@@ -701,6 +1056,10 @@ test('a long rally on any rule map keeps the ball on the court', () => {
           assert.ok(ball.y <= A.bottomAt(s, c, ball.x) - c.ballR + 1e-6, `${id}: frame ${f} below the bottom wall`);
         }
         A.posts(s, c, ball);
+        ball.py = ball.y - ball.vy;
+        const hit = A.objects(s, c, ball);
+        if (hit && hit.type !== 'portal') assert.equal(A.blocked(s, c, ball.x, ball.y, c.ballR - 1), false, `${id}: frame ${f} left inside what it hit`);
+        assert.ok(Math.abs(ball.vx) >= 4 - 1e-9 && Math.abs(ball.vy) <= T.fallMax + 1e-9, `${id}: frame ${f} speed ${ball.vx}, ${ball.vy}`);
         // stand-in paddles that never miss
         if (ball.x <= c.leftFace + c.ballR && ball.vx < 0) { ball.x = c.leftFace + c.ballR; ball.vx = Math.min(20, -ball.vx * 1.02); A.onReturn(s); }
         if (ball.x >= c.rightFace - c.ballR && ball.vx > 0) { ball.x = c.rightFace - c.ballR; ball.vx = -Math.min(20, ball.vx * 1.02); A.onReturn(s); }

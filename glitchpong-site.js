@@ -148,7 +148,11 @@ const GlitchProgression = (function() {
         freefall:  { matches: 0, wins: 0, losses: 0 },
         coolant:   { matches: 0, wins: 0, losses: 0 },
         rooftop:   { matches: 0, wins: 0, losses: 0 },
-        beat:      { matches: 0, wins: 0, losses: 0 }
+        beat:      { matches: 0, wins: 0, losses: 0 },
+        bricks:    { matches: 0, wins: 0, losses: 0 },
+        tilt:      { matches: 0, wins: 0, losses: 0 },
+        portal:    { matches: 0, wins: 0, losses: 0 },
+        train:     { matches: 0, wins: 0, losses: 0 }
       }
     };
   }
@@ -462,7 +466,7 @@ const GlitchAchievements = (function() {
     { id: "clutch",       name: "ICE IN THE VEINS", desc: "Win a match that went to Clutch Mode.",          stat: "clutchWins",      goal: 1 },
     { id: "hard_win",     name: "HARD RESET",       desc: "Beat the Hard AI.",                              stat: "hardWins",        goal: 1 },
     { id: "hard_wins_10", name: "OVERCLOCKED",      desc: "Beat the Hard AI 10 times.",                     stat: "hardWins",        goal: 10 },
-    { id: "world_tour",   name: "WORLD TOUR",       desc: "Win a match in all twelve arenas.",              stat: "arenasWon",       goal: 12 },
+    { id: "world_tour",   name: "WORLD TOUR",       desc: "Win a match in all sixteen arenas.",             stat: "arenasWon",       goal: 16 },
     { id: "critical",     name: "MELTDOWN",         desc: "Push a rally to Critical Heat (80%+).",          stat: "criticalHeat",    goal: 1 },
     { id: "boss",         name: "EYE CONTACT",      desc: "Survive the Eye.",                               stat: "bossSurvivals",   goal: 1 },
     { id: "boss_5",       name: "EYE OF THE STORM", desc: "Survive the Eye 5 times.",                       stat: "bossSurvivals",   goal: 5 },
@@ -2456,7 +2460,61 @@ function injectGameById(gameId, options = {}) {
       placePaddleAnchors();
       ArenaRules.start(arenaRules, id, courtNow());
     }
-    function arenaRoundReset() { if (arenaRules.id) ArenaRules.roundReset(arenaRules, courtNow()); }
+    function arenaRoundReset() {
+      arenaBall.lock = -1;                              // QUANTUM SHIFT: the new ball hasn't been through a portal
+      if (arenaRules.id) ArenaRules.roundReset(arenaRules, courtNow());
+    }
+    // BREAKPOINT CROSSOVER, TILT, QUANTUM SHIFT and LAST TRAIN put things on the
+    // court. `arenaObstacles` is where power-ups and glitch walls must not go.
+    const OBJECT_MAPS = { bricks: true, tilt: true, portal: true, train: true };
+    const arenaSpot = { x: 0, y: 0 };
+    let trainPhaseSeen = "idle";
+    function arenaObstacles() { return OBJECT_MAPS[arenaRules.id] ? ArenaRules.obstacles(arenaRules, courtNow()) : []; }
+    function clearOfObstacles(x, y, w, h, pad) {
+      return arenaObstacles().every((o) => x + w + pad <= o.x || x - pad >= o.x + o.w || y + h + pad <= o.y || y - pad >= o.y + o.h);
+    }
+    // The ball against the bricks, bumpers, portals or train.
+    function arenaObjects() {
+      arenaBall.x = ballX; arenaBall.y = ballY; arenaBall.vx = vx; arenaBall.vy = vy;
+      arenaBall.px = wallSweepFromX === null ? ballX : wallSweepFromX;
+      arenaBall.py = wallSweepFromY === null ? ballY : wallSweepFromY;
+      const hit = ArenaRules.objects(arenaRules, courtNow(), arenaBall);
+      if (!hit) return;
+      ballX = arenaBall.x; ballY = arenaBall.y; vx = arenaBall.vx; vy = arenaBall.vy;
+      // Like any glitch that sends the ball back the way it came, these make it
+      // neutral: worth 1 point, never an own goal.
+      if (hit.reversed) ballOwner = "neutral";
+      if (hit.type === "portal") {
+        ballTrail = [];
+        wallSweepFromX = null;                          // a jump, not a move through a glitch wall
+        spawnCosmeticFx(ballOwner, "teleport", hit.from.x, hit.from.y, { to: hit.to });
+        burstSparks(hit.from.x, hit.from.y, ["46,230,197", "255,255,255"], 8, 2.4);
+        burstSparks(hit.to.x, hit.to.y, ["46,230,197", "255,255,255"], 8, 2.4);
+        glitchPulse = Math.max(glitchPulse, 6);
+        pongAudio.mapSfx("portal");
+        return;
+      }
+      impactFreezeFrames = Math.max(impactFreezeFrames, 1);
+      triggerCameraKick(Math.sign(vx) * 7, (Math.random() - 0.5) * 6, 0.006);
+      if (hit.type === "brick") {
+        burstSparks(hit.x, hit.y, [brickTint(hit.index), "255,255,255"], 14, 3.4);
+        glitchPulse = Math.max(glitchPulse, 8);
+        pongAudio.mapSfx("brick");
+        // Breaking through can leave a power-up in the gap.
+        const chance = rules.powerups === "off" ? 0 : ArenaRules.TUNING.dropChance[rules.powerups === "frequent" ? 1 : 0];
+        if (!arenaPowerup && Math.random() < chance) {
+          arenaPowerup = { type: POWERUP_TYPES[Math.floor(Math.random() * POWERUP_TYPES.length)], x: hit.x, y: hit.y, r: POWERUP_RADIUS, life: 900, pulse: 0 };
+        }
+      } else if (hit.type === "bumper") {
+        burstSparks(hit.x, hit.y, ["255,90,90", "255,236,200"], 10, 3);
+        glitchPulse = Math.max(glitchPulse, 10);
+        pongAudio.mapSfx("bumper");
+      } else {
+        burstSparks(hit.x, hit.y, ["255,200,90", "255,255,255"], 12, 3.6);
+        glitchPulse = Math.max(glitchPulse, 12);
+        pongAudio.mapSfx("train");
+      }
+    }
     // COOLANT LEAK: how far a dash moved each paddle during this frame's input.
     // A dash is a blink, so it is kept out of the slide.
     const arenaDashShift = { left: 0, right: 0 };
@@ -2484,7 +2542,15 @@ function injectGameById(gameId, options = {}) {
       if (!arenaRules.id) return;
       const live = !roundFrozen && !countdownActive && !bossModeActive && !preBossActive && shakeFrames === 0
         && !gameOver && !finalScoreCinematic && progScreen !== "levelUp" && progScreen !== "perkSelect";
-      ArenaRules.update(arenaRules, courtNow(), getHeatRatio(), criticalHeat, live);
+      arenaSpot.x = ballX; arenaSpot.y = ballY;
+      ArenaRules.update(arenaRules, courtNow(), getHeatRatio(), criticalHeat, live, Math.random, arenaSpot);
+      if (arenaRules.id === "train") {
+        // The crossing bell while the signals flash, then the train itself.
+        const train = arenaRules.train;
+        if (train.phase === "warning" && live && train.timer % 15 === 0) pongAudio.mapSfx(train.timer % 30 === 0 ? "bellHigh" : "bellLow");
+        if (train.phase === "passing" && trainPhaseSeen !== "passing") pongAudio.mapSfx(train.express ? "express" : "trainPass");
+        trainPhaseSeen = train.phase;
+      }
       // BEAT DROP makes its own music, one eighth note at a time, from the same
       // clock that decides whether a return is on the beat.
       if (arenaRules.id === "beat" && arenaRules.beat.ticked && !gameOver) pongAudio.beatStep(arenaRules.beat.step, getHeatRatio());
@@ -3346,6 +3412,35 @@ function injectGameById(gameId, options = {}) {
         duckMusic(0.35, 900);
       }
 
+      // Short effects for the object maps: a brick breaking, a bumper, a portal,
+      // the train and its crossing bell.
+      function mapSfx(kind) {
+        if (!sfxEnabled || visibilitySuspended) return;
+        const ac = getSynthContext();
+        if (!ac || ac.state !== "running") return;
+        const out = ac.destination, at = ac.currentTime + 0.005;
+        if (kind === "brick") {
+          synthTone(ac, out, { type: "square", from: 620, to: 310, at, length: 0.07, level: 0.08 });
+          synthNoiseHit(ac, out, { at, length: 0.05, level: 0.05, freq: 3000 });
+        } else if (kind === "bumper") {
+          synthTone(ac, out, { type: "triangle", from: 180, to: 540, at, length: 0.1, level: 0.15 });
+          synthTone(ac, out, { type: "square", from: 1040, at, length: 0.03, level: 0.035 });
+        } else if (kind === "portal") {
+          synthTone(ac, out, { from: 260, to: 1040, at, length: 0.18, level: 0.08 });
+        } else if (kind === "train") {
+          synthTone(ac, out, { from: 95, to: 50, at, length: 0.16, level: 0.22 });
+          synthNoiseHit(ac, out, { at, length: 0.18, level: 0.2, filter: "lowpass", freq: 320, q: 0.5 });
+        } else if (kind === "bellHigh" || kind === "bellLow") {
+          synthTone(ac, out, { type: "triangle", from: kind === "bellHigh" ? 1568 : 1245, at, length: 0.22, level: 0.06 });
+        } else if (kind === "trainPass") {
+          synthNoiseHit(ac, out, { at, length: 2.6, level: 0.14, filter: "lowpass", freq: 220, q: 0.4 });
+        } else if (kind === "express") {
+          synthNoiseHit(ac, out, { at, length: 1.3, level: 0.18, filter: "lowpass", freq: 320, q: 0.4 });
+          synthTone(ac, out, { type: "sawtooth", from: 311, at, length: 0.5, level: 0.045, lowpass: 1200 });
+          synthTone(ac, out, { type: "sawtooth", from: 370, at, length: 0.5, level: 0.045, lowpass: 1200 });
+        }
+      }
+
       // Plays `owner`'s equipped sound pack in place of a recording. Returns
       // true when it did, so the caller can skip the recording.
       function playPackSound(owner, kind, options) {
@@ -3664,7 +3759,7 @@ function injectGameById(gameId, options = {}) {
         countdown2() { playOneShot("countdown2", { volume: 0.5, duck: 0.20, duckDuration: 180 }); },
         countdown1() { playOneShot("countdown1", { volume: 0.5, duck: 0.20, duckDuration: 180 }); },
         countdownGo() { playOneShot("countdownGo", { volume: 0.62, duck: 0.28, duckDuration: 260 }); },
-        beatStep, beatHit, thunder,
+        beatStep, beatHit, thunder, mapSfx,
         isMusicEnabled() { return musicEnabled; },
         isSfxEnabled() { return sfxEnabled; },
         setMusicEnabled(enabled) {
@@ -3994,10 +4089,17 @@ function injectGameById(gameId, options = {}) {
 
     function spawnArenaPowerup() {
       if (arenaPowerup || roundFrozen || !modeSelected) return;
+      // Not on top of a bumper, a portal or the track.
+      let x = 0, y = 0;
+      for (let attempt = 0; attempt < 12; attempt++) {
+        x = canvas.width * (0.33 + Math.random() * 0.34);
+        y = courtYAt(0.22 + Math.random() * 0.56);
+        if (clearOfObstacles(x - POWERUP_RADIUS, y - POWERUP_RADIUS, POWERUP_RADIUS * 2, POWERUP_RADIUS * 2, 10)) break;
+      }
       arenaPowerup = {
         type: POWERUP_TYPES[Math.floor(Math.random() * POWERUP_TYPES.length)],
-        x: canvas.width * (0.33 + Math.random() * 0.34),
-        y: courtYAt(0.22 + Math.random() * 0.56),
+        x,
+        y,
         r: POWERUP_RADIUS,
         life: 900,
         pulse: Math.random() * Math.PI * 2
@@ -4022,7 +4124,8 @@ function injectGameById(gameId, options = {}) {
         return;
       }
 
-      if (roundFrozen || !modeSelected || rules.powerups === "off") return;
+      // On BREAKPOINT CROSSOVER power-ups only come out of broken bricks.
+      if (roundFrozen || !modeSelected || rules.powerups === "off" || arenaRules.id === "bricks") return;
       powerupSpawnCooldown -= rules.powerups === "frequent" ? 3 : 1;
       if (powerupSpawnCooldown <= 0) {
         spawnArenaPowerup();
@@ -7105,6 +7208,9 @@ function injectGameById(gameId, options = {}) {
       if (vx > 0 && wx + ww > ballX && wx < ballX + LOOK &&
           wy < ballY + 28 && wy + wh > ballY - 28) return false;
 
+      // Not on top of anything the map has put on the court
+      if (!clearOfObstacles(wx, wy, ww, wh, 16)) return false;
+
       // No overlap with existing walls
       for (const e of glitchWalls) {
         if (e.phase === 'dying') continue;
@@ -7509,6 +7615,59 @@ function injectGameById(gameId, options = {}) {
         tags:     ["Rhythm", "Beat Boost", "Tempo Rises"],
         accent:   "#c6ff3d",
         gradient: "linear-gradient(135deg,rgba(7,6,13,0.96) 0%,rgba(28,36,8,0.8) 100%)",
+        hasOverlay: false,
+        courtRules: true,
+        init:     null,
+        cleanup:  null
+      },
+      // The four object maps put something solid in the middle of the court.
+      {
+        id:       "bricks",
+        name:     "BREAKPOINT CROSSOVER",
+        subtitle: "Brick Wall // Centre Line",
+        desc:     "A column of bricks splits the court. Hit one and it breaks, and the ball comes back. The gap it leaves may hold a power-up.",
+        tags:     ["Bricks", "Power-Up Drops", "Heat Regrows"],
+        accent:   "#ff4f7b",
+        gradient: "linear-gradient(135deg,rgba(14,6,16,0.96) 0%,rgba(52,10,30,0.8) 100%)",
+        hasOverlay: false,
+        courtRules: true,
+        init:     null,
+        cleanup:  null
+      },
+      {
+        id:       "tilt",
+        name:     "TILT",
+        subtitle: "Pinball Table // Bumpers",
+        desc:     "Lit bumpers kick the ball away faster than it arrived. Heat lights more of them.",
+        tags:     ["Bumpers", "Faster Kicks", "Heat Lights More"],
+        accent:   "#f2f4ff",
+        gradient: "linear-gradient(135deg,rgba(16,6,12,0.96) 0%,rgba(48,12,26,0.8) 100%)",
+        hasOverlay: false,
+        courtRules: true,
+        init:     null,
+        cleanup:  null
+      },
+      {
+        id:       "portal",
+        name:     "QUANTUM SHIFT",
+        subtitle: "Linked Portals // In One, Out The Other",
+        desc:     "The ball goes into one portal and comes out of the other at the same speed. At high Heat the portals start to roam.",
+        tags:     ["Portals", "Same Speed", "Heat Moves Them"],
+        accent:   "#2ee6c5",
+        gradient: "linear-gradient(135deg,rgba(3,14,16,0.96) 0%,rgba(6,44,44,0.8) 100%)",
+        hasOverlay: false,
+        courtRules: true,
+        init:     null,
+        cleanup:  null
+      },
+      {
+        id:       "train",
+        name:     "LAST TRAIN",
+        subtitle: "Centre Track // On A Schedule",
+        desc:     "A train runs down the middle of the court. The signals flash before it comes. Heat brings expresses: faster and more often.",
+        tags:     ["Train", "Signals", "Heat Express"],
+        accent:   "#8f9bff",
+        gradient: "linear-gradient(135deg,rgba(8,9,20,0.96) 0%,rgba(22,24,58,0.8) 100%)",
         hasOverlay: false,
         courtRules: true,
         init:     null,
@@ -8522,7 +8681,11 @@ function injectGameById(gameId, options = {}) {
       freefall: "rgba(201,167,255,0.22)",
       coolant: "rgba(168,236,255,0.22)",
       rooftop: "rgba(170,184,214,0.20)",
-      beat: "rgba(198,255,61,0.20)"
+      beat: "rgba(198,255,61,0.20)",
+      bricks: "rgba(255,79,123,0.16)",
+      tilt: "rgba(242,244,255,0.16)",
+      portal: "rgba(46,230,197,0.20)",
+      train: "rgba(143,155,255,0.14)"
     };
 
     // Walls are filled with a small repeating tile, painted once, instead of
@@ -8572,7 +8735,8 @@ function injectGameById(gameId, options = {}) {
     function drawCourtMapBackdrop(hr) {
       const draw = {
         penalty: drawPenaltyBackdrop, overflow: drawOverflowBackdrop, leak: drawLeakBackdrop, defrag: drawDefragBackdrop,
-        freefall: drawFreefallBackdrop, coolant: drawCoolantBackdrop, rooftop: drawRooftopBackdrop, beat: drawBeatBackdrop
+        freefall: drawFreefallBackdrop, coolant: drawCoolantBackdrop, rooftop: drawRooftopBackdrop, beat: drawBeatBackdrop,
+        bricks: drawBricksBackdrop, tilt: drawTiltBackdrop, portal: drawPortalBackdrop, train: drawTrainBackdrop
       }[currentArenaId];
       if (!draw) return false;
       ctx.save();
@@ -8590,6 +8754,14 @@ function injectGameById(gameId, options = {}) {
       else if (arenaRules.id === "defrag") drawDefragWalls(hr);
       else if (arenaRules.id === "coolant") drawCoolantIce(hr);
       else if (arenaRules.id === "beat") drawBeatWindow(hr);
+      else if (OBJECT_MAPS[arenaRules.id] && !bossModeActive && !preBossActive) {
+        // The Eye takes the middle of the court, so these step aside for it.
+        if (arenaRules.id === "bricks") drawBricks(hr);
+        else if (arenaRules.id === "tilt") drawBumpers(hr);
+        else if (arenaRules.id === "portal") drawPortals(hr);
+        else drawTrain(hr);
+      }
+      drawSparks();
       ctx.restore();
     }
 
@@ -9254,6 +9426,331 @@ function injectGameById(gameId, options = {}) {
         ctx.fillStyle = `rgba(226,255,150,${Math.min(1, state.hit * 1.5)})`;
         ctx.fillText("ON BEAT", W * (state.hitSide === "left" ? 0.2 : 0.8), H * 0.5 - 40 - (1 - state.hit) * 26);
       }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // OBJECT MAPS — BREAKPOINT CROSSOVER, TILT, QUANTUM SHIFT, LAST TRAIN
+    // Drawing only. With no rules running (an online match) only the backdrop
+    // is drawn: no bricks, bumpers, portals or train.
+    // ═══════════════════════════════════════════════════════════════════════
+
+    // Sparks thrown off whatever the ball just hit.
+    const courtSparks = [];
+    function burstSparks(x, y, tints, count, speed) {
+      const n = savingPower() ? Math.ceil(count / 2) : count;
+      for (let i = 0; i < n; i++) {
+        const angle = Math.random() * Math.PI * 2, pace = speed * (0.4 + Math.random() * 0.9), life = 16 + Math.floor(Math.random() * 16);
+        courtSparks.push({ x, y, vx: Math.cos(angle) * pace, vy: Math.sin(angle) * pace, life, max: life, tint: tints[i % tints.length], size: 2 + Math.random() * 3 });
+      }
+      while (courtSparks.length > 90) courtSparks.shift();
+    }
+    function drawSparks() {
+      for (let i = courtSparks.length - 1; i >= 0; i--) {
+        const spark = courtSparks[i];
+        spark.x += spark.vx; spark.y += spark.vy;
+        spark.vy += 0.09; spark.vx *= 0.96;
+        if (--spark.life <= 0) { courtSparks.splice(i, 1); continue; }
+        ctx.fillStyle = `rgba(${spark.tint},${spark.life / spark.max})`;
+        ctx.fillRect(spark.x - spark.size / 2, spark.y - spark.size / 2, spark.size, spark.size);
+      }
+    }
+
+    // ── BREAKPOINT CROSSOVER: the other cabinet's bricks ────────────────────
+    const BRICK_TINTS = ["255,79,123", "255,138,61", "255,209,102", "140,255,140", "103,239,255", "120,150,255", "190,130,255"];
+    function brickTint(i) { return BRICK_TINTS[((i % BRICK_TINTS.length) + BRICK_TINTS.length) % BRICK_TINTS.length]; }
+
+    function drawBricksBackdrop(hr) {
+      const W = canvas.width, H = canvas.height, t = performance.now() * 0.001;
+      courtMapFill("#0d0612", "#07040b");
+      // A faint brick bond across the whole court, as if the wall went on for ever.
+      const bw = 96, bh = 40;
+      ctx.strokeStyle = "rgba(255,79,123,0.045)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let row = 0, y = 0; y < H; y += bh, row++) {
+        ctx.moveTo(-60, y); ctx.lineTo(W + 60, y);
+        for (let x = (row % 2 ? bw / 2 : 0); x < W; x += bw) { ctx.moveTo(x, y); ctx.lineTo(x, y + bh); }
+      }
+      ctx.stroke();
+      // Now and then one of them lights, in a brick colour.
+      const lit = savingPower() ? 6 : 14;
+      for (let i = 0; i < lit; i++) {
+        const row = Math.floor(courtMapNoise(i + 800) * Math.ceil(H / bh)), col = Math.floor(courtMapNoise(i + 830) * Math.ceil(W / bw));
+        const glow = Math.max(0, Math.sin(t * (0.5 + courtMapNoise(i) * 0.8) + i * 2.1));
+        ctx.fillStyle = `rgba(${brickTint(i)},${0.02 + glow * (0.05 + hr * 0.05)})`;
+        ctx.fillRect(col * bw + (row % 2 ? bw / 2 : 0) + 2, row * bh + 2, bw - 4, bh - 4);
+      }
+    }
+
+    function drawBricks(hr) {
+      const c = courtNow(), state = arenaRules.bricks, blink = 0.5 + 0.5 * Math.sin(performance.now() * 0.025);
+      state.list.forEach((brick, i) => {
+        const box = ArenaRules.brickBox(arenaRules, c, i), tint = brickTint(i);
+        const x = box.x, y = box.y + 2, w = box.w, h = box.h - 4;
+        if (brick.on) {
+          ctx.shadowColor = `rgba(${tint},0.8)`;
+          ctx.shadowBlur = 10;
+          ctx.fillStyle = `rgba(${tint},0.92)`;
+          ctx.fillRect(x, y, w, h);
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = "rgba(255,255,255,0.35)";
+          ctx.fillRect(x, y, w, 3);
+          ctx.fillRect(x, y, 3, h);
+          ctx.fillStyle = "rgba(0,0,0,0.28)";
+          ctx.fillRect(x + w - 3, y, 3, h);
+          ctx.fillRect(x, y + h - 3, w, 3);
+        } else if (brick.warn > 0) {
+          // coming back: an outline first, so nobody is walled in by surprise
+          ctx.strokeStyle = `rgba(${tint},${0.35 + blink * 0.5})`;
+          ctx.lineWidth = 2;
+          ctx.setLineDash([6, 5]);
+          ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+          ctx.setLineDash([]);
+          ctx.fillStyle = `rgba(${tint},${0.08 + blink * 0.1})`;
+          ctx.fillRect(x, y, w, h);
+        } else {
+          ctx.strokeStyle = `rgba(${tint},0.10)`;
+          ctx.lineWidth = 1;
+          ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+        }
+      });
+    }
+
+    // ── TILT: a pinball playfield ───────────────────────────────────────────
+    function drawTiltBackdrop(hr) {
+      const W = canvas.width, H = canvas.height, t = performance.now() * 0.001;
+      courtMapFill("#12060c", "#080308");
+      // Playfield art: rings, lane guides and a chase of insert lights.
+      ctx.lineWidth = 2;
+      [0.18, 0.31, 0.44].forEach((share, k) => {
+        ctx.strokeStyle = `rgba(255,90,90,${0.07 - k * 0.015})`;
+        ctx.beginPath(); ctx.arc(W / 2, H / 2, H * share, 0, Math.PI * 2); ctx.stroke();
+      });
+      ctx.strokeStyle = "rgba(242,244,255,0.05)";
+      [[0.12, 1], [0.88, -1]].forEach(([share, dir]) => {
+        for (let k = 0; k < 3; k++) {
+          const x = W * share + dir * k * 22;
+          ctx.beginPath(); ctx.moveTo(x, H * 0.2); ctx.lineTo(x + dir * 40, H * 0.5); ctx.lineTo(x, H * 0.8); ctx.stroke();
+        }
+      });
+      const inserts = savingPower() ? 12 : 24, chase = Math.floor(t * (5 + hr * 9)) % inserts;
+      for (let i = 0; i < inserts; i++) {
+        const angle = (i / inserts) * Math.PI * 2, rx = W * 0.36, ry = H * 0.4;
+        const on = i === chase || i === (chase + inserts / 2) % inserts;
+        ctx.fillStyle = on ? "rgba(255,236,200,0.55)" : `rgba(255,90,90,${0.10 + hr * 0.06})`;
+        ctx.beginPath();
+        ctx.arc(W / 2 + Math.cos(angle) * rx, H / 2 + Math.sin(angle) * ry, on ? 5 : 3.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    function drawBumpers(hr) {
+      const c = courtNow(), state = arenaRules.tilt;
+      ArenaRules.TUNING.bumperSlots.forEach((unused, i) => {
+        const b = ArenaRules.bumperAt(c, i), flash = state.flash[i];
+        if (!state.lit[i]) {
+          // dark: the ball goes straight over it
+          ctx.strokeStyle = "rgba(242,244,255,0.13)";
+          ctx.lineWidth = 2;
+          ctx.setLineDash([4, 6]);
+          ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.stroke();
+          ctx.setLineDash([]);
+          return;
+        }
+        const r = b.r * (1 + flash * 0.16);
+        ctx.shadowColor = "rgba(255,70,70,0.9)";
+        ctx.shadowBlur = 14 + flash * 18;
+        ctx.fillStyle = `rgb(${Math.round(190 + flash * 65)},${Math.round(40 + flash * 190)},${Math.round(52 + flash * 170)})`;
+        ctx.beginPath(); ctx.arc(b.x, b.y, r, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = "rgba(242,244,255,0.95)";
+        ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(b.x, b.y, r - 1.5, 0, Math.PI * 2); ctx.stroke();
+        ctx.fillStyle = "rgba(255,236,200,0.9)";
+        ctx.beginPath(); ctx.arc(b.x, b.y, r * 0.42, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = "rgba(160,30,44,0.95)";
+        ctx.beginPath(); ctx.arc(b.x, b.y, r * 0.2, 0, Math.PI * 2); ctx.fill();
+        if (flash > 0.05) {
+          ctx.strokeStyle = `rgba(255,236,200,${flash * 0.8})`;
+          ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.arc(b.x, b.y, b.r * (1.2 + (1 - flash) * 0.9), 0, Math.PI * 2); ctx.stroke();
+        }
+      });
+    }
+
+    // ── QUANTUM SHIFT: a field that can't decide where things are ───────────
+    function drawPortalBackdrop(hr) {
+      const W = canvas.width, H = canvas.height, t = performance.now() * 0.001;
+      courtMapFill("#04100f", "#020908");
+      // Two sets of waves crossing: an interference pattern.
+      const lines = savingPower() ? 6 : 11, steps = 36;
+      ctx.lineWidth = 1;
+      for (let k = 0; k < lines; k++) {
+        const y0 = H * (k + 0.5) / lines;
+        ctx.strokeStyle = `rgba(46,230,197,${0.05 + 0.03 * Math.sin(t + k)})`;
+        ctx.beginPath();
+        for (let i = 0; i <= steps; i++) {
+          const x = W * i / steps;
+          const y = y0 + Math.sin(x * 0.012 + t * 1.1 + k * 0.7) * (8 + hr * 8) + Math.sin(x * 0.027 - t * 0.8 + k) * 5;
+          i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+        }
+        ctx.stroke();
+      }
+      ctx.fillStyle = "rgba(160,255,240,0.10)";
+      const dots = savingPower() ? 20 : 44;
+      for (let i = 0; i < dots; i++) {
+        const blink = Math.sin(t * (1 + courtMapNoise(i) * 2) + i) > 0.2;
+        if (blink) ctx.fillRect(courtMapNoise(i + 900) * W, courtMapNoise(i + 940) * H, 2, 2);
+      }
+    }
+
+    function drawPortals(hr) {
+      const c = courtNow(), state = arenaRules.portal, t = performance.now() * 0.001;
+      const a = ArenaRules.portalAt(arenaRules, c, 0), b = ArenaRules.portalAt(arenaRules, c, 1);
+      // the link between them
+      ctx.strokeStyle = `rgba(46,230,197,${0.10 + state.flash * 0.5})`;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([3, 9]);
+      ctx.lineDashOffset = -t * 30;
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      ctx.setLineDash([]);
+      [a, b].forEach((p, i) => {
+        const core = ctx.createRadialGradient(p.x, p.y, 2, p.x, p.y, p.r);
+        core.addColorStop(0, "rgba(0,0,0,0.92)");
+        core.addColorStop(0.7, "rgba(4,40,40,0.75)");
+        core.addColorStop(1, "rgba(46,230,197,0.20)");
+        ctx.fillStyle = core;
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowColor = "rgba(46,230,197,0.9)";
+        ctx.shadowBlur = 14 + state.flash * 18;
+        ctx.strokeStyle = `rgba(${Math.round(120 + state.flash * 135)},255,${Math.round(230 + state.flash * 25)},0.95)`;
+        ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.stroke();
+        ctx.shadowBlur = 0;
+        // arcs turning opposite ways in the two portals
+        ctx.strokeStyle = "rgba(190,255,245,0.55)";
+        ctx.lineWidth = 2;
+        for (let k = 0; k < 3; k++) {
+          const start = (i ? -1 : 1) * t * 2.4 + k * (Math.PI * 2 / 3);
+          ctx.beginPath(); ctx.arc(p.x, p.y, p.r * (0.34 + k * 0.2), start, start + 1.3); ctx.stroke();
+        }
+      });
+      if (state.amount > 0.05) {
+        ctx.font = "bold 11px monospace";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = `rgba(160,255,240,${0.3 + state.amount * 0.5})`;
+        ctx.fillText("PORTALS UNSTABLE", canvas.width / 2, courtMapLabelY(0));
+      }
+    }
+
+    // ── LAST TRAIN: a station after midnight ────────────────────────────────
+    function drawTrainBackdrop(hr) {
+      const W = canvas.width, H = canvas.height;
+      const laneW = Math.max(30, Math.min(46, W * 0.036)), laneX = W / 2 - laneW / 2;
+      courtMapFill("#0a0b16", "#06070e");
+      // Platform tiles either side.
+      ctx.fillStyle = "rgba(143,155,255,0.03)";
+      for (let x = 0; x < W; x += 64) ctx.fillRect(x, -60, 1, H + 120);
+      for (let y = 0; y < H; y += 64) ctx.fillRect(-60, y, W + 120, 1);
+      // The track bed, sleepers and rails.
+      ctx.fillStyle = "rgba(0,0,0,0.45)";
+      ctx.fillRect(laneX - 8, -60, laneW + 16, H + 120);
+      ctx.fillStyle = "rgba(120,104,90,0.22)";
+      for (let y = 6; y < H; y += 22) ctx.fillRect(laneX - 4, y, laneW + 8, 6);
+      ctx.fillStyle = "rgba(190,198,220,0.40)";
+      ctx.fillRect(laneX + laneW * 0.2, -60, 2, H + 120);
+      ctx.fillRect(laneX + laneW * 0.8 - 2, -60, 2, H + 120);
+      // The yellow line you stand behind.
+      ctx.fillStyle = "rgba(255,200,60,0.30)";
+      for (let y = 0; y < H; y += 26) {
+        ctx.fillRect(laneX - 16, y, 4, 14);
+        ctx.fillRect(laneX + laneW + 12, y, 4, 14);
+      }
+      // Platform lamps.
+      [0.2, 0.8].forEach((share) => {
+        const lamp = ctx.createRadialGradient(W * share, 0, 8, W * share, 0, H * 0.7);
+        lamp.addColorStop(0, `rgba(255,220,160,${0.07 + hr * 0.03})`);
+        lamp.addColorStop(1, "rgba(255,220,160,0)");
+        ctx.fillStyle = lamp;
+        ctx.fillRect(-60, -60, W + 120, H + 120);
+      });
+    }
+
+    function drawTrain(hr) {
+      const W = canvas.width, H = canvas.height, c = courtNow(), state = arenaRules.train;
+      const lane = ArenaRules.trainLane(c), cx = lane.x + lane.w / 2, t = performance.now() * 0.001;
+      const warning = state.phase === "warning", passing = state.phase === "passing";
+
+      if (warning) {
+        // Chevrons run down the track the way the train will come.
+        const tint = state.express ? "255,90,90" : "255,200,60", slide = (t * (state.express ? 260 : 160)) % 40;
+        ctx.strokeStyle = `rgba(${tint},0.55)`;
+        ctx.lineWidth = 3;
+        ctx.lineJoin = "round";
+        for (let y = -40; y < H + 40; y += 40) {
+          const at = state.dir > 0 ? y + slide : y - slide, tip = state.dir > 0 ? 8 : -8;
+          ctx.beginPath();
+          ctx.moveTo(cx - lane.w * 0.3, at - tip); ctx.lineTo(cx, at); ctx.lineTo(cx + lane.w * 0.3, at - tip);
+          ctx.stroke();
+        }
+      }
+
+      const box = ArenaRules.trainBox(arenaRules, c);
+      if (box) {
+        const body = state.express ? "168,50,62" : "57,80,122", trim = state.express ? "255,214,150" : "190,214,255";
+        const car = H * 0.2, top = Math.max(box.y, -60), bottom = Math.min(box.y + box.h, H + 60);
+        ctx.fillStyle = `rgb(${body})`;
+        ctx.fillRect(box.x, top, box.w, bottom - top);
+        if (state.hit > 0) { ctx.fillStyle = `rgba(255,255,255,${state.hit * 0.5})`; ctx.fillRect(box.x, top, box.w, bottom - top); }
+        ctx.fillStyle = `rgba(${trim},0.9)`;
+        ctx.fillRect(box.x, top, 3, bottom - top);
+        ctx.fillRect(box.x + box.w - 3, top, 3, bottom - top);
+        // carriage gaps and lit windows, fixed to the train as it moves
+        for (let y = box.y; y < box.y + box.h; y += car) {
+          if (y > H + 20 || y + car < -20) continue;
+          ctx.fillStyle = "rgba(0,0,0,0.6)";
+          ctx.fillRect(box.x, y - 2, box.w, 4);
+          ctx.fillStyle = "rgba(255,236,170,0.85)";
+          for (let k = 0; k < 4; k++) ctx.fillRect(box.x + box.w * 0.3, y + car * (0.14 + k * 0.2), box.w * 0.4, car * 0.11);
+        }
+        // headlight
+        const beam = ctx.createRadialGradient(cx, state.head, 4, cx, state.head, 120);
+        beam.addColorStop(0, "rgba(255,244,200,0.55)");
+        beam.addColorStop(1, "rgba(255,244,200,0)");
+        ctx.fillStyle = beam;
+        ctx.fillRect(cx - 120, state.head - 120, 240, 240);
+      }
+
+      // Signals at both ends of the track: green when clear, flashing red before
+      // a train, red while it passes.
+      const flashOn = Math.floor(t * 4) % 2 === 0;
+      [H * 0.16, H * 0.84].forEach((y) => {                // clear of the HUD and the help bar
+        ctx.fillStyle = "rgba(8,9,16,0.92)";
+        ctx.fillRect(lane.x - 34, y - 12, 22, 24);
+        ctx.fillRect(lane.x + lane.w + 12, y - 12, 22, 24);
+        [[lane.x - 23, 0], [lane.x + lane.w + 23, 1]].forEach(([x, side]) => {
+          const red = passing || (warning && (flashOn ? side === 0 : side === 1));
+          ctx.shadowColor = red ? "rgba(255,60,60,0.95)" : "rgba(90,255,150,0.6)";
+          ctx.shadowBlur = red ? 16 : (warning ? 0 : 6);
+          ctx.fillStyle = red ? "rgba(255,80,80,1)" : warning ? "rgba(90,30,30,0.9)" : "rgba(90,255,150,0.55)";
+          ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.fill();
+          ctx.shadowBlur = 0;
+        });
+      });
+
+      // The departures board.
+      ctx.font = "bold 11px monospace";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      const clock = (frames) => `0:${String(Math.max(0, Math.ceil(frames / 60))).padStart(2, "0")}`;
+      let board, tint = "190,198,255", alpha = 0.5;
+      if (passing) { board = state.express ? "EXPRESS PASSING" : "TRAIN PASSING"; tint = "255,120,120"; alpha = 0.85; }
+      else if (warning) { board = `${state.express ? "EXPRESS" : "TRAIN"} APPROACHING  ${clock(state.timer)}`; tint = state.express ? "255,120,120" : "255,210,110"; alpha = 0.9; }
+      else board = `NEXT TRAIN  ${clock(state.timer + ArenaRules.TUNING.trainWarn[hr >= ArenaRules.TUNING.expressHeat ? 1 : 0])}`;
+      const boardX = W / 2 + lane.w / 2 + 110;
+      ctx.fillStyle = `rgba(${tint},${alpha})`;
+      ctx.fillText(board, boardX, courtMapLabelY(0));
     }
 
     function drawArenaOverlay() {
@@ -11745,7 +12242,7 @@ function injectGameById(gameId, options = {}) {
       "top:50%",
       "transform:translate(-50%,-50%)",
       "z-index:2147483648",
-      "width:min(920px,94vw)",        // four cards across on a desktop: twelve arenas in three rows
+      "width:min(1180px,94vw)",       // six cards across on a wide desktop: sixteen arenas in three rows
       "max-height:calc(100% - 24px)",
       "overflow-y:auto",
       "box-sizing:border-box",
@@ -11791,7 +12288,7 @@ function injectGameById(gameId, options = {}) {
             transition:background .15s,box-shadow .15s;
             pointer-events:auto;
           ">
-            <div style="font:bold 22px/1 monospace;letter-spacing:.10em;
+            <div style="font:bold 20px/1 monospace;letter-spacing:.08em;
               color:${accentSolid};margin-bottom:10px;
               text-shadow:0 0 14px ${arenaRgba(a, 0.4)};">${a.name}</div>
             <div style="font-size:10px;line-height:1.7;color:${textSub};letter-spacing:.04em;">
@@ -11817,7 +12314,7 @@ function injectGameById(gameId, options = {}) {
           letter-spacing:.1em;margin-bottom:16px;">
           ← → NAVIGATE &nbsp;·&nbsp; ENTER CONFIRM &nbsp;·&nbsp; ESC BACK
         </div>
-        <div class="gp-arena-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+        <div class="gp-arena-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
           gap:12px;margin-bottom:14px;">
           ${ARENA_REGISTRY.map((a, i) => makeCard(a, i)).join("")}
         </div>
@@ -12156,6 +12653,9 @@ function injectGameById(gameId, options = {}) {
             if (decoy.y <= courtTopAt(decoy.x) + 10) decoy.vy = Math.abs(decoy.vy);
             else if (decoy.y >= courtBottomAt(decoy.x) - 10) decoy.vy = -Math.abs(decoy.vy);
           } else if (decoy.y <= 10 || decoy.y >= canvas.height - 10) decoy.vy *= -1;
+          // A decoy goes through a portal like the real ball, and fizzles on anything solid.
+          if (arenaRules.id === "portal") ArenaRules.hitPortals(arenaRules, courtNow(), decoy);
+          else if (OBJECT_MAPS[arenaRules.id] && ArenaRules.blocked(arenaRules, courtNow(), decoy.x, decoy.y, 8)) decoy.life = 0;
           if (decoy.life <= 0 || decoy.x < -40 || decoy.x > canvas.width + 40) {
             decoys.splice(i, 1);
           }
@@ -12327,6 +12827,7 @@ function injectGameById(gameId, options = {}) {
           } else { lastWallBounceTime = now; }
         }
 
+        if (OBJECT_MAPS[arenaRules.id]) arenaObjects();
         checkPowerupCollection();
 
         const leftShieldPad = powerState.blue.shieldTimer > 0 ? 18 : 0;

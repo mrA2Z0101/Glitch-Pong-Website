@@ -26,7 +26,7 @@ All achievements live in one list near the top of `glitchpong-site.js`: search f
 ### Stats you can use
 
 - **From the player's profile:** `wins`, `matchesPlayed`, `bestWinStreak`, `longestRally`, `clutchWins`, `bossSurvivals`, `dashUses`, `level`
-- **Arenas:** `arenasWon` (how many of the twelve arenas the player has won in)
+- **Arenas:** `arenasWon` (how many of the sixteen arenas the player has won in)
 - **From the Glitchcade:** `coinsEarned`, `prizes`
 - **From the Store:** `cosmeticsMastered` (items with a gold trim; see [cosmetics.md](cosmetics.md))
 - **Achievement counters:** `shutoutWins`, `comebackWins`, `hardWins`, `criticalHeat`, `powerups`, `onlineWins`, `setWins`
@@ -36,6 +36,6 @@ All achievements live in one list near the top of `glitchpong-site.js`: search f
 1. Where it happens in the game, call `GlitchAchievements.count("myCounter")`. Guard it with `if (achievementsCount())` so Custom Match and AI vs AI don't count.
 2. Use `stat: "myCounter"` in your achievement.
 
-WORLD TOUR (`world_tour`) uses `goal: 12` because there are twelve arenas (`ARENA_REGISTRY` in `glitchpong-site.js`). If you add or remove an arena, change that goal to match; `tests/arenas.test.mjs` fails if they differ.
+WORLD TOUR (`world_tour`) uses `goal: 16` because there are sixteen arenas (`ARENA_REGISTRY` in `glitchpong-site.js`). If you add or remove an arena, change that goal to match; `tests/arenas.test.mjs` fails if they differ.
 
 The prize achievement `prizes_all` uses `goal: 12` because the prize counter has 12 prizes (`PRIZES` in `glitchcade.js`). If you add or remove prizes, change that goal to match; `tests/achievements-prizes.test.mjs` fails if they differ. Unlocks are permanent, so players who already unlocked it keep it, even if the goal later goes up.
