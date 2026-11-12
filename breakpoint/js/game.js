@@ -108,6 +108,18 @@ function statChips(pairs) {
     `<span class="sc${hl ? ' hl' : ''}"><i>${label}</i><b>${val}</b></span>`).join('') + '</div>';
 }
 
+// Canvas text that breaks onto a second line when it is too wide (upright phones).
+function wrapText(c, text, x, y, maxW, lineH) {
+  const words = text.split(' ');
+  let line = '';
+  for (const w of words) {
+    const next = line ? line + ' ' + w : w;
+    if (line && c.measureText(next).width > maxW) { c.fillText(line, x, y); y += lineH; line = w; }
+    else line = next;
+  }
+  if (line) c.fillText(line, x, y);
+}
+
 function banner(text) {
   const el = $('evBanner');
   el.textContent = text;
@@ -278,9 +290,13 @@ const game = {
       const dtToPad = (this.paddle.y - tgt.y) / Math.max(tgt.vy, 1);
       let px = tgt.x + tgt.vx * dtToPad;
       const span = CFG.W - 2 * (tgt.r || 6);
-      px = Math.abs(((px - (tgt.r || 6)) % (2 * span) + 2 * span) % (2 * span));
-      if (px > span) px = 2 * span - px;
-      target = px + (tgt.r || 6);
+      if (this.rule === 'wrap') {
+        target = ((px % CFG.W) + CFG.W) % CFG.W;        // no side walls here: it comes back in the far side
+      } else {
+        px = Math.abs(((px - (tgt.r || 6)) % (2 * span) + 2 * span) % (2 * span));
+        if (px > span) px = 2 * span - px;
+        target = px + (tgt.r || 6);
+      }
       // AIM: offset the contact point so the bounce is steered at a surviving brick.
       // The paddle maps rel=(ball.x-p.x)/(p.w/2) to angle=-90°+rel*1.05rad, so we can
       // invert that to pick where on the paddle the ball should land.
@@ -311,6 +327,14 @@ const game = {
 
   // ======== run lifecycle ========
   get sentient() { return Meta.data.sentience !== false; },
+  // the arena's one rule (see ARENA_RULES in js/rules.js)
+  get rule() { return this.arena.rule; },
+  // MEMORY LEAK: the paddle is this share of its full length
+  get paddleScale() { return this.rule === 'leak' ? Rules.leakFactor(this.leakReturns || 0) : 1; },
+  restorePaddle(say) {
+    if (say && this.paddleScale < 0.999 && this.paddle) FX.text(this.paddle.x, this.paddle.y - 26, 'PADDLE RESTORED', COL.violet, 12);
+    this.leakReturns = 0;
+  },
 
   startRun(mode) {
     applyLayout();               // the phone may have been rotated on the menu
@@ -350,6 +374,7 @@ const game = {
     this.timers = {}; this.eventFlags = {}; this.activeEvent = null;
     this.surgeApplied = false;   // a level ending mid-DATA SURGE used to strand this true, disabling the event for the rest of the run
     this.levelTime = 0;
+    this.leakReturns = 0;
     this.sectorAssisted = this.autoplay;
     this.loyaltyUsed = false;
     this.paddleAttacker = null;
@@ -802,6 +827,7 @@ const game = {
   // ======== powerups ========
   applyPowerup(kind, x, y) {
     this.stats.powerups++;
+    this.restorePaddle(true);       // MEMORY LEAK: a power-up puts the paddle back to full length
     AudioSys.sfx('powerup');
     const d = POWERUPS[kind];
     FX.text(x, y - 12, d.name, d.color, 13);
@@ -938,6 +964,7 @@ const game = {
     // the boss is already dead and the sector is about to clear: no penalty
     if (this.boss && this.boss.dead) { this.serve(); this.state = 'serve'; return; }
     this.combo = 0;
+    this.restorePaddle(false);
     AudioSys.sfx('lose');
     FX.shake(10); FX.flash(COL.red, 0.3); FX.setRgb(0.8);
     if (this.attract) { this.serve(); this.state = 'serve'; return; } // demo never dies
@@ -1369,6 +1396,7 @@ const game = {
     ball.vy = Math.sin(angle) * ball.speed;
     ball.y = p.y - p.h / 2 - ball.r - 1;
     this.combo = 0;
+    if (this.rule === 'leak') this.leakReturns = (this.leakReturns || 0) + 1;
     p.glow = 1;
     AudioSys.sfx('paddle', (rel + 1) / 2);
     FX.spawn(ball.x, p.y - p.h / 2, PaddleColor.hex, 6, { spd: 120, dir: -Math.PI / 2, spread: 1.6 });
@@ -1632,10 +1660,8 @@ const game = {
   render() {
     const a = this.arena;
     ctx.clearRect(0, 0, CFG.W, CFG.H);
-    // background
-    ctx.fillStyle = a.bg;
-    ctx.fillRect(0, 0, CFG.W, CFG.H);
-    this.renderGrid();
+    // the arena's place (js/backdrops.js); its moving details rest in battery saver and reduced FX
+    Backdrop.draw(ctx, a, CFG.W, CFG.H, this.time, !Power.saving && !FX.reduced);
     // moving walls
     if (this.wallInsetL > 1 || this.wallInsetR > 1) {
       ctx.save();
@@ -1648,7 +1674,7 @@ const game = {
       ctx.beginPath(); ctx.moveTo(CFG.W - this.wallInsetR, 0); ctx.lineTo(CFG.W - this.wallInsetR, CFG.H); ctx.stroke();
       ctx.restore();
     }
-    for (const h of this.hazards) h.render(ctx);
+    for (const h of this.hazards) h.render(ctx, this);
     for (const b of this.bricks) if (b.alive) b.render(ctx, this);
     for (const p of this.powerups) p.render(ctx);
     for (const e of this.enemies) e.render(ctx);
@@ -1764,6 +1790,22 @@ const game = {
       ctx.fillText(ph.key, CFG.W / 2, CFG.H / 2);
     }
     ctx.restore();
+    // what this arena does, while there is time to read it
+    if (this.rule && this.rule !== 'standard') {
+      const rule = Rules.arenaRule(this.arena), y = Math.min(CFG.H / 2 + 170, CFG.PADDLE_Y - 90);
+      const k = IS_TOUCH ? 1.45 : 1;            // touch screens show the field scaled down
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.fillStyle = 'rgba(3,4,10,.78)';
+      ctx.fillRect(0, y - 26 * k, CFG.W, 78 * k);
+      ctx.fillStyle = this.arena.accent;
+      ctx.font = `800 ${Math.round(15 * k)}px Orbitron, monospace`;
+      ctx.fillText(rule.name, CFG.W / 2, y - 3);
+      ctx.fillStyle = COL.white;
+      ctx.font = `${Math.round(13 * k)}px "Share Tech Mono", monospace`;
+      wrapText(ctx, rule.line, CFG.W / 2, y + 18 * k, CFG.W - 50, 17 * k);
+      ctx.restore();
+    }
   },
 
   renderGrid() {
@@ -1787,7 +1829,8 @@ const game = {
 
   updateArenaHud() {
     $('hArena').innerHTML = this.attract ? '<b>BREAKPOINT</b>DEMO PLAY'
-      : `<b>${this.arena.name}</b>SECTOR ${String(this.level).padStart(2, '0')}`;
+      : `<b>${this.arena.name}</b>SECTOR ${String(this.level).padStart(2, '0')}` +
+        (this.rule && this.rule !== 'standard' ? ' · ' + Rules.arenaRule(this.arena).name : '');
   },
 
   renderHud() {
@@ -1795,7 +1838,8 @@ const game = {
     hudSet('hScore', this.score.toLocaleString());
     hudSet('hCombo', this.combo);
     hudSet('hMult', 'x' + this.multiplier);
-    hudSet('hLevel', this.level);
+    // the sector number is in the middle of the HUD; this is how much of it is left
+    hudSet('hLevel', this.boss && !this.boss.dead ? 'BOSS' : this.bricks.reduce((n, b) => n + (b.alive && b.type !== 'barrier' ? 1 : 0), 0));
     hudSet('hLives', this.mode === 'puzzle' ? '◦' + this.ballsLeft : '♥'.repeat(Math.min(this.lives, 6)));
     hudStyle('xpFill', (Meta.levelProgress * 100).toFixed(1) + '%');
     hudStyle('glFill', this.glitch.toFixed(0) + '%');
@@ -2157,7 +2201,7 @@ window.addEventListener('resize', queueScreenChange);
 window.addEventListener('orientationchange', queueScreenChange);
 window.visualViewport?.addEventListener('resize', queueScreenChange);
 applyLayout();
-document.fonts?.ready.then(() => { if (game.attract) onScreenChange(); else fitToScreen(); });   // HUD height settles once the web fonts land
+document.fonts?.ready.then(() => { Backdrop.fontsLoaded(); if (game.attract) onScreenChange(); else fitToScreen(); });   // HUD height settles once the web fonts land
 
 let lastT = performance.now();
 // How many frames a second this moment deserves. The menu, its demo and the result

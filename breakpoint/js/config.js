@@ -84,20 +84,41 @@ function brickWeights(lv) {
 }
 
 // ---------- arenas ----------
+// Each arena has a place (js/backdrops.js draws it), one rule of its own
+// (`rule`: named and explained in js/rules.js), the thing on the field that
+// carries the rule out (`hazard`: a class in js/entities.js or js/arenas.js)
+// and a soundtrack (`music`: a key into MUSIC below).
 const ARENAS = [
-  { name: 'GLITCH ARENA',       bg: '#03040a', grid: 'rgba(113,239,255,.08)', accent: COL.cyan,    tempo: 112, root: 55.0,  hazard: null },
-  { name: 'NEON GRID',          bg: '#06040e', grid: 'rgba(255,88,217,.10)',  accent: COL.magenta, tempo: 118, root: 61.74, hazard: 'movingBarrier' },
-  { name: 'QUANTUM REACTOR',    bg: '#03090a', grid: 'rgba(0,255,150,.09)',   accent: COL.green,   tempo: 122, root: 49.0,  hazard: 'gravityWell' },
-  { name: 'MEMORY LEAK',        bg: '#08040e', grid: 'rgba(154,93,255,.11)',  accent: COL.violet,  tempo: 108, root: 55.0,  hazard: 'corruptedZone' },
-  { name: 'VIRUS HIVE',         bg: '#050a04', grid: 'rgba(125,255,90,.09)',  accent: '#7dff5a',   tempo: 126, root: 46.25, hazard: 'teleportGates' },
-  { name: 'DIGITAL CATHEDRAL',  bg: '#06050d', grid: 'rgba(238,247,255,.07)', accent: COL.white,   tempo: 100, root: 41.2,  hazard: 'laserSweep' },
-  { name: 'CORRUPTED BIOS',     bg: '#0a0604', grid: 'rgba(255,154,0,.09)',   accent: COL.orange,  tempo: 116, root: 55.0,  hazard: 'corruptedZone' },
-  { name: 'AI MAINFRAME',       bg: '#04080d', grid: 'rgba(77,123,255,.11)',  accent: COL.blue,    tempo: 124, root: 61.74, hazard: 'movingBarrier' },
-  { name: 'DATA TUNNEL',        bg: '#05050b', grid: 'rgba(113,239,255,.11)', accent: COL.cyan,    tempo: 130, root: 49.0,  hazard: 'teleportGates' },
-  { name: 'BLACK HOLE NEXUS',   bg: '#020207', grid: 'rgba(154,93,255,.09)',  accent: COL.violet,  tempo: 96,  root: 36.71, hazard: 'gravityWell' },
-  { name: 'INFINITE SERVER',    bg: '#030a08', grid: 'rgba(0,255,150,.10)',   accent: COL.green,   tempo: 128, root: 55.0,  hazard: 'laserSweep' },
-  { name: 'BROKEN SIMULATION',  bg: '#09040a', grid: 'rgba(255,77,109,.10)',  accent: COL.red,     tempo: 134, root: 46.25, hazard: 'corruptedZone' },
+  { name: 'GLITCH ARENA',       bg: '#03040a', grid: 'rgba(113,239,255,.08)', accent: COL.cyan,    tempo: 112, root: 55.0,  rule: 'standard',  hazard: null,            music: 'sector' },
+  { name: 'NEON GRID',          bg: '#06040e', grid: 'rgba(255,88,217,.10)',  accent: COL.magenta, tempo: 118, root: 61.74, rule: 'lightBar',  hazard: 'movingBarrier', music: 'grid' },
+  { name: 'QUANTUM REACTOR',    bg: '#03090a', grid: 'rgba(0,255,150,.09)',   accent: COL.green,   tempo: 122, root: 49.0,  rule: 'pulse',     hazard: 'reactorPulse',  music: 'sector' },
+  { name: 'MEMORY LEAK',        bg: '#08040e', grid: 'rgba(154,93,255,.11)',  accent: COL.violet,  tempo: 108, root: 55.0,  rule: 'leak',      hazard: 'leakGauge',     music: 'memory' },
+  { name: 'VIRUS HIVE',         bg: '#050a04', grid: 'rgba(125,255,90,.09)',  accent: '#7dff5a',   tempo: 126, root: 46.25, rule: 'tunnels',   hazard: 'teleportGates', music: 'virus' },
+  { name: 'DIGITAL CATHEDRAL',  bg: '#06050d', grid: 'rgba(238,247,255,.07)', accent: COL.white,   tempo: 100, root: 41.2,  rule: 'beam',      hazard: 'laserSweep',    music: 'memory' },
+  { name: 'CORRUPTED BIOS',     bg: '#0a0604', grid: 'rgba(255,154,0,.09)',   accent: COL.orange,  tempo: 116, root: 55.0,  rule: 'badSector', hazard: 'corruptedZone', music: 'virus' },
+  { name: 'AI MAINFRAME',       bg: '#04080d', grid: 'rgba(77,123,255,.11)',  accent: COL.blue,    tempo: 124, root: 61.74, rule: 'defender',  hazard: 'defender',      music: 'mainframe' },
+  { name: 'DATA TUNNEL',        bg: '#05050b', grid: 'rgba(113,239,255,.11)', accent: COL.cyan,    tempo: 130, root: 49.0,  rule: 'wrap',      hazard: 'sideWrap',      music: 'sector' },
+  { name: 'BLACK HOLE NEXUS',   bg: '#020207', grid: 'rgba(154,93,255,.09)',  accent: COL.violet,  tempo: 96,  root: 36.71, rule: 'well',      hazard: 'gravityWell',   music: 'nexus' },
+  { name: 'INFINITE SERVER',    bg: '#030a08', grid: 'rgba(0,255,150,.10)',   accent: COL.green,   tempo: 128, root: 55.0,  rule: 'descend',   hazard: 'rackDescent',   music: 'sector' },
+  { name: 'BROKEN SIMULATION',  bg: '#09040a', grid: 'rgba(255,77,109,.10)',  accent: COL.red,     tempo: 134, root: 46.25, rule: 'drift',     hazard: 'driftWind',     music: 'sector' },
 ];
+
+// ---------- soundtrack ----------
+// The recordings each theme plays, in order (js/audio.js streams one at a time
+// and moves to the next when it ends). A bare name is a file in
+// breakpoint/sounds/music; a path is used as it is, which is how the two
+// arenas that share a place with Glitch Pong play that arena's music.
+// To give an arena its own theme: add the files, add a line here, and set the
+// arena's `music` above.
+const MUSIC = {
+  sector:    ['sector-zero-1', 'sector-zero-2'],
+  memory:    ['ghosts-in-the-memory-1', 'ghosts-in-the-memory-2'],
+  virus:     ['infection-protocol-1', 'infection-protocol-2'],
+  nexus:     ['event-horizon-1', 'event-horizon-2'],
+  eye:       ['do-not-blink-1', 'do-not-blink-2'],
+  grid:      [1, 2, 3, 4, 5, 6].map((n) => `../sounds/music/construct_music${n}`),   // Glitch Pong's THE CONSTRUCT
+  mainframe: [1, 2, 3, 4, 5, 6].map((n) => `../sounds/music/matrix_music${n}`),      // Glitch Pong's MATRIX MAINFRAME
+};
 
 // ---------- powerups ----------
 const POWERUPS = {

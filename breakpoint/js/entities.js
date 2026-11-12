@@ -36,7 +36,7 @@ class Paddle {
     this.wideT = Math.max(0, this.wideT - dt);
     this.magnetT = Math.max(0, this.magnetT - dt);
     this.laserT = Math.max(0, this.laserT - dt);
-    this.w = this.baseW * (this.wideT > 0 ? 1.45 : 1);
+    this.w = this.baseW * (this.wideT > 0 ? 1.45 : 1) * (this.g.paddleScale ?? 1);   // MEMORY LEAK shortens it
     this.x = clamp(this.x, this.w / 2 + 4, CFG.W - this.w / 2 - 4);
     this.glow = Math.max(0, this.glow - dt * 3);
   }
@@ -142,6 +142,8 @@ class Ball {
       this.trail.length = 0;
       return;
     }
+    // BROKEN SIMULATION: sideways gravity. The speed is put back below, so this only bends the path.
+    if (g.rule === 'drift') this.vx += Rules.driftAccel(g.time) * dt;
     // gravity influences
     let gy = 0;
     if (this.grav > 0) gy += 300;
@@ -161,8 +163,14 @@ class Ball {
 
     // walls
     const wallL = g.wallInsetL || 0, wallR = CFG.W - (g.wallInsetR || 0);
-    if (this.x < wallL + this.r) { this.x = wallL + this.r; this.vx = Math.abs(this.vx); g.onWallHit(this); }
-    if (this.x > wallR - this.r) { this.x = wallR - this.r; this.vx = -Math.abs(this.vx); g.onWallHit(this); }
+    if (g.rule === 'wrap' && !wallL && wallR === CFG.W) {
+      // DATA TUNNEL has no side walls: out one side, in the other
+      const nx = Rules.wrapX(this.x, this.r, CFG.W);
+      if (nx !== this.x) { this.x = nx; this.wrapped = true; this.trail.length = 0; }
+    } else {
+      if (this.x < wallL + this.r) { this.x = wallL + this.r; this.vx = Math.abs(this.vx); g.onWallHit(this); }
+      if (this.x > wallR - this.r) { this.x = wallR - this.r; this.vx = -Math.abs(this.vx); g.onWallHit(this); }
+    }
     if (this.y < this.r + 2) { this.y = this.r + 2; this.vy = Math.abs(this.vy); g.onWallHit(this); }
     if (this.y > CFG.H + 40) this.dead = true;
 
