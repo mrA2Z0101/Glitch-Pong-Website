@@ -92,6 +92,8 @@ The door on the right wall, past the info board, opens once you own every prize 
 
 Finishing both pays 50 coins, and the gauntlet resets so it can be cleared again. Rounds can be done in either order and on different days.
 
+The first clear also unlocks **THE EYE'S LAIR** in Glitch Pong's arena menu (see [arenas.md](arenas.md)). Glitch Pong reads `gauntlet.clears` from the floor save to decide.
+
 ## Glitch patrons
 
 Up to four silhouettes stand at dead cabinets. Get within about three metres and they dissolve, then turn up at another machine once you've moved away.

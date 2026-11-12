@@ -20,6 +20,14 @@
 //   portal    QUANTUM SHIFT         two linked portals
 //   train     LAST TRAIN            a train that crosses the court on a schedule
 //
+// Two change what the players can see:
+//   echo      ECHO            ghost balls replay earlier shots as decoys
+//   panic     KERNEL PANIC    the lights are out; the ball carries the only light
+//
+// Two tell a story about the game:
+//   archive   ARCHIVE BUILD 0.1  an amber prototype the modern game bleeds into
+//   lair      THE EYE'S LAIR     the Eye watches all match, and arrives sooner
+//
 // Nothing here touches the page or the canvas: glitchpong-site.js owns the
 // drawing and calls in with a description of the court. That keeps the rules
 // testable under Node (tests/arenas.test.mjs). See docs/arenas.md.
@@ -37,7 +45,8 @@
   const IDS = [
     "penalty", "overflow", "leak", "defrag",
     "freefall", "coolant", "rooftop", "beat",
-    "bricks", "tilt", "portal", "train"
+    "bricks", "tilt", "portal", "train",
+    "echo", "panic", "archive", "lair"
   ];
 
   const TUNING = {
@@ -126,7 +135,24 @@
     trainWarn: [90, 60],      // frames the signals flash before the train arrives
     trainSpeed: [9, 16],      // pixels a frame on a 720-pixel-tall court
     trainLength: [1.2, 0.8],  // in court heights
-    trainShove: 5             // vertical speed a ball picks up when the front of the train catches it
+    trainShove: 5,            // vertical speed a ball picks up when the front of the train catches it
+
+    // ECHO
+    echoKeep: 8,              // earlier shots remembered from each paddle
+    echoHeat: 0.5,            // Heat ratio from which a return sends out two ghosts, not one
+    echoAlpha: [0.2, 0.92],   // how solid a ghost looks at no Heat and at Critical Heat
+
+    // KERNEL PANIC
+    panicLight: [0.17, 0.11], // radius of the ball's light, as a share of court height, at no Heat and full Heat
+    panicDark: 0.94,          // how black the unlit court is (1 = pitch black)
+    panicFlash: 0.055,        // how much of the flash on a hit fades each frame
+
+    // ARCHIVE BUILD 0.1
+    bleedHeat: [0.15, 0.75],  // Heat ratio where the modern game starts to show, and where it has taken over
+    archiveQuiet: 0.34,       // below this much bleed the ball has none of its glitches
+
+    // THE EYE'S LAIR
+    lairHeat: 0.7             // the Eye arrives at this share of full Heat, not at 100%
   };
 
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -146,7 +172,11 @@
       bricks: { list: [], broke: 0 },
       tilt: { lit: TUNING.bumperSlots.map(() => false), flash: TUNING.bumperSlots.map(() => 0), rest: TUNING.bumperSlots.map(() => 0) },
       portal: { amount: 0, phase: 0, flash: 0 },
-      train: { phase: "idle", timer: TUNING.trainFirst, dir: 1, head: 0, speed: 0, length: 0, express: false, count: 0, hit: 0 }
+      train: { phase: "idle", timer: TUNING.trainFirst, dir: 1, head: 0, speed: 0, length: 0, express: false, count: 0, hit: 0 },
+      echo: { shots: { left: [], right: [] }, recording: null, ghosts: [] },
+      panic: { flash: 0, light: TUNING.panicLight[0] },
+      archive: { bleed: 0 },
+      lair: { look: { x: 0, y: 0 }, lid: 1, shut: false }
     };
   }
 
@@ -525,6 +555,84 @@
     return false;
   }
 
+  // ── ECHO ─────────────────────────────────────────────────────────────────
+  // A shot is the ball's path from one paddle to the other, kept as how far
+  // across the court it had got (0 to 1) and how far down (0 to 1). A ghost
+  // replays one of those from the same paddle, keeping pace with the real ball.
+  const echoFace = (c, side) => side === "left" ? c.leftFace : c.rightFace;
+
+  function echoKeepShot(s) {
+    const rec = s.echo.recording;
+    s.echo.recording = null;
+    // Only shots that made it all the way across are worth replaying.
+    if (!rec || rec.path.length < 6 || rec.path[rec.path.length - 1].p < 0.9) return;
+    const kept = s.echo.shots[rec.side];
+    kept.push(rec.path);
+    while (kept.length > TUNING.echoKeep) kept.shift();
+  }
+
+  // A paddle on `side` just returned the ball. Files the shot that ended,
+  // starts recording the new one, and sends out the ghosts that go with it.
+  function echoReturn(s, c, side, heatRatio, rand = Math.random) {
+    if (s.id !== "echo") return;
+    echoKeepShot(s);
+    s.echo.recording = { side, path: [] };
+    s.echo.ghosts = [];
+    const choices = s.echo.shots[side].slice(), want = heatRatio >= TUNING.echoHeat ? 2 : 1;
+    for (let i = 0; i < want && choices.length; i++) {
+      const path = choices.splice(Math.floor(rand() * choices.length), 1)[0];
+      s.echo.ghosts.push({ side, path, p: 0, x: echoFace(c, side), y: path[0].y * c.height });
+    }
+  }
+
+  // Where a recorded shot was when it had got `p` of the way across.
+  function echoY(path, p) {
+    let i = 0;
+    while (i < path.length - 2 && path[i + 1].p < p) i++;
+    const a = path[i], b = path[i + 1] || a;
+    return b.p === a.p ? a.y : a.y + (b.y - a.y) * clamp((p - a.p) / (b.p - a.p), 0, 1);
+  }
+
+  function echoTrack(s, c, ball) {
+    const span = c.rightFace - c.leftFace, rec = s.echo.recording;
+    if (rec) {
+      const p = Math.abs(ball.x - echoFace(c, rec.side)) / span, last = rec.path[rec.path.length - 1];
+      if (!last || p > last.p) rec.path.push({ p, y: ball.y / c.height });
+    }
+    // Ghosts cross the court at whatever pace the real ball is going now.
+    const step = Math.abs(ball.vx || 0) * c.xScale / span;
+    s.echo.ghosts = s.echo.ghosts.filter((g) => {
+      g.p += step;
+      g.x = echoFace(c, g.side) + (g.side === "left" ? 1 : -1) * g.p * span;
+      g.y = echoY(g.path, g.p) * c.height;
+      return g.p < 1.03;
+    });
+  }
+
+  // How solid a ghost looks: faint at low Heat, nearly solid at Critical Heat.
+  function ghostAlpha(heatRatio) {
+    return lerp(TUNING.echoAlpha[0], TUNING.echoAlpha[1], heatRatio / 0.8);
+  }
+
+  // ── KERNEL PANIC ─────────────────────────────────────────────────────────
+  // A paddle hit lights the whole court for a moment.
+  function panicHit(s) {
+    if (s.id === "panic") s.panic.flash = 1;
+  }
+
+  // ── ARCHIVE BUILD 0.1 ────────────────────────────────────────────────────
+  // True while the prototype is still in charge: the ball does not teleport,
+  // juke or surge, and no power-ups appear.
+  function archiveQuiet(s) {
+    return s.id === "archive" && s.archive.bleed < TUNING.archiveQuiet;
+  }
+
+  // ── THE EYE'S LAIR ───────────────────────────────────────────────────────
+  // The share of full Heat at which the Eye arrives.
+  function eyeHeat(s) {
+    return s.id === "lair" ? TUNING.lairHeat : 1;
+  }
+
   // ── Lifecycle ────────────────────────────────────────────────────────────
   // Begin a match on `id`. Anything that isn't one of the four maps (another
   // arena, an online match, the menu) switches every rule off.
@@ -565,6 +673,13 @@
       // The serve starts on the track, so the line is cleared for it.
       s.train.phase = "idle";
       s.train.timer = TUNING.trainFirst;
+    } else if (s.id === "lair") {
+      s.lair.shut = false;
+    } else if (s.id === "echo") {
+      // The point is over: drop the half-recorded shot and the ghosts, but
+      // keep what has been learned for the next rally.
+      s.echo.recording = null;
+      s.echo.ghosts = [];
     }
   }
 
@@ -577,6 +692,7 @@
   function openCourt(s) {
     if (s.id === "leak" && s.leak.returns > 0) { s.leak.returns = 0; s.leak.snap = 1; }
     if (s.id === "train") { s.train.phase = "idle"; s.train.timer = TUNING.trainFirst; }   // no train through the Eye
+    if (s.id === "lair") s.lair.shut = true;            // the backdrop's eye closes while the real one is out
   }
 
   // Once a frame. `live` is false whenever the ball is not in play. `ball` is
@@ -727,6 +843,25 @@
         }
       }
       t.hit = Math.max(0, t.hit - 0.08);
+    } else if (s.id === "echo") {
+      if (live && ball) echoTrack(s, c, ball);
+      else if (!live) s.echo.ghosts = [];
+    } else if (s.id === "panic") {
+      s.panic.flash = Math.max(0, s.panic.flash - TUNING.panicFlash);
+      s.panic.light = lerp(TUNING.panicLight[0], TUNING.panicLight[1], heatRatio);
+    } else if (s.id === "archive") {
+      const want = clamp((heatRatio - TUNING.bleedHeat[0]) / (TUNING.bleedHeat[1] - TUNING.bleedHeat[0]), 0, 1);
+      s.archive.bleed += (want - s.archive.bleed) * 0.06;
+      if (Math.abs(want - s.archive.bleed) < 0.002) s.archive.bleed = want;
+    } else if (s.id === "lair") {
+      // The pupil follows the ball, a little behind it. The lid shuts when the
+      // real Eye turns up, so there are never two of them.
+      const l = s.lair;
+      if (ball) {
+        l.look.x += (clamp((ball.x - c.width / 2) / (c.width / 2), -1, 1) - l.look.x) * 0.12;
+        l.look.y += (clamp((ball.y - c.height / 2) / (c.height / 2), -1, 1) - l.look.y) * 0.12;
+      }
+      l.lid += ((s.lair.shut ? 0 : 1) - l.lid) * 0.12;
     }
   }
 
@@ -827,6 +962,7 @@
     mouth, posts, walls, topAt, bottomAt, band, paddleBand, predictY, aimY,
     makeProfile, profileAt, leakMaxInset,
     gravity, fall, hopSpeed, slide, drift, beatDistance, onBeat, returnBoost,
-    objects, obstacles, blocked, sweepBox, brickBox, bumperAt, portalAt, hitPortals, trainLane, trainBox
+    objects, obstacles, blocked, sweepBox, brickBox, bumperAt, portalAt, hitPortals, trainLane, trainBox,
+    echoReturn, ghostAlpha, panicHit, archiveQuiet, eyeHeat
   };
 });

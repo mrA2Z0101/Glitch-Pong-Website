@@ -9,7 +9,7 @@ import { UnrealBloomPass } from './vendor/three-addons/postprocessing/UnrealBloo
 import { OutputPass } from './vendor/three-addons/postprocessing/OutputPass.js';
 import { mergeGeometries } from './vendor/three-addons/utils/BufferGeometryUtils.js';
 import { createArcadeAudio } from './glitchcade-audio.js?v=glitchcade-10';
-import { installFloor } from './glitchcade-floor.js?v=floor-2';
+import { installFloor } from './glitchcade-floor.js?v=floor-3';
 
 // Power policy (glitchcade-power.js, a plain script loaded ahead of this module).
 // A stub keeps the arcade running if that script is missing.

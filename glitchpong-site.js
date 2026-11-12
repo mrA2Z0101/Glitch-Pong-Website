@@ -152,7 +152,11 @@ const GlitchProgression = (function() {
         bricks:    { matches: 0, wins: 0, losses: 0 },
         tilt:      { matches: 0, wins: 0, losses: 0 },
         portal:    { matches: 0, wins: 0, losses: 0 },
-        train:     { matches: 0, wins: 0, losses: 0 }
+        train:     { matches: 0, wins: 0, losses: 0 },
+        echo:      { matches: 0, wins: 0, losses: 0 },
+        panic:     { matches: 0, wins: 0, losses: 0 },
+        archive:   { matches: 0, wins: 0, losses: 0 },
+        lair:      { matches: 0, wins: 0, losses: 0 }
       }
     };
   }
@@ -466,7 +470,7 @@ const GlitchAchievements = (function() {
     { id: "clutch",       name: "ICE IN THE VEINS", desc: "Win a match that went to Clutch Mode.",          stat: "clutchWins",      goal: 1 },
     { id: "hard_win",     name: "HARD RESET",       desc: "Beat the Hard AI.",                              stat: "hardWins",        goal: 1 },
     { id: "hard_wins_10", name: "OVERCLOCKED",      desc: "Beat the Hard AI 10 times.",                     stat: "hardWins",        goal: 10 },
-    { id: "world_tour",   name: "WORLD TOUR",       desc: "Win a match in all sixteen arenas.",             stat: "arenasWon",       goal: 16 },
+    { id: "world_tour",   name: "WORLD TOUR",       desc: "Win a match in all twenty arenas.",              stat: "arenasWon",       goal: 20 },
     { id: "critical",     name: "MELTDOWN",         desc: "Push a rally to Critical Heat (80%+).",          stat: "criticalHeat",    goal: 1 },
     { id: "boss",         name: "EYE CONTACT",      desc: "Survive the Eye.",                               stat: "bossSurvivals",   goal: 1 },
     { id: "boss_5",       name: "EYE OF THE STORM", desc: "Survive the Eye 5 times.",                       stat: "bossSurvivals",   goal: 5 },
@@ -2518,6 +2522,24 @@ function injectGameById(gameId, options = {}) {
     // COOLANT LEAK: how far a dash moved each paddle during this frame's input.
     // A dash is a blink, so it is kept out of the slide.
     const arenaDashShift = { left: 0, right: 0 };
+    // A paddle on `side` ("left" or "right") just returned the ball.
+    function arenaOnReturn(side) {
+      ArenaRules.onReturn(arenaRules);                                   // MEMORY LEAK narrows
+      ArenaRules.echoReturn(arenaRules, courtNow(), side, getHeatRatio()); // ECHO sends out its ghosts
+      ArenaRules.panicHit(arenaRules);                                   // KERNEL PANIC flashes the lights
+      if (arenaRules.id === "echo") echoRipples.push({ x: side === "left" ? leftX + paddleW : rightX, y: ballY, age: 0 });
+    }
+    // THE EYE'S LAIR is the reward for clearing the Eye Gauntlet in the arcade
+    // (cabinet 11). The arcade keeps that count in its own save.
+    function eyeGauntletCleared() {
+      try {
+        const floor = JSON.parse(localStorage.getItem("glitchcade_floor_v1") || "null");
+        return !!(floor && floor.gauntlet && floor.gauntlet.clears > 0);
+      } catch (error) { return false; }
+    }
+    // Heat at which the Eye turns up: 100%, or sooner in its lair.
+    function eyeArrivesAt() { return HEAT_MAX * (arenaRules.id ? ArenaRules.eyeHeat(arenaRules) : 1); }
+    function arenaLocked(arena) { return !!arena.eyeReward && !eyeGauntletCleared() && !adminCheats(); }
     // BEAT DROP: extra speed for a return that lands on the beat.
     function beatReturn(side) {
       const boost = ArenaRules.returnBoost(arenaRules, side);
@@ -2542,7 +2564,7 @@ function injectGameById(gameId, options = {}) {
       if (!arenaRules.id) return;
       const live = !roundFrozen && !countdownActive && !bossModeActive && !preBossActive && shakeFrames === 0
         && !gameOver && !finalScoreCinematic && progScreen !== "levelUp" && progScreen !== "perkSelect";
-      arenaSpot.x = ballX; arenaSpot.y = ballY;
+      arenaSpot.x = ballX; arenaSpot.y = ballY; arenaSpot.vx = vx;
       ArenaRules.update(arenaRules, courtNow(), getHeatRatio(), criticalHeat, live, Math.random, arenaSpot);
       if (arenaRules.id === "train") {
         // The crossing bell while the signals flash, then the train itself.
@@ -4126,6 +4148,7 @@ function injectGameById(gameId, options = {}) {
 
       // On BREAKPOINT CROSSOVER power-ups only come out of broken bricks.
       if (roundFrozen || !modeSelected || rules.powerups === "off" || arenaRules.id === "bricks") return;
+      if (arenaRules.id === "archive" && ArenaRules.archiveQuiet(arenaRules)) return;   // the prototype had no power-ups
       powerupSpawnCooldown -= rules.powerups === "frequent" ? 3 : 1;
       if (powerupSpawnCooldown <= 0) {
         spawnArenaPowerup();
@@ -4361,12 +4384,17 @@ function injectGameById(gameId, options = {}) {
       // On STACK OVERFLOW a read that runs off the top comes back in at the
       // bottom, and on FREEFALL the ball arcs.
       const lookAhead = Math.min(predictionFrames, travelFrames);
+      const tracking = aiTrackingState[side];
+      // On ECHO the AI can pick the wrong ball, like anyone else. It follows a
+      // ghost until the balls are close, then sees its mistake.
+      const ghost = tracking.echoGhost && arenaRules.id === "echo" && arenaRules.echo.ghosts.includes(tracking.echoGhost)
+        && distanceToPaddle > canvas.width * 0.3 ? tracking.echoGhost : null;
       const predictedY = clamp(
-        mapBall ? ArenaRules.aimY(arenaRules, courtNow(), targetBallY, targetVy, lookAhead) : targetBallY + targetVy * lookAhead,
+        ghost ? ghost.y
+          : mapBall ? ArenaRules.aimY(arenaRules, courtNow(), targetBallY, targetVy, lookAhead) : targetBallY + targetVy * lookAhead,
         paddleMinY() + paddleH * 0.5,
         paddleMaxY() + paddleH * 0.5
       );
-      const tracking = aiTrackingState[side];
 
       // Make one human-style read when an incoming shot begins. The error stays
       // coherent instead of jittering randomly every frame, then shrinks as the
@@ -4383,6 +4411,15 @@ function injectGameById(gameId, options = {}) {
         }
         tracking.reactionTimer = 0;
         tracking.wasApproaching = true;
+        tracking.echoGhost = null;
+        if (mapBall && arenaRules.id === "echo" && !isMenuDemo) {
+          const incoming = arenaRules.echo.ghosts.filter((g) => g.side !== side);
+          const gullible = aiDifficulty === "easy" ? 0.5 : aiDifficulty === "hard" ? 0.12 : 0.3;
+          // the more solid the ghosts look, the more often it falls for one
+          if (incoming.length && Math.random() < gullible * (0.5 + 0.5 * ArenaRules.ghostAlpha(getHeatRatio()))) {
+            tracking.echoGhost = incoming[Math.floor(Math.random() * incoming.length)];
+          }
+        }
       } else if (!movingTowardPaddle) {
         tracking.wasApproaching = false;
         tracking.aimError = 0;
@@ -6309,6 +6346,7 @@ function injectGameById(gameId, options = {}) {
           const lifeRatio = Math.max(0, decoy.life / decoy.maxLife);
           drawSkinnedBall(decoy.x, decoy.y, (8 + heatRatio * 0.6) * (0.92 + lifeRatio * 0.18), 22 + heatRatio * 12, 0.75 + heatRatio * 0.2);
         }
+        if (arenaRules.id === "echo") drawEchoGhosts(heatRatio);
 
         if (arenaPowerup) {
           const pulse = 1 + Math.sin(arenaPowerup.pulse) * 0.12;
@@ -7222,6 +7260,7 @@ function injectGameById(gameId, options = {}) {
 
     function trySpawnGlitchWall() {
       if (!rules.glitchWalls || roundFrozen || !modeSelected || gameOver || bossModeActive || finalScoreCinematic) return;
+      if (arenaRules.id === "archive" && ArenaRules.archiveQuiet(arenaRules)) return;   // nor glitch walls
       const hr = getHeatRatio();
       if (hr < 0.30) return;
 
@@ -7670,6 +7709,60 @@ function injectGameById(gameId, options = {}) {
         gradient: "linear-gradient(135deg,rgba(8,9,20,0.96) 0%,rgba(22,24,58,0.8) 100%)",
         hasOverlay: false,
         courtRules: true,
+        init:     null,
+        cleanup:  null
+      },
+      // Two maps change what the players can see, and two tell a story.
+      {
+        id:       "echo",
+        name:     "ECHO",
+        subtitle: "Ghost Balls // Which Is Real",
+        desc:     "Every return sends out ghosts that replay earlier shots. They are faint at first and nearly solid at Critical Heat.",
+        tags:     ["Decoys", "Replayed Shots", "Heat Solidifies"],
+        accent:   "#b79bff",
+        gradient: "linear-gradient(135deg,rgba(9,7,22,0.96) 0%,rgba(26,18,60,0.8) 100%)",
+        hasOverlay: false,
+        courtRules: true,
+        init:     null,
+        cleanup:  null
+      },
+      {
+        id:       "panic",
+        name:     "KERNEL PANIC",
+        subtitle: "Lights Out // Ball Light Only",
+        desc:     "The court is dark. The ball lights a small circle round itself, and every hit flashes the lights on for a moment.",
+        tags:     ["Blackout", "Hit Flashes", "Heat Dims"],
+        accent:   "#ff5b5b",
+        gradient: "linear-gradient(135deg,rgba(6,3,5,0.98) 0%,rgba(34,6,10,0.85) 100%)",
+        hasOverlay: false,
+        courtRules: true,
+        init:     null,
+        cleanup:  null
+      },
+      {
+        id:       "archive",
+        name:     "ARCHIVE BUILD 0.1",
+        subtitle: "The Prototype // Amber Screen",
+        desc:     "The first build: a square ball, two bars and nothing else. As Heat rises, the game it became breaks through.",
+        tags:     ["Monochrome", "No Glitches", "Heat Bleeds In"],
+        accent:   "#ffb000",
+        gradient: "linear-gradient(135deg,rgba(12,8,0,0.97) 0%,rgba(44,28,0,0.8) 100%)",
+        hasOverlay: false,
+        courtRules: true,
+        init:     null,
+        cleanup:  null
+      },
+      {
+        id:       "lair",
+        name:     "THE EYE'S LAIR",
+        subtitle: "It Is Always Watching // It Comes Sooner",
+        desc:     "The Eye fills the court and follows the ball all match. Here it arrives at 70% Heat.",
+        tags:     ["The Eye", "Early Arrival", "Gauntlet Reward"],
+        accent:   "#d06bff",
+        gradient: "linear-gradient(135deg,rgba(14,4,18,0.97) 0%,rgba(48,8,52,0.82) 100%)",
+        hasOverlay: false,
+        courtRules: true,
+        eyeReward: true,      // locked until the Eye Gauntlet (arcade cabinet 11) has been cleared
         init:     null,
         cleanup:  null
       }
@@ -8685,7 +8778,10 @@ function injectGameById(gameId, options = {}) {
       bricks: "rgba(255,79,123,0.16)",
       tilt: "rgba(242,244,255,0.16)",
       portal: "rgba(46,230,197,0.20)",
-      train: "rgba(143,155,255,0.14)"
+      train: "rgba(143,155,255,0.14)",
+      echo: "rgba(183,155,255,0.20)",
+      panic: "rgba(255,91,91,0.18)",
+      lair: "rgba(208,107,255,0.16)"
     };
 
     // Walls are filled with a small repeating tile, painted once, instead of
@@ -8736,7 +8832,9 @@ function injectGameById(gameId, options = {}) {
       const draw = {
         penalty: drawPenaltyBackdrop, overflow: drawOverflowBackdrop, leak: drawLeakBackdrop, defrag: drawDefragBackdrop,
         freefall: drawFreefallBackdrop, coolant: drawCoolantBackdrop, rooftop: drawRooftopBackdrop, beat: drawBeatBackdrop,
-        bricks: drawBricksBackdrop, tilt: drawTiltBackdrop, portal: drawPortalBackdrop, train: drawTrainBackdrop
+        bricks: drawBricksBackdrop, tilt: drawTiltBackdrop, portal: drawPortalBackdrop, train: drawTrainBackdrop,
+        echo: drawEchoBackdrop, panic: drawPanicBackdrop, lair: drawLairBackdrop
+        // (ARCHIVE BUILD 0.1 has none: under the prototype is the ordinary Glitch Arena)
       }[currentArenaId];
       if (!draw) return false;
       ctx.save();
@@ -9753,6 +9851,318 @@ function injectGameById(gameId, options = {}) {
       ctx.fillText(board, boardX, courtMapLabelY(0));
     }
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // SIGHT AND STORY MAPS — ECHO, KERNEL PANIC, ARCHIVE BUILD 0.1, THE EYE'S LAIR
+    // Drawing only. Online (no rules running) ECHO has no ghosts, KERNEL PANIC
+    // keeps its lights on, ARCHIVE BUILD 0.1 is the plain Glitch Arena, and
+    // the Eye in the lair watches the ball without closing.
+    // ═══════════════════════════════════════════════════════════════════════
+
+    // ── ECHO: a room where everything comes back ────────────────────────────
+    const echoRipples = [];   // one per return, spreading from where the paddle met the ball
+    function drawEchoBackdrop(hr) {
+      const W = canvas.width, H = canvas.height, t = performance.now() * 0.001;
+      courtMapFill("#0a0818", "#05040d");
+      // The centre line, repeated outwards and fading: the look of an echo.
+      for (let k = 1; k <= 5; k++) {
+        const off = k * W * 0.075 + Math.sin(t * 0.6 + k) * 6;
+        ctx.strokeStyle = `rgba(183,155,255,${0.10 / k})`;
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([12, 12]);
+        ctx.beginPath();
+        ctx.moveTo(W / 2 - off, 0); ctx.lineTo(W / 2 - off, H);
+        ctx.moveTo(W / 2 + off, 0); ctx.lineTo(W / 2 + off, H);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+      while (echoRipples.length > 8) echoRipples.shift();
+      for (let i = echoRipples.length - 1; i >= 0; i--) {
+        const ripple = echoRipples[i];
+        ripple.age += 1;
+        if (ripple.age > 120) { echoRipples.splice(i, 1); continue; }
+        for (let k = 0; k < 3; k++) {
+          const r = (ripple.age - k * 14) * 5;
+          if (r <= 0) continue;
+          ctx.strokeStyle = `rgba(183,155,255,${(1 - ripple.age / 120) * (0.22 - k * 0.06)})`;
+          ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.arc(ripple.x, ripple.y, r, 0, Math.PI * 2); ctx.stroke();
+        }
+      }
+    }
+
+    // Ghosts wear the ball's own skin, so the only tell is how solid they look.
+    function drawEchoGhosts(hr) {
+      const alpha = ArenaRules.ghostAlpha(hr), span = rightX - (leftX + paddleW);
+      ctx.save();
+      arenaRules.echo.ghosts.forEach((ghost) => {
+        // a short trail, like the real ball's
+        for (let k = 6; k >= 1; k--) {
+          const p = ghost.p - k * 0.011;
+          if (p <= 0) continue;
+          const x = (ghost.side === "left" ? leftX + paddleW + p * span : rightX - p * span);
+          const y = ghostPathY(ghost.path, p) * canvas.height;
+          ctx.globalAlpha = 1;
+          ctx.fillStyle = `rgba(255,255,255,${alpha * 0.16 * (1 - k / 7)})`;
+          ctx.beginPath(); ctx.arc(x, y, BALL_R * (1 - k * 0.04), 0, Math.PI * 2); ctx.fill();
+        }
+        ctx.globalAlpha = alpha;
+        drawSkinnedBall(ghost.x, ghost.y, BALL_R + hr * 1.2, (22 + hr * 12) * alpha, 0.75 + hr * 0.2);
+      });
+      ctx.restore();
+    }
+    function ghostPathY(path, p) {
+      let i = 0;
+      while (i < path.length - 2 && path[i + 1].p < p) i++;
+      const a = path[i], b = path[i + 1] || a;
+      return b.p === a.p ? a.y : a.y + (b.y - a.y) * Math.max(0, Math.min(1, (p - a.p) / (b.p - a.p)));
+    }
+
+    // ── KERNEL PANIC: the machine has crashed and taken the lights with it ──
+    const PANIC_LOG = [
+      "Kernel panic - not syncing: Fatal exception in interrupt",
+      "CPU: 0 PID: 1 Comm: glitchd Tainted: G      D",
+      "Hardware name: GLITCHCADE CABINET 01",
+      "Call Trace:",
+      " ? ball_update+0x4e/0x90",
+      " ? paddle_hit+0x1c/0x40",
+      " ? heat_overflow+0x7a/0x120",
+      " ? eye_wake+0x33/0x60",
+      " ? court_render+0x12/0x30",
+      "RIP: 0010:glitch_pulse+0x2b/0x50",
+      "Code: 48 89 e5 0f 0b 66 90 55 48 8b 05 e1 13 00 00",
+      "RSP: 0018:ffffb3c7c0013e58 EFLAGS: 00010246",
+      "---[ end Kernel panic - not syncing ]---"
+    ];
+    function drawPanicBackdrop(hr) {
+      const W = canvas.width, H = canvas.height;
+      courtMapFill("#12060a", "#0a0306");
+      // The crash log fills the screen. You only ever see it by the ball's light.
+      ctx.font = "12px monospace";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "top";
+      const rows = savingPower() ? 14 : Math.ceil(H / 20);
+      for (let i = 0; i < rows; i++) {
+        const line = PANIC_LOG[i % PANIC_LOG.length];
+        ctx.fillStyle = i % PANIC_LOG.length === 0 || /end Kernel/.test(line) ? "rgba(255,110,110,0.34)" : "rgba(230,214,214,0.20)";
+        ctx.fillText(`[ ${(4.2 + i * 0.013).toFixed(6)}] ${line}`, 30 + (i % 3) * 14, 14 + i * (H / rows));
+        ctx.fillText(line, W * 0.56, 14 + ((i + 5) % rows) * (H / rows));
+      }
+    }
+
+    // The dark is painted on a second canvas with holes cut where there is
+    // light, then laid over the finished court.
+    let panicShade = null;
+    function drawPanicDarkness(hr) {
+      // The Eye brings its own light; and the scoreboard at the end is lit.
+      if (bossModeActive || preBossActive || gameOver || finalScoreCinematic) return;
+      const W = canvas.width, H = canvas.height, state = arenaRules.panic, tuning = ArenaRules.TUNING;
+      if (!panicShade || panicShade.width !== W || panicShade.height !== H) {
+        panicShade = document.createElement("canvas");
+        panicShade.width = W; panicShade.height = H;
+      }
+      const shade = panicShade.getContext("2d");
+      // Reduced motion: no whole-court flash. The dark is shallower, and a hit
+      // swells the ball's light instead.
+      const flash = calmFlashes ? 0 : state.flash * Math.min(1, rules.fx);
+      const dark = calmFlashes ? 0.76 : tuning.panicDark * (1 - flash * 0.9);
+      const flicker = criticalHeat && !calmFlashes ? 0.86 + Math.random() * 0.14 : 1;
+      const radius = H * state.light * flicker * (calmFlashes ? 1.3 + state.flash * 0.9 : 1 + state.flash * 0.25);
+      shade.setTransform(1, 0, 0, 1, 0, 0);
+      shade.globalCompositeOperation = "source-over";
+      shade.clearRect(0, 0, W, H);
+      shade.fillStyle = `rgba(2,3,8,${dark})`;
+      shade.fillRect(0, 0, W, H);
+      // Line the holes up with the ball as the camera draws it.
+      shade.translate(W / 2, H / 2);
+      shade.scale(cameraZoom, cameraZoom);
+      shade.translate(-W / 2 + arenaJitter + cameraDriftX + cameraKickX, -H / 2 + cameraDriftY + cameraKickY);
+      shade.globalCompositeOperation = "destination-out";
+      const light = (x, y, r) => {
+        const hole = shade.createRadialGradient(x, y, r * 0.15, x, y, r);
+        hole.addColorStop(0, "rgba(0,0,0,1)");
+        hole.addColorStop(0.55, "rgba(0,0,0,0.8)");
+        hole.addColorStop(1, "rgba(0,0,0,0)");
+        shade.fillStyle = hole;
+        shade.beginPath(); shade.arc(x, y, r, 0, Math.PI * 2); shade.fill();
+      };
+      light(ballX, ballY, radius);
+      decoys.forEach((decoy) => light(decoy.x, decoy.y, radius));   // a decoy with no light would give itself away
+      ctx.save();
+      ctx.drawImage(panicShade, 0, 0);
+      // Paddles are neon: you can always just make out where yours is.
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = `rgba(${ownerRgb("blue")},0.42)`;
+      ctx.strokeRect(leftX, leftY, paddleW, paddleH);
+      ctx.strokeStyle = `rgba(${ownerRgb("red")},0.42)`;
+      ctx.strokeRect(rightX, rightY, paddleW, paddleH);
+      ctx.restore();
+    }
+
+    // ── ARCHIVE BUILD 0.1: the prototype, drawn over the modern game ────────
+    // The screen is cut into bands. Each band shows the prototype until Heat
+    // passes its threshold, then it shows the modern game underneath.
+    const ARCHIVE_BANDS = 30;
+    const AMBER = "255,176,0";
+    function archiveDigit(n, x, y, size) {
+      // seven segments: top, top-left, top-right, middle, bottom-left, bottom-right, bottom
+      const on = ["1110111", "0010010", "1011101", "1011011", "0111010", "1101011", "1101111", "1010010", "1111111", "1111011"][n % 10];
+      const w = size * 0.6, t = size * 0.14, h = size;
+      const seg = [[x, y, w, t], [x, y, t, h / 2], [x + w - t, y, t, h / 2], [x, y + h / 2 - t / 2, w, t], [x, y + h / 2, t, h / 2], [x + w - t, y + h / 2, t, h / 2], [x, y + h - t, w, t]];
+      seg.forEach((r, i) => { if (on[i] === "1") ctx.fillRect(r[0], r[1], r[2], r[3]); });
+    }
+    function archiveScore(value, centreX, y, size) {
+      const digits = String(Math.max(0, value)), step = size * 0.78;
+      for (let i = 0; i < digits.length; i++) archiveDigit(Number(digits[i]), centreX - (digits.length * step) / 2 + i * step, y, size);
+    }
+    function drawArchiveBuild(hr) {
+      const bleed = arenaRules.archive.bleed;
+      if (bossModeActive || preBossActive || bleed >= 0.999) return;
+      const W = canvas.width, H = canvas.height, t = performance.now() * 0.001, bandH = H / ARCHIVE_BANDS;
+      // Which bands still belong to the prototype.
+      const old = [];
+      for (let i = 0; i < ARCHIVE_BANDS; i++) {
+        const waver = bleed > 0 && bleed < 1 && !calmFlashes ? Math.sin(t * 7 + i * 2.4) * 0.035 : 0;
+        if (courtMapNoise(i + 1200) >= bleed + waver) old.push(i);
+      }
+      if (!old.length) return;
+      ctx.save();
+      ctx.beginPath();
+      old.forEach((i) => ctx.rect(0, Math.floor(i * bandH), W, Math.ceil(bandH) + 1));
+      ctx.clip();
+
+      ctx.fillStyle = "#0b0700";
+      ctx.fillRect(0, 0, W, H);
+      const amber = (alpha) => `rgba(${AMBER},${alpha})`;
+      // net and score, the way the first build had them
+      ctx.fillStyle = amber(0.55);
+      for (let y = 6; y < H; y += 26) ctx.fillRect(W / 2 - 4, y, 8, 13);
+      const size = Math.min(64, H * 0.12);
+      ctx.fillStyle = amber(0.7);
+      archiveScore(leftScore, W / 2 - size * 2, isMobileDevice ? 46 : 84, size);
+      archiveScore(rightScore, W / 2 + size * 2, isMobileDevice ? 46 : 84, size);
+      // two bars and a square ball: no glow, no trail, no shake
+      ctx.fillStyle = amber(1);
+      ctx.fillRect(leftX, leftY, paddleW, paddleH);
+      ctx.fillRect(rightX, rightY, paddleW, paddleH);
+      if (!roundFrozen || countdownActive) ctx.fillRect(ballX - BALL_R, ballY - BALL_R, BALL_R * 2, BALL_R * 2);
+      decoys.forEach((decoy) => ctx.fillRect(decoy.x - BALL_R, decoy.y - BALL_R, BALL_R * 2, BALL_R * 2));
+      // anything from the modern game that can affect play still has to be seen
+      ctx.strokeStyle = amber(0.9);
+      ctx.lineWidth = 2;
+      glitchWalls.forEach((wall) => {
+        if (wall.phase === "dying") return;
+        ctx.setLineDash(wall.phase === "warning" ? [5, 5] : []);
+        ctx.strokeRect(wall.x, wall.y, wall.w, wall.h);
+      });
+      ctx.setLineDash([]);
+      if (arenaPowerup) {
+        ctx.beginPath(); ctx.arc(arenaPowerup.x, arenaPowerup.y, arenaPowerup.r, 0, Math.PI * 2); ctx.stroke();
+        ctx.fillStyle = amber(0.9);
+        ctx.font = "bold 14px monospace";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(arenaPowerup.type === "shield" ? "S" : arenaPowerup.type === "power" ? "P" : "X", arenaPowerup.x, arenaPowerup.y + 1);
+      }
+      ctx.font = "11px monospace";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "alphabetic";
+      ctx.fillStyle = amber(0.5);
+      ctx.fillText("GLITCH PONG  BUILD 0.1", leftX + paddleW + 16, H - (isMobileDevice ? 14 : 54));
+      if (bleed > 0.02) {
+        ctx.textAlign = "right";
+        ctx.fillStyle = amber(0.5 + 0.4 * Math.abs(Math.sin(t * 5)));
+        ctx.fillText(`WARNING: UNKNOWN CODE ${Math.round(bleed * 100)}%`, rightX - 16, H - (isMobileDevice ? 14 : 54));
+      }
+      // amber phosphor lines
+      ctx.fillStyle = "rgba(0,0,0,0.28)";
+      for (let y = 0; y < H; y += 3) ctx.fillRect(0, y, W, 1);
+      ctx.restore();
+
+      // a bright seam wherever old meets new
+      if (bleed > 0) {
+        ctx.fillStyle = `rgba(${AMBER},0.5)`;
+        old.forEach((i) => {
+          if (!old.includes(i - 1) && i > 0) ctx.fillRect(0, Math.floor(i * bandH), W, 1);
+          if (!old.includes(i + 1) && i < ARCHIVE_BANDS - 1) ctx.fillRect(0, Math.floor((i + 1) * bandH), W, 1);
+        });
+      }
+    }
+
+    // ── THE EYE'S LAIR: it has been behind the court the whole time ─────────
+    function drawLairBackdrop(hr) {
+      const W = canvas.width, H = canvas.height, t = performance.now() * 0.001, live = arenaRules.id === "lair";
+      const look = live ? arenaRules.lair.look
+        : { x: Math.max(-1, Math.min(1, (ballX - W / 2) / (W / 2))), y: Math.max(-1, Math.min(1, (ballY - H / 2) / (H / 2))) };
+      // It blinks now and then, and shuts while the real Eye is out on the court.
+      const beat = (t % 7.3), blink = beat < 0.24 ? Math.abs(Math.cos(beat / 0.24 * Math.PI)) : 1;
+      const lid = (live ? arenaRules.lair.lid : 1) * blink * (1 - hr * 0.22);    // it narrows as Heat rises
+      courtMapFill("#10041a", "#07020c");
+      const cx = W / 2, cy = H / 2, half = W * 0.36, open = H * 0.34 * Math.max(0.02, lid);
+
+      // veins reaching in from the corners, redder with Heat
+      ctx.strokeStyle = `rgba(255,70,120,${0.05 + hr * 0.10})`;
+      ctx.lineWidth = 1.5;
+      for (let i = 0; i < 10; i++) {
+        const fromLeft = i % 2 === 0, x0 = fromLeft ? cx - half * 1.25 : cx + half * 1.25, y0 = cy + (courtMapNoise(i + 70) - 0.5) * H * 0.9;
+        ctx.beginPath();
+        ctx.moveTo(x0, y0);
+        for (let k = 1; k <= 5; k++) {
+          ctx.lineTo(x0 + (fromLeft ? 1 : -1) * k * half * 0.16, y0 + (cy - y0) * (k / 6) + Math.sin(i * 3 + k * 1.7) * 14);
+        }
+        ctx.stroke();
+      }
+
+      const almond = () => {
+        ctx.beginPath();
+        ctx.moveTo(cx - half, cy);
+        ctx.quadraticCurveTo(cx, cy - open * 2, cx + half, cy);
+        ctx.quadraticCurveTo(cx, cy + open * 2, cx - half, cy);
+        ctx.closePath();
+      };
+      ctx.save();
+      almond();
+      ctx.clip();
+      const white = ctx.createRadialGradient(cx, cy, 20, cx, cy, half);
+      white.addColorStop(0, "rgba(70,30,80,0.55)");
+      white.addColorStop(1, "rgba(20,6,28,0.75)");
+      ctx.fillStyle = white;
+      ctx.fillRect(cx - half, cy - H, half * 2, H * 2);
+
+      // iris and pupil, turned towards the ball
+      const irisR = H * 0.21, ix = cx + look.x * half * 0.42, iy = cy + look.y * H * 0.09;
+      const iris = ctx.createRadialGradient(ix, iy, irisR * 0.2, ix, iy, irisR);
+      iris.addColorStop(0, `rgba(${Math.round(120 + hr * 120)},70,255,0.55)`);
+      iris.addColorStop(0.6, `rgba(${Math.round(70 + hr * 150)},40,200,0.45)`);
+      iris.addColorStop(1, "rgba(20,8,60,0.6)");
+      ctx.fillStyle = iris;
+      ctx.beginPath(); ctx.arc(ix, iy, irisR, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = "rgba(200,150,255,0.10)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      const spokes = savingPower() ? 18 : 36;
+      for (let k = 0; k < spokes; k++) {
+        const a = (k / spokes) * Math.PI * 2 + t * 0.05;
+        ctx.moveTo(ix + Math.cos(a) * irisR * 0.42, iy + Math.sin(a) * irisR * 0.42);
+        ctx.lineTo(ix + Math.cos(a) * irisR * 0.96, iy + Math.sin(a) * irisR * 0.96);
+      }
+      ctx.stroke();
+      const pupilR = irisR * (0.44 - hr * 0.14);      // it tightens as Heat rises
+      ctx.fillStyle = "rgba(0,0,0,0.9)";
+      ctx.beginPath(); ctx.arc(ix + look.x * irisR * 0.12, iy + look.y * irisR * 0.12, pupilR, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "rgba(255,255,255,0.22)";
+      ctx.beginPath(); ctx.arc(ix - irisR * 0.3, iy - irisR * 0.34, irisR * 0.09, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+
+      // the lids
+      almond();
+      ctx.shadowColor = "rgba(208,107,255,0.8)";
+      ctx.shadowBlur = 14;
+      ctx.strokeStyle = `rgba(${Math.round(208 + hr * 47)},${Math.round(107 - hr * 40)},255,${0.35 + hr * 0.3})`;
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+
     function drawArenaOverlay() {
       if (currentArenaId === "matrix") {
         drawMatrixArena(getHeatRatio());
@@ -9780,6 +10190,8 @@ function injectGameById(gameId, options = {}) {
       drawCourtMapEdges(getHeatRatio());
       if (!isMatrix) drawScreenSpacePaddles();
       drawGlitchWalls();
+      if (arenaRules.id === "panic") drawPanicDarkness(getHeatRatio());
+      else if (arenaRules.id === "archive") drawArchiveBuild(getHeatRatio());
       drawBossFight();
       let status = twoPlayerMode ? "2P" : "1P";
       if (customMatch) status += ' // <span style="color:#ffd27a">CUSTOM</span>';
@@ -12242,7 +12654,7 @@ function injectGameById(gameId, options = {}) {
       "top:50%",
       "transform:translate(-50%,-50%)",
       "z-index:2147483648",
-      "width:min(1180px,94vw)",       // six cards across on a wide desktop: sixteen arenas in three rows
+      "width:min(1180px,94vw)",       // seven cards across on a wide desktop: twenty arenas in three rows
       "max-height:calc(100% - 24px)",
       "overflow-y:auto",
       "box-sizing:border-box",
@@ -12271,6 +12683,7 @@ function injectGameById(gameId, options = {}) {
 
       const makeCard = (a, i) => {
         const isSel = i === sel;
+        const locked = arenaLocked(a);
         const accentSolid = a.accent;
         const textSub = arenaRgba(a, 0.50);
         const bg = isSel
@@ -12287,21 +12700,22 @@ function injectGameById(gameId, options = {}) {
             text-align:center;
             transition:background .15s,box-shadow .15s;
             pointer-events:auto;
+            ${locked ? "opacity:.55;filter:saturate(.45);cursor:not-allowed;" : ""}
           ">
-            <div style="font:bold 20px/1 monospace;letter-spacing:.08em;
+            <div style="font:bold 17px/1.05 monospace;letter-spacing:.06em;
               color:${accentSolid};margin-bottom:10px;
               text-shadow:0 0 14px ${arenaRgba(a, 0.4)};">${a.name}</div>
             <div style="font-size:10px;line-height:1.7;color:${textSub};letter-spacing:.04em;">
-              ${a.subtitle.replace(" // ", "<br>")}
+              ${locked ? "LOCKED<br>CLEAR THE EYE GAUNTLET" : a.subtitle.replace(" // ", "<br>")}
             </div>
             ${isSel ? `<div style="font-size:10px;line-height:1.6;margin-top:10px;
               color:rgba(200,240,220,0.55);letter-spacing:.02em;">${a.desc}</div>` : ""}
-            <div style="margin-top:10px;">
+            ${isSel ? `<div style="margin-top:10px;">
               ${a.tags.map(t => `<span style="display:inline-block;font:8px monospace;
                 padding:2px 7px;border-radius:4px;margin:2px;
                 background:${arenaRgba(a, 0.10)};color:${accentSolid};
                 letter-spacing:.06em;">${t}</span>`).join("")}
-            </div>
+            </div>` : ""}
           </button>`;
       };
 
@@ -12314,7 +12728,7 @@ function injectGameById(gameId, options = {}) {
           letter-spacing:.1em;margin-bottom:16px;">
           ← → NAVIGATE &nbsp;·&nbsp; ENTER CONFIRM &nbsp;·&nbsp; ESC BACK
         </div>
-        <div class="gp-arena-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));
+        <div class="gp-arena-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
           gap:12px;margin-bottom:14px;">
           ${ARENA_REGISTRY.map((a, i) => makeCard(a, i)).join("")}
         </div>
@@ -12345,6 +12759,13 @@ function injectGameById(gameId, options = {}) {
         btn.addEventListener("mouseenter", () => { if (i !== _arenaSelectedIdx) btn.style.boxShadow = `0 0 14px ${accent}`; });
         btn.addEventListener("mouseleave", () => { if (i !== _arenaSelectedIdx) btn.style.boxShadow = ""; });
         btn.addEventListener("click", () => {
+          if (arenaLocked(ARENA_REGISTRY[i])) {
+            // Say how to open it, rather than doing nothing.
+            triggerMenuGlitch();
+            const hint = arenaPanel.querySelector(".gp-arena-hint");
+            if (hint) { hint.textContent = "THE EYE'S LAIR OPENS WHEN YOU CLEAR THE EYE GAUNTLET: ARCADE, STAFF ONLY ROOM, CABINET 11"; hint.style.color = "#d06bff"; }
+            return;
+          }
           _arenaSelectedIdx = i;
           currentArenaId    = ARENA_REGISTRY[i].id;
           confirmArena(); // single click = confirm and start
@@ -12360,6 +12781,7 @@ function injectGameById(gameId, options = {}) {
 
     function confirmArena() {
       triggerMenuGlitch();
+      if (arenaLocked(ARENA_REGISTRY[_arenaSelectedIdx])) return;
       currentArenaId = ARENA_REGISTRY[_arenaSelectedIdx].id;
       const arena = getArena();
       if (arena.cleanup) arena.cleanup();
@@ -12373,7 +12795,7 @@ function injectGameById(gameId, options = {}) {
         e.preventDefault();
         const dir = (e.key === "ArrowRight" || e.key === "ArrowDown") ? 1 : -1;
         _arenaSelectedIdx = Math.max(0, Math.min(ARENA_REGISTRY.length - 1, _arenaSelectedIdx + dir));
-        currentArenaId    = ARENA_REGISTRY[_arenaSelectedIdx].id;
+        if (!arenaLocked(ARENA_REGISTRY[_arenaSelectedIdx])) currentArenaId = ARENA_REGISTRY[_arenaSelectedIdx].id;
         buildArenaPanel();
       }
       if (e.key === "Enter")  confirmArena();
@@ -12662,9 +13084,11 @@ function injectGameById(gameId, options = {}) {
         }
 
         // Custom matches can switch individual ball tricks off.
-        if (!rules.pulses) pulseCooldown = Math.max(pulseCooldown, 60);
-        if (!rules.teleport) teleportCooldown = Math.max(teleportCooldown, 60);
-        if (!rules.jukes) jukeCooldown = Math.max(jukeCooldown, 60);
+        // So can ARCHIVE BUILD 0.1, until Heat lets the modern game in.
+        const prototype = arenaRules.id === "archive" && ArenaRules.archiveQuiet(arenaRules);
+        if (!rules.pulses || prototype) pulseCooldown = Math.max(pulseCooldown, 60);
+        if (!rules.teleport || prototype) teleportCooldown = Math.max(teleportCooldown, 60);
+        if (!rules.jukes || prototype) jukeCooldown = Math.max(jukeCooldown, 60);
 
         if (pulseFrames > 0) {
           pulseFrames--;
@@ -12851,7 +13275,7 @@ function injectGameById(gameId, options = {}) {
           if (leftState.shieldTimer > 0) { vx *= 0.96; vy *= 0.98; }
           heat = Math.min(HEAT_MAX, heat + HEAT_PER_HIT * rules.heatRate * (1 - GlitchProgression.getPerkStat("heatResistance")));
           rallyHits += 1; matchRallyHits++; combo += 1; comboTimer = COMBO_MAX_TIME;
-          if (arenaRules.id) ArenaRules.onReturn(arenaRules);
+          if (arenaRules.id) arenaOnReturn("left");
           ballOwner = "blue";
           awardXP(GlitchProgression.XP_REWARDS.paddleHit, "paddleHit", leftX + paddleW + 20, ballY);
           if (rallyHits > 0 && rallyHits % 10 === 0) {
@@ -12868,7 +13292,7 @@ function injectGameById(gameId, options = {}) {
           if (leftState.powerStrikeReady) { leftState.powerStrikeReady = false; glitchPulse = Math.max(glitchPulse, 18); pongAudio.critical(); }
           if (leftState.splitReady) { leftState.splitReady = false; spawnSplitDecoys(1); }
           if (heat >= 72 && rallyHits % 4 === 0) pongAudio.critical();
-          if (!bossModeActive && !bossTriggeredThisRally && !preBossActive && heat >= HEAT_MAX) triggerPreBoss();
+          if (!bossModeActive && !bossTriggeredThisRally && !preBossActive && heat >= eyeArrivesAt()) triggerPreBoss();
           if (!bossModeActive) applyBallInstability();
         }
 
@@ -12883,7 +13307,7 @@ function injectGameById(gameId, options = {}) {
           if (rightState.shieldTimer > 0) { vx *= 0.96; vy *= 0.98; }
           heat = Math.min(HEAT_MAX, heat + HEAT_PER_HIT * rules.heatRate * (1 - GlitchProgression.getPerkStat("heatResistance")));
           rallyHits += 1; matchRallyHits++; combo += 1; comboTimer = COMBO_MAX_TIME;
-          if (arenaRules.id) ArenaRules.onReturn(arenaRules);
+          if (arenaRules.id) arenaOnReturn("right");
           ballOwner = "red";
           awardXP(GlitchProgression.XP_REWARDS.paddleHit, "paddleHit", rightX - 20, ballY);
           if (rallyHits > 0 && rallyHits % 10 === 0) awardXP(GlitchProgression.XP_REWARDS.longRally, "longRally", canvas.width / 2, 40);
@@ -12905,7 +13329,7 @@ function injectGameById(gameId, options = {}) {
             spawnSplitDecoys(-1);
           }
           if (heat >= 72 && rallyHits % 4 === 0) pongAudio.critical();
-          if (!bossModeActive && !bossTriggeredThisRally && !preBossActive && heat >= HEAT_MAX) triggerPreBoss();
+          if (!bossModeActive && !bossTriggeredThisRally && !preBossActive && heat >= eyeArrivesAt()) triggerPreBoss();
           if (!bossModeActive) applyBallInstability();
         }
 

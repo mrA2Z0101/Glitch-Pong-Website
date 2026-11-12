@@ -114,8 +114,12 @@ An orb appears in the middle third of the court every 6–13 seconds and lasts a
 - **Tilt.** Lit bumpers kick the ball away faster than it arrived. Hit one square on and your shot comes straight back, neutral. Clip one and the ball changes angle and keeps going. Dark bumpers do nothing, but more of them light as Heat rises, and by 65% all seven are live.
 - **Quantum Shift.** Two portals on the centre line swap the ball between the top and bottom of the court, at the same speed and direction. Watch where your opponent's shot is heading: if it's going into a portal, cover the other one. From 50% Heat the portals roam, and a trip can then carry the ball closer to you as well.
 - **Last Train.** A train runs down the centre line and nothing gets through while it passes. The signals flash and chevrons show its direction first. A shot that hits the train comes back neutral, so either get the ball across before it arrives or hold it on your side. From 50% Heat the trains are expresses: more often, much faster, and with a shorter warning.
+- **Echo.** Every return comes with a ghost ball replaying an earlier shot, and from 50% Heat with two. Early on the ghosts are faint, so learn to pick the solid one. By Critical Heat they are nearly solid: watch the ball leave the paddle rather than trying to pick it out mid-court, and remember a ghost never bounces off a glitch wall or teleports.
+- **Kernel Panic.** The lights are out. You can see the ball, a small circle round it, and the outline of your paddle. Every hit lights the court for a moment: use that moment to find glitch walls and power-ups. The ball's light shrinks as Heat rises.
+- **Archive Build 0.1.** Below about 35% Heat this is plain Pong: no teleports, jukes, surges, power-ups or glitch walls. Points are won on angles alone, so use the tips of your paddle. Once the modern game starts showing through, everything else in this guide applies again.
+- **The Eye's Lair.** The Eye arrives at 70% Heat here, roughly eight or nine returns into a rally. If you're ahead, end rallies early; if you're behind, a long rally brings your 2-point chance sooner. It opens when you clear the Eye Gauntlet in the arcade.
 
-How these twelve are built and tuned: [arenas.md](arenas.md).
+How these sixteen are built and tuned: [arenas.md](arenas.md).
 
 ---
 

@@ -3,10 +3,11 @@ import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 
-// The rules for the twelve maps that change how a rally plays: PENALTY BOX,
+// The rules for the sixteen maps that change how a rally plays: PENALTY BOX,
 // STACK OVERFLOW, MEMORY LEAK and DEFRAG (the court), FREEFALL, COOLANT LEAK,
-// ROOFTOP and BEAT DROP (the ball and paddles), and BREAKPOINT CROSSOVER, TILT,
-// QUANTUM SHIFT and LAST TRAIN (things on the court). The file is a plain
+// ROOFTOP and BEAT DROP (the ball and paddles), BREAKPOINT CROSSOVER, TILT,
+// QUANTUM SHIFT and LAST TRAIN (things on the court), and ECHO, KERNEL PANIC,
+// ARCHIVE BUILD 0.1 and THE EYE'S LAIR (sight and story). The file is a plain
 // script that also exports under Node; the drawing lives in glitchpong-site.js
 // and is not covered here.
 const A = createRequire(import.meta.url)('../glitchpong-arenas.js');
@@ -28,7 +29,7 @@ function seeded(seed) {
 const begin = (id, c = court(), rand = seeded(7)) => { const s = A.createState(); A.start(s, id, c, rand); return s; };
 const frames = (s, c, n, heat, critical = false, live = true, rand = seeded(11)) => { for (let i = 0; i < n; i++) A.update(s, c, heat, critical, live, rand); };
 
-test('only the twelve rule maps switch rules on', () => {
+test('only the sixteen rule maps switch rules on', () => {
   for (const id of A.IDS) assert.equal(begin(id).id, id);
   for (const id of ['classic', 'matrix', 'construct', 'blackhole', null, undefined, 'nope']) {
     const s = begin(id), c = court();
@@ -46,6 +47,12 @@ test('only the twelve rule maps switch rules on', () => {
     assert.equal(A.objects(s, c, { x: 640, y: 360, vx: 8, vy: 0, px: 600, py: 360 }), null);
     assert.deepEqual(A.obstacles(s, c), []);
     assert.equal(A.blocked(s, c, 640, 360, 10), false);
+    A.echoReturn(s, c, 'left', 0.5);
+    assert.equal(s.echo.ghosts.length, 0);
+    A.panicHit(s);
+    assert.equal(s.panic.flash, 0);
+    assert.equal(A.archiveQuiet(s), false);
+    assert.equal(A.eyeHeat(s), 1, 'the Eye waits for full Heat everywhere but its lair');
   }
 });
 
@@ -1032,6 +1039,178 @@ test('object maps say where power-ups and glitch walls must not go, and what is 
   assert.equal(A.blocked(train, c, c.width / 2, A.trainBox(train, c).y + 10, 8), true);
 });
 
+// ── ECHO ────────────────────────────────────────────────────────────────────
+
+// Plays a rally between two paddles that never miss, on a court with no walls
+// in the way, and hands each frame to `watch`.
+function echoRally(s, c, totalFrames, heatAt, watch = () => {}) {
+  const ball = { x: c.width / 2, y: c.height / 2, vx: 7, vy: 3.3 };
+  for (let f = 0; f < totalFrames; f++) {
+    const heat = heatAt(f);
+    A.update(s, c, heat, heat >= 0.8, true, seeded(f + 1), ball);
+    ball.x += ball.vx * c.xScale; ball.y += ball.vy;
+    A.walls(s, c, ball);
+    if (ball.x <= c.leftFace + c.ballR && ball.vx < 0) { ball.x = c.leftFace + c.ballR; ball.vx = -ball.vx; ball.vy += 0.9; A.echoReturn(s, c, 'left', heat, seeded(f)); }
+    if (ball.x >= c.rightFace - c.ballR && ball.vx > 0) { ball.x = c.rightFace - c.ballR; ball.vx = -ball.vx; ball.vy -= 0.7; A.echoReturn(s, c, 'right', heat, seeded(f)); }
+    watch(f, ball, heat);
+  }
+  return ball;
+}
+
+test('ECHO: there is nothing to replay until a shot has crossed the court', () => {
+  const c = court(), s = begin('echo', c);
+  A.echoReturn(s, c, 'left', 0.2);
+  assert.equal(s.echo.ghosts.length, 0, 'the first return of a match has no ghosts');
+  echoRally(s, c, 700, () => 0.2);
+  assert.ok(s.echo.shots.left.length >= 1 && s.echo.shots.right.length >= 1, 'now both paddles have shots on file');
+});
+
+test('ECHO: ghosts replay real earlier shots, from the same paddle, level with the ball', () => {
+  for (const c of [court(), phone()]) {
+    const s = begin('echo', c), span = c.rightFace - c.leftFace;
+    let framesWithGhosts = 0, worstGap = 0;
+    echoRally(s, c, 4000, () => 0.3, (f, ball) => {
+      for (const ghost of s.echo.ghosts) {
+        framesWithGhosts++;
+        // moving the same way as the real ball, and keeping pace with it across the court
+        assert.equal(ghost.side === 'left', ball.vx > 0, 'a ghost leaves from the paddle that just hit');
+        worstGap = Math.max(worstGap, Math.abs(ghost.x - ball.x));
+        assert.ok(ghost.y >= 0 && ghost.y <= c.height, 'on the court');
+        assert.ok(s.echo.shots[ghost.side].includes(ghost.path) || ghost.path.length > 5, 'following a recorded shot');
+      }
+    });
+    assert.ok(framesWithGhosts > 2000, `ghosts are out for most of a rally (${framesWithGhosts} of 4000 frames)`);
+    assert.ok(worstGap < span * 0.03, `never more than a ball or two ahead or behind (${Math.round(worstGap)}px)`);
+    for (const side of ['left', 'right']) {
+      assert.ok(s.echo.shots[side].length <= T.echoKeep, 'old shots are forgotten');
+      for (const path of s.echo.shots[side]) {
+        assert.ok(path[path.length - 1].p >= 0.9, 'only shots that made it across are kept');
+        for (let i = 1; i < path.length; i++) assert.ok(path[i].p > path[i - 1].p, 'recorded in order across the court');
+      }
+    }
+  }
+});
+
+test('ECHO: one ghost at low Heat, two from half Heat, and they look more solid as Heat rises', () => {
+  const c = court(), s = begin('echo', c);
+  let low = 0, high = 0;
+  echoRally(s, c, 6000, (f) => (f < 3000 ? 0.2 : 0.7), (f) => {
+    if (f > 1000 && f < 3000) low = Math.max(low, s.echo.ghosts.length);
+    if (f > 3600) high = Math.max(high, s.echo.ghosts.length);
+  });
+  assert.equal(low, 1);
+  assert.equal(high, 2);
+
+  assert.equal(A.ghostAlpha(0), T.echoAlpha[0]);
+  assert.ok(T.echoAlpha[0] <= 0.25, 'faint at no Heat');
+  assert.ok(A.ghostAlpha(0.8) >= 0.9 && A.ghostAlpha(1) >= 0.9, 'nearly solid at Critical Heat');
+  let last = 0;
+  for (let heat = 0; heat <= 1.001; heat += 0.05) { assert.ok(A.ghostAlpha(heat) >= last); last = A.ghostAlpha(heat); }
+});
+
+test('ECHO: a point ends the ghosts but keeps what was learned', () => {
+  const c = court(), s = begin('echo', c);
+  echoRally(s, c, 1500, () => 0.6);
+  assert.ok(s.echo.ghosts.length > 0);
+  const kept = s.echo.shots.left.length + s.echo.shots.right.length;
+  A.roundReset(s, c);
+  assert.equal(s.echo.ghosts.length, 0);
+  assert.equal(s.echo.recording, null, 'the unfinished shot is thrown away');
+  assert.equal(s.echo.shots.left.length + s.echo.shots.right.length, kept);
+  A.echoReturn(s, c, 'left', 0.2, seeded(4));
+  assert.equal(s.echo.ghosts.length, 1, 'so the next rally has ghosts from its first return');
+});
+
+// ── KERNEL PANIC ────────────────────────────────────────────────────────────
+
+test('KERNEL PANIC: a hit flashes the lights, and the flash fades in about a third of a second', () => {
+  const c = court(), s = begin('panic', c);
+  assert.equal(s.panic.flash, 0);
+  A.panicHit(s);
+  assert.equal(s.panic.flash, 1);
+  let f = 0;
+  while (s.panic.flash > 0) { A.update(s, c, 0.3, false, true); f++; }
+  assert.ok(f >= 12 && f <= 30, `gone in ${f} frames`);
+  assert.ok(T.panicDark > 0.85 && T.panicDark < 1, 'the unlit court is very dark but not invisible');
+});
+
+test('KERNEL PANIC: the ball carries a small light that shrinks as Heat rises', () => {
+  const c = court(), s = begin('panic', c);
+  frames(s, c, 1, 0);
+  assert.equal(s.panic.light, T.panicLight[0]);
+  let last = Infinity;
+  for (let heat = 0; heat <= 1.001; heat += 0.1) {
+    frames(s, c, 1, heat);
+    assert.ok(s.panic.light <= last);
+    last = s.panic.light;
+  }
+  assert.ok(Math.abs(s.panic.light - T.panicLight[1]) < 1e-9);
+  assert.ok(T.panicLight[0] < 0.25, 'small: the circle is well under half the court tall');
+  assert.ok(T.panicLight[1] * 390 > 9 * 3, 'but always clearly bigger than the ball, even on a phone');
+});
+
+// ── ARCHIVE BUILD 0.1 ───────────────────────────────────────────────────────
+
+test('ARCHIVE BUILD 0.1: all prototype at low Heat, all modern at high Heat, and it goes back', () => {
+  const c = court(), s = begin('archive', c);
+  frames(s, c, 300, T.bleedHeat[0]);
+  assert.equal(s.archive.bleed, 0);
+  assert.equal(A.archiveQuiet(s), true, 'the prototype has no glitches');
+
+  let last = 0;
+  for (let heat = T.bleedHeat[0]; heat <= 1.001; heat += 0.05) {
+    frames(s, c, 200, heat);
+    assert.ok(s.archive.bleed >= last - 1e-9, 'more Heat never shows less of the modern game');
+    last = s.archive.bleed;
+  }
+  assert.equal(s.archive.bleed, 1);
+  assert.equal(A.archiveQuiet(s), false);
+
+  frames(s, c, 300, 0, false, false);                 // a point is scored
+  assert.equal(s.archive.bleed, 0, 'every point starts in the prototype again');
+});
+
+test('ARCHIVE BUILD 0.1: the glitches come back before the modern game has taken over', () => {
+  const c = court(), s = begin('archive', c);
+  let quietUntil = null;
+  for (let heat = 0; heat <= 1.001; heat += 0.01) {
+    frames(s, c, 200, heat);
+    if (quietUntil === null && !A.archiveQuiet(s)) quietUntil = heat;
+  }
+  assert.ok(quietUntil > T.bleedHeat[0] && quietUntil < 0.45, `glitches return at about ${Math.round(quietUntil * 100)}% Heat`);
+});
+
+// ── THE EYE'S LAIR ──────────────────────────────────────────────────────────
+
+test("THE EYE'S LAIR: the Eye arrives sooner here than anywhere else", () => {
+  const c = court();
+  assert.equal(A.eyeHeat(begin('lair', c)), T.lairHeat);
+  assert.ok(T.lairHeat < 1 && T.lairHeat >= 0.5);
+  for (const id of A.IDS.filter((id) => id !== 'lair')) assert.equal(A.eyeHeat(begin(id, c)), 1);
+});
+
+test("THE EYE'S LAIR: the pupil follows the ball, and the lid shuts while the real Eye is out", () => {
+  const c = court(), s = begin('lair', c);
+  const lookAt = (x, y) => { for (let f = 0; f < 120; f++) A.update(s, c, 0.3, false, true, seeded(1), { x, y }); return s.lair.look; };
+  let look = lookAt(c.width, 0);
+  assert.ok(look.x > 0.95 && look.y < -0.95, 'top right');
+  look = lookAt(0, c.height);
+  assert.ok(look.x < -0.95 && look.y > 0.95, 'bottom left');
+  look = lookAt(c.width / 2, c.height / 2);
+  assert.ok(Math.abs(look.x) < 0.02 && Math.abs(look.y) < 0.02, 'centre');
+  // it turns, it doesn't snap
+  A.update(s, c, 0.3, false, true, seeded(1), { x: c.width, y: c.height / 2 });
+  assert.ok(s.lair.look.x > 0 && s.lair.look.x < 0.3);
+
+  assert.ok(s.lair.lid > 0.99, 'open during play');
+  A.openCourt(s);                                     // the Eye arrives
+  frames(s, c, 60, 0.7, false, false);
+  assert.ok(s.lair.lid < 0.01, 'shut: there are never two Eyes');
+  A.roundReset(s, c);
+  frames(s, c, 60, 0, false, false);
+  assert.ok(s.lair.lid > 0.99, 'open again for the next serve');
+});
+
 // ── A whole rally on every map ──────────────────────────────────────────────
 
 test('a long rally on any rule map keeps the ball on the court', () => {
@@ -1082,6 +1261,15 @@ test('the game lists the four court maps and loads their rules', () => {
   const tour = site.match(/\{\s*id:\s*"world_tour"[^}]*\}/);
   assert.ok(tour, 'found the world_tour achievement');
   assert.equal(Number(tour[0].match(/goal:\s*(\d+)/)[1]), ids.length, 'world_tour goal equals the number of arenas');
+
+  // THE EYE'S LAIR is the Eye Gauntlet's reward: marked in the list, checked
+  // against the arcade's save, and announced by the arcade when it is earned.
+  const lair = registry[1].slice(registry[1].indexOf('id:       "lair"'));
+  assert.ok(/eyeReward:\s*true/.test(lair), 'the lair is marked as the gauntlet reward');
+  assert.equal((registry[1].match(/eyeReward:\s*true/g) || []).length, 1, 'and it is the only locked arena');
+  assert.ok(/glitchcade_floor_v1/.test(site) && /gauntlet\.clears > 0/.test(site), 'the menu reads gauntlet clears from the arcade save');
+  const floor = readFileSync(new URL('../glitchcade-floor.js', import.meta.url), 'utf8');
+  assert.ok(floor.includes("NEW ARENA: THE EYE'S LAIR"), 'the arcade says so when the gauntlet is first cleared');
 
   // The page and the offline cache both have to fetch the rules file.
   const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
