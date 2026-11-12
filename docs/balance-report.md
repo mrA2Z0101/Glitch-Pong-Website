@@ -6,6 +6,7 @@ I read through `glitchpong-site.js` and ran simulated matches to measure what de
 
 - **Setup.** A test harness served an instrumented copy of the game; the repo copy was untouched. It ran full first-to-7 matches with **Hard AI vs Hard AI** across all four arenas, and logged every point with its cause.
 - **Speed.** Canvas drawing was switched off to speed things up; the game logic doesn't read pixels, so that changes nothing about the rules.
+- **Since then.** The Hard AI in these matches was the old one, which returned almost everything. The opponent has since been rebuilt to make human mistakes ([ai.md](ai.md)), so rally lengths and match times below no longer describe the current game.
 - **Limits.** AI vs AI isn't human play: humans miss more and rallies are shorter. So treat the numbers as showing **structural** problems — what the rules make possible and how often — not how a human match will feel. All matches were on desktop.
 
 ## What decided matches (Hard AI vs Hard AI, all four arenas)
@@ -99,10 +100,12 @@ Two more perks don't help against the AI, because the AI uses the same values:
 **Recommendation:** implement these perks, or remove them from the pool until they're implemented. Picking a perk that does nothing feels bad once players notice.
 
 ### D. Split Ball and decoys only fool humans
+- **Update.** Done, for every difficulty. The opponent was rebuilt to play like a person (see [ai.md](ai.md)) and now follows a decoy 45% of the time on Easy, 28% on Medium and 12% on Hard.
 - **The asymmetry.** The AI always tracks the real ball, so your Split Ball does nothing to it, while the AI's Split Ball and Heat afterimages do fool you.
 - **Recommendation.** Give the Easy and Medium AI a chance to chase a decoy for a few frames, scaled by difficulty.
 
 ### E. The boss fight is all risk, no reward
+- **Update.** The rebuilt opponent can lose the fight. Over 30 to 70 fights each, a Hard AI survived about four in five, Medium about seven in ten and Easy about four in ten. The recommendation below still stands.
 - **How it works.** Miss one of the Eye's six shots and your opponent gets 2 points. Survive all six and nobody scores.
 - **The result.** The player who's ahead gains nothing from the fight. In the simulation the Hard AI never lost a boss fight, so against Hard the Eye is effectively a one-sided trap for the human.
 - **Recommendation.** Give a small reward for surviving: 1 point to whoever returned more shots, or a free Phase Shield.

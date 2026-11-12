@@ -2898,12 +2898,10 @@ function injectGameById(gameId, options = {}) {
     matchStartScore = { left: leftScore, right: rightScore };
 
 
-    let aiDashDecisionCooldown = 0;
     let menuDemoResetCooldown = 0;
-    const aiTrackingState = {
-      left:  { wasApproaching: false, aimError: 0, trackedY: null, reactionTimer: 0, misread: false, dashCommitted: false },
-      right: { wasApproaching: false, aimError: 0, trackedY: null, reactionTimer: 0, misread: false, dashCommitted: false }
-    };
+    // The computer players (glitchpong-ai.js): one mind for each paddle.
+    const AiPlayer = window.GlitchAI || null;
+    const aiMinds = { left: AiPlayer ? AiPlayer.createMind() : null, right: AiPlayer ? AiPlayer.createMind() : null };
 
     // Final-score cinematic: freeze-frame + effects only after the winning point is confirmed.
     let finalPointSlowMo = false;
@@ -4329,14 +4327,7 @@ function injectGameById(gameId, options = {}) {
       clearPowerStates();
       resetBlackHoleNexusGameplay();
       arenaRoundReset();
-      Object.values(aiTrackingState).forEach((tracking) => {
-        tracking.wasApproaching = false;
-        tracking.aimError = 0;
-        tracking.trackedY = null;
-        tracking.reactionTimer = 0;
-        tracking.misread = false;
-        tracking.dashCommitted = false;
-      });
+      if (AiPlayer) { AiPlayer.newPoint(aiMinds.left); AiPlayer.newPoint(aiMinds.right); }   // a new ball; they keep their mood
       pongAudio.setIntensity(0);
     }
 
@@ -4399,170 +4390,59 @@ function injectGameById(gameId, options = {}) {
       if (!aiVsAiMode) GlitchProgression.trackDash();
     }
 
+    // The computer's paddles. How they play (reactions, misjudgements, nerves,
+    // being fooled) is in glitchpong-ai.js; see docs/ai.md. This only describes
+    // the court to it and moves the paddle the way it asks. `options` carries
+    // one of the Eye's throws in place of the ball, or marks the menu's demo.
     function updateAiPaddle(side = "right", options = {}) {
-      const isMenuDemo = !!options.isMenuDemo;
-      const targetBallX = typeof options.ballX === "number" ? options.ballX : ballX;
-      const targetBallY = typeof options.ballY === "number" ? options.ballY : ballY;
-      const targetVx = typeof options.vx === "number" ? options.vx : vx;
-      const targetVy = typeof options.vy === "number" ? options.vy : vy;
-      const paddleY = side === "left" ? leftY : rightY;
-      const paddleCenter = paddleY + paddleH / 2;
-      const movingTowardPaddle = side === "left" ? targetVx < 0 : targetVx > 0;
-      const courtEdge = side === "left" ? leftX + paddleW : rightX;
-      const distanceToPaddle = Math.abs(targetBallX - courtEdge);
-      // The ball's horizontal speed is in court units; boss shots are already in pixels.
+      const isMenuDemo = !!options.isMenuDemo, left = side === "left";
+      const eyeShot = typeof options.ballY === "number";
+      // During the Eye's fight only its throws matter; the real ball is frozen.
+      if (bossModeActive && !eyeShot) return;
+      const bx = eyeShot ? options.ballX : ballX, by = eyeShot ? options.ballY : ballY;
+      const bvx = eyeShot ? options.vx : vx, bvy = eyeShot ? options.vy : vy;
+      // The ball's horizontal speed is in court units; the Eye's throws are already in pixels.
       const xScale = typeof options.xScale === "number" ? options.xScale : courtSpeedScale();
-      // The real ball obeys the map (wind, gravity, wrapping); the Eye's shots don't.
-      const mapBall = arenaRules.id && typeof options.ballY !== "number";
-      const windDrift = mapBall ? ArenaRules.drift(arenaRules, targetVx) : 0;
-      const travelFrames = Math.max(1, distanceToPaddle / Math.max(1, Math.abs((targetVx || 1) + windDrift) * xScale));
-      const retreatTarget = canvas.height * 0.5;
-
-      // ── Difficulty profile ───────────────────────────────────────────────
-      // isMenuDemo always uses its own neutral settings.
-      let errorRange, canDash, dashThresholdMult, dashWindowMult, retreatBias;
-      let predictionFrames, reactionFrames, mistakeChance, dashChance, strategyStrength, recoverySkill;
-      if (isMenuDemo) {
-        errorRange = 0; canDash = true; dashThresholdMult = 1; dashWindowMult = 1; retreatBias = 0.25;
-        predictionFrames = 22; reactionFrames = 1; mistakeChance = 0; dashChance = 1; strategyStrength = 0; recoverySkill = 1;
-      } else {
-        switch (aiDifficulty) {
-          case "easy":
-            // A beginner: always makes a visible attempt, but reacts late,
-            // reads angles loosely and only occasionally remembers to dash.
-            errorRange = paddleH * 0.24;
-            canDash = true;
-            dashThresholdMult = 2.0;
-            dashWindowMult = 0.38;
-            retreatBias = 0.55;
-            predictionFrames = 10;
-            reactionFrames = Math.max(6, 8 - Math.floor(getHeatRatio() * 2));
-            mistakeChance = 0.16;
-            dashChance = 0.08;
-            strategyStrength = 0;
-            recoverySkill = 0.48;
-            break;
-          case "hard":
-            // A professional: predicts early, recovers quickly and aims returns
-            // into open space, while retaining a small chance of a human error.
-            errorRange = paddleH * 0.05;
-            canDash = true;
-            dashThresholdMult = 1;
-            dashWindowMult = 1;
-            retreatBias = 0.24;
-            predictionFrames = 22;
-            reactionFrames = getHeatRatio() >= 0.6 ? 1 : 2;
-            mistakeChance = 0.03;
-            dashChance = 0.88;
-            strategyStrength = 0.14;
-            recoverySkill = 0.88;
-            break;
-          default: // "medium"
-            // An experienced player: understands prediction and dash timing,
-            // but sometimes commits to a slightly wrong read.
-            errorRange = paddleH * Math.max(0.10, 0.16 - GlitchProgression.level * 0.0008);
-            canDash = true;
-            dashThresholdMult = 1.55;
-            dashWindowMult = 0.62;
-            retreatBias = 0.38;
-            predictionFrames = 16;
-            reactionFrames = Math.max(3, 4 - Math.floor(getHeatRatio()));
-            mistakeChance = Math.max(0.045, 0.08 - GlitchProgression.level * 0.0006);
-            dashChance = 0.42 + getHeatRatio() * 0.10;
-            strategyStrength = 0.07;
-            recoverySkill = 0.70;
-        }
+      if (!AiPlayer) {
+        // No AI file (it failed to load): just follow the ball.
+        const off = by - ((left ? leftY : rightY) + paddleH / 2), step = getPaddleMoveStep();
+        if (left) leftY += clamp(off, -step, step); else rightY += clamp(off, -step, step);
+        return;
       }
-
-      // On STACK OVERFLOW a read that runs off the top comes back in at the
-      // bottom, and on FREEFALL the ball arcs.
-      const lookAhead = Math.min(predictionFrames, travelFrames);
-      const tracking = aiTrackingState[side];
-      // On ECHO the AI can pick the wrong ball, like anyone else. It follows a
-      // ghost until the balls are close, then sees its mistake.
-      const ghost = tracking.echoGhost && arenaRules.id === "echo" && arenaRules.echo.ghosts.includes(tracking.echoGhost)
-        && distanceToPaddle > canvas.width * 0.3 ? tracking.echoGhost : null;
-      const predictedY = clamp(
-        ghost ? ghost.y
-          : mapBall ? ArenaRules.aimY(arenaRules, courtNow(), targetBallY, targetVy, lookAhead) : targetBallY + targetVy * lookAhead,
-        paddleMinY() + paddleH * 0.5,
-        paddleMaxY() + paddleH * 0.5
-      );
-
-      // Make one human-style read when an incoming shot begins. The error stays
-      // coherent instead of jittering randomly every frame, then shrinks as the
-      // ball gets close so the AI visibly realizes and tries to correct it.
-      if (movingTowardPaddle && !tracking.wasApproaching) {
-        const deliberateMistake = !isMenuDemo && mistakeChance > 0 && Math.random() < mistakeChance;
-        tracking.misread = deliberateMistake;
-        tracking.dashCommitted = canDash && Math.random() < dashChance;
-        if (deliberateMistake) {
-          const missDirection = Math.random() < 0.5 ? -1 : 1;
-          tracking.aimError = missDirection * paddleH * (0.52 + Math.random() * 0.16);
-        } else {
-          tracking.aimError = errorRange > 0 ? (Math.random() * 2 - 1) * errorRange : 0;
-        }
-        tracking.reactionTimer = 0;
-        tracking.wasApproaching = true;
-        tracking.echoGhost = null;
-        if (mapBall && arenaRules.id === "echo" && !isMenuDemo) {
-          const incoming = arenaRules.echo.ghosts.filter((g) => g.side !== side);
-          const gullible = aiDifficulty === "easy" ? 0.5 : aiDifficulty === "hard" ? 0.12 : 0.3;
+      // The real ball obeys the map (wind, gravity, wrapping, moved walls); the Eye's throws don't.
+      const mapBall = !!arenaRules.id && !eyeShot;
+      const wraps = mapBall && arenaRules.id === "overflow";
+      const band = mapBall ? courtBand() : { top: 0, bottom: canvas.height };
+      // Fake balls heading this way: afterimages, split balls and ECHO's ghosts.
+      const fakes = [];
+      if (!eyeShot && !isMenuDemo) {
+        decoys.forEach((d) => { if (left ? d.vx < 0 : d.vx > 0) fakes.push({ ref: d, x: d.x, y: d.y, vx: d.vx * xScale, vy: d.vy, weight: 1 }); });
+        if (arenaRules.id === "echo") {
           // the more solid the ghosts look, the more often it falls for one
-          if (incoming.length && Math.random() < gullible * (0.5 + 0.5 * ArenaRules.ghostAlpha(getHeatRatio()))) {
-            tracking.echoGhost = incoming[Math.floor(Math.random() * incoming.length)];
-          }
-        }
-      } else if (!movingTowardPaddle) {
-        tracking.wasApproaching = false;
-        tracking.aimError = 0;
-        tracking.misread = false;
-        tracking.dashCommitted = false;
-      }
-
-      if (tracking.reactionTimer <= 0 || tracking.trackedY === null) {
-        const recoveryZone = canvas.width * 0.28;
-        const recoveryProgress = tracking.misread
-          ? 1 - clamp(distanceToPaddle / recoveryZone, 0, 1)
-          : 0;
-        const effectiveAimError = tracking.aimError * (1 - recoveryProgress * recoverySkill);
-        const opponentCenter = side === "left" ? rightY + paddleH / 2 : leftY + paddleH / 2;
-        const openSideDirection = opponentCenter < canvas.height / 2 ? -1 : 1;
-        const tacticalOffset = movingTowardPaddle && !tracking.misread
-          ? openSideDirection * paddleH * strategyStrength
-          : 0;
-        tracking.trackedY = movingTowardPaddle
-          ? predictedY + effectiveAimError + tacticalOffset
-          : predictedY * (1 - retreatBias) + retreatTarget * retreatBias;
-        tracking.reactionTimer = reactionFrames;
-      } else {
-        tracking.reactionTimer -= 1;
-      }
-
-      const targetCenter = tracking.trackedY;
-      // AI movement mirrors a held human movement key: the same fixed paddle
-      // speed, including the player's equipped speed perk, on every difficulty.
-      // Difficulty affects when and where the AI chooses to move—not its body.
-      const humanPaddleStep = getPaddleMoveStep();
-      const distanceToTarget = targetCenter - paddleCenter;
-      const nextY = paddleY + (Math.abs(distanceToTarget) < 0.5
-        ? 0
-        : clamp(distanceToTarget, -humanPaddleStep, humanPaddleStep));
-      if (side === "left") leftY = nextY;
-      else rightY = nextY;
-
-      // Dash decision
-      if (canDash) {
-        const offset = targetCenter - paddleCenter;
-        const dashWindow = movingTowardPaddle && distanceToPaddle < canvas.width * 0.18 * dashWindowMult;
-        const dashNeeded = Math.abs(offset) > paddleH * 0.30 * dashThresholdMult;
-        if (dashWindow && dashNeeded && tracking.dashCommitted && aiDashDecisionCooldown <= 0) {
-          const direction = offset > 0 ? 1 : -1;
-          performPaddleDash(side, direction);
-          tracking.dashCommitted = false;
-          aiDashDecisionCooldown = isMenuDemo ? 14 : Math.max(12, 20 - Math.floor(getHeatRatio() * 8));
+          const weight = 0.5 + 0.5 * ArenaRules.ghostAlpha(getHeatRatio());
+          arenaRules.echo.ghosts.forEach((g) => { if (g.side !== side) fakes.push({ ref: g, x: g.x, y: g.y, vx: bvx * xScale, vy: 0, weight }); });
         }
       }
+      const act = AiPlayer.think(aiMinds[side], AiPlayer.PROFILES[isMenuDemo ? "demo" : aiDifficulty] || AiPlayer.PROFILES.medium, {
+        side,
+        ballX: bx, ballY: by, vx: (bvx + (mapBall ? ArenaRules.drift(arenaRules, bvx) : 0)) * xScale, vy: bvy,
+        faceX: left ? leftX + paddleW : rightX, span: rightX - (leftX + paddleW),
+        paddleY: left ? leftY : rightY, paddleH, step: getPaddleMoveStep(),
+        top: paddleMinY(), bottom: paddleMaxY() + paddleH,
+        ballTop: wraps ? 0 : band.top + BALL_R, ballBottom: wraps ? canvas.height : band.bottom - BALL_R, height: canvas.height,
+        wrap: wraps, gravity: mapBall ? ArenaRules.gravity(arenaRules, courtNow()) : 0, fallMax: ArenaRules ? ArenaRules.TUNING.fallMax : 10,
+        dashReady: (left ? leftDashCooldown : rightDashCooldown) <= 0,
+        // The Eye's fight is a break in the rally: it comes to it fresh.
+        rally: eyeShot ? 0 : rallyHits, critical: criticalHeat, matchPoint: !isMenuDemo && isMatchPoint(),
+        myScore: left ? leftScore : rightScore, theirScore: left ? rightScore : leftScore,
+        opponentY: (left ? rightY : leftY) + paddleH / 2,
+        decoys: fakes,
+        telegraphed: eyeShot,     // the Eye looks at its target before it throws
+        // Medium gets a little sharper as the player levels up, as it always has.
+        sharp: aiDifficulty === "medium" && !isMenuDemo ? 1 - Math.min(0.2, GlitchProgression.level * 0.004) : 1
+      });
+      if (left) leftY += act.move; else rightY += act.move;
+      if (act.dash) performPaddleDash(side, act.dash);
     }
 
     function resetMenuDemo() {
@@ -4584,7 +4464,6 @@ function injectGameById(gameId, options = {}) {
       vx = (Math.random() > 0.5 ? 1 : -1) * (5.2 + Math.random() * 0.8);
       vy = (Math.random() * 3.6) - 1.8;
       if (Math.abs(vy) < 0.9) vy = vy < 0 ? -1.1 : 1.1;
-      aiDashDecisionCooldown = 12;
       menuDemoResetCooldown = 0;
       resetGlitchState();
     }
@@ -4595,7 +4474,6 @@ function injectGameById(gameId, options = {}) {
         if (menuDemoResetCooldown === 0) resetMenuDemo();
       }
 
-      if (aiDashDecisionCooldown > 0) aiDashDecisionCooldown -= 1;
       if (leftDashCooldown > 0) leftDashCooldown -= 1;
       if (rightDashCooldown > 0) rightDashCooldown -= 1;
       leftDashTrail = leftDashTrail.map((trail) => ({ ...trail, life: trail.life - 1 })).filter((trail) => trail.life > 0);
@@ -12562,6 +12440,7 @@ function injectGameById(gameId, options = {}) {
       progSummaryData = null;
       progSummaryTimer = 0;
       clearGlitchWalls();
+      if (AiPlayer) { aiMinds.left = AiPlayer.createMind(); aiMinds.right = AiPlayer.createMind(); }
       startArenaRules(currentArenaId);
       // Init/reinit arena overlay
       const _startArena = getArena();

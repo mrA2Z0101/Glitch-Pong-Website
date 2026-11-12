@@ -23,10 +23,29 @@ Everything here comes from how the game actually works (`glitchpong-site.js`), n
 
 ## 2. Beating the AI
 
-The AI plays by the same rules as you: same paddle speed, same dash. What differs is how it reads the ball:
+The AI plays by the same rules as you: same paddle speed, same dash. It is built to play like a person, so it has a person's faults. It reacts late, misjudges, loses concentration, gets nervous and can be fooled. The three difficulties are three people of different skill. Full details are in [ai.md](ai.md).
 
 | | Easy | Medium | Hard |
 |---|---|---|---|
+| Reaction time | a third of a second | a quarter | under a fifth |
+| How far ahead it pictures the ball | ~14 frames | ~40 frames | the whole way, bounces included |
+| Shots where its attention slips | 15% | 14% (drops as you level up) | 10% |
+| Dashes to save a shot | rarely (15%) | 40% | 60% |
+| Falls for a decoy ball | 45% | 28% | 12% |
+| Aims returns away from you | no | a little | yes |
+| Returns in an average point against itself | 4 | 8 | 14 |
+
+How to exploit that:
+
+1. **Change the ball late.** It needs its reaction time whenever the ball does something new: your return, a teleport, a juke, a glitch wall. A hard return from close to its side gives it the least time to catch up.
+2. **Fast and steep beats flat.** It judges a fast ball worse than a slow one and a steep ball worse than a flat one, and its judgement only sharpens as the ball gets close. Tip hits (§1) at speed are where its misses come from.
+3. **Make it travel.** Between shots it drifts back toward the centre. Alternating high and low corners forces long moves every time, and it re-aims only a few times a second.
+4. **Long rallies wear it down.** From the sixth return of a rally its errors grow, and they grow again at Critical Heat, at match point and for a few seconds after it loses a point. Easy feels pressure most, Hard least.
+5. **Easy and Medium rarely dash.** Shots that are wide *and* fast are often unreachable without a dash, and they usually don't take it. Hard dashes more, but not every time.
+6. **Don't be predictable against Hard.** It leans towards where your shots have been arriving and aims its returns at your open side. Mix your targets, and get back to centre (§1).
+7. **Decoys work on it.** Split Ball fakes and Heat afterimages can pull it out of position until the real ball is close. See §5.
+
+---|---|---|---|
 | How far ahead it predicts | ~10 frames | ~16 frames | ~22 frames |
 | Chance of misreading a shot | 16% | ~7% (drops as you level up) | 3% |
 | Dashes to save a shot | rarely (8%) | about half the time | almost always |
@@ -84,7 +103,7 @@ An orb appears in the middle third of the court every 6–13 seconds and lasts a
 - **Phase Shield (the best one).** Your whole goal line is protected until the ball gets past you once. It also blocks own goals, and makes your paddle taller during the boss. While it's up, your opponent's shots that hit it come back in **their** colour, so a miss costs them 2–3. Grab it whenever you can.
 - **Power Strike.** Your next return goes 22% faster. It's best used on a steep angle the AI is already struggling with.
 - **Split Ball.** Your next return splits into three balls, and only one is real.
-  - **Against the AI it's wasted.** The AI always tracks the real ball.
+  - **Against the AI it works, more on Easy than on Hard.** It follows a fake 45% of the time on Easy, 28% on Medium and 12% on Hard, and only corrects when the real ball is close.
   - **Against a human it's strong.**
   - **When it's used on you:** the fakes fly 3% slower, so **the real ball is the one in front.**
 
@@ -127,7 +146,7 @@ How these sixteen are built and tuned: [arenas.md](arenas.md).
 
 1. Centre after every hit.
 2. Use the tip of your paddle for angles, the middle for speed.
-3. Bounce shots off a wall near the AI. It doesn't predict bounces.
+3. Hit fast, steep shots at the AI and change the ball's line late. It misjudges those most.
 4. Grab Phase Shield whenever it spawns.
 5. Watch your own shot. Glitches can send it back at you, and an opponent's Phase Shield sends it back in your colour for 2–3.
 6. When the Eye turns to look at you, stay put until its shot passes the middle, then react.
