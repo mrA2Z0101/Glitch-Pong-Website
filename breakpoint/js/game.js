@@ -11,16 +11,8 @@ const Meta = {
   },
   save() { try { localStorage.setItem('gb_save', JSON.stringify(this.data)); } catch (e) {} },
   rank(id) { return this.data.up[id] || 0; },
-  get level() {
-    let lv = 1, need = 100, xp = this.data.xp;
-    while (xp >= need) { xp -= need; lv++; need = Math.floor(100 * Math.pow(lv, 1.35)); }
-    return lv;
-  },
-  get levelProgress() {
-    let lv = 1, need = 100, xp = this.data.xp;
-    while (xp >= need) { xp -= need; lv++; need = Math.floor(100 * Math.pow(lv, 1.35)); }
-    return xp / need;
-  },
+  get level() { return Rules.levelFromXp(this.data.xp).level; },
+  get levelProgress() { return Rules.levelFromXp(this.data.xp).progress; },
 };
 
 // ---------------- DOM ----------------
@@ -231,6 +223,7 @@ const game = {
   startAttract() {
     applyLayout();               // back on the menu: catch up with any rotation during the run
     this.attract = true;
+    document.body.classList.add('attract');   // hides the demo's score, lives and meters
     this.autoplay = false;
     $('aiBadge').classList.remove('on');
     AudioSys.setMuted(true);       // no sound while it plays on the menu
@@ -251,6 +244,7 @@ const game = {
   },
   stopAttract() {
     this.attract = false;
+    document.body.classList.remove('attract');
     AudioSys.setMuted(false);      // restore the player's volume for real play
   },
   // hand the paddle to / take it back from the machine mid-run
@@ -329,16 +323,9 @@ const game = {
     this.rng = Math.random;
     if (mode === 'daily') {
       const today = todayStr();
-      const seed = hashStr('gb_' + today);
-      this.rng = mulberry32(seed);
-      const r = mulberry32(seed ^ 0x5f5f5f);
-      const pool = [...DAILY_MODS];
+      this.rng = mulberry32(Rules.dailySeed(today));
       this.mods = {};
-      const n = 2 + Math.floor(r() * 2);
-      for (let i = 0; i < n && pool.length; i++) {
-        const m = pool.splice(Math.floor(r() * pool.length), 1)[0];
-        this.mods[m.id] = true;
-      }
+      for (const m of Rules.dailyMods(today)) this.mods[m.id] = true;
       const names = DAILY_MODS.filter(m => this.mods[m.id]).map(m => m.name);
       toast('DAILY GLITCH // ' + today, names.join(' · '));
     }
@@ -1799,7 +1786,8 @@ const game = {
   },
 
   updateArenaHud() {
-    $('hArena').innerHTML = `<b>${this.arena.name}</b>SECTOR ${String(this.level).padStart(2, '0')}`;
+    $('hArena').innerHTML = this.attract ? '<b>BREAKPOINT</b>DEMO PLAY'
+      : `<b>${this.arena.name}</b>SECTOR ${String(this.level).padStart(2, '0')}`;
   },
 
   renderHud() {
@@ -1872,52 +1860,67 @@ function refreshMenuStats() {
 function buildModeGrid() {
   const grid = $('modeGrid');
   grid.innerHTML = '';
-  for (const [id, m] of Object.entries(MODES)) {
+  const today = todayStr();
+  const ids = Object.keys(MODES);
+  ids.forEach((id, i) => {
+    const m = MODES[id];
     const card = document.createElement('div');
-    card.className = 'card';
-    const best = Meta.data.best[id];
-    let extra = best ? `<span class="cost">BEST ${best.toLocaleString()}</span>` : '';
-    let mods = '';
+    // an odd card out at the end takes the full row instead of sitting alone on the left
+    card.className = 'card mode' + (i === ids.length - 1 && ids.length % 2 ? ' wide' : '');
+    let label = 'BEST', value = Meta.data.best[id] || 0, mods = '';
     if (id === 'daily') {
-      const today = todayStr();
-      const seed = mulberry32(hashStr('gb_' + today) ^ 0x5f5f5f);
-      const pool = [...DAILY_MODS];
-      const n = 2 + Math.floor(seed() * 2);
-      const names = [];
-      for (let i = 0; i < n && pool.length; i++) names.push(pool.splice(Math.floor(seed() * pool.length), 1)[0].name);
-      mods = '<div>' + names.map(x => `<span class="modtag">${x}</span>`).join('') + '</div>';
-      if (Meta.data.daily.date === today) extra = `<span class="cost">TODAY ${Meta.data.daily.score.toLocaleString()}</span>`;
+      mods = Rules.dailyMods(today).map(x => `<span class="modtag">${x.name}</span>`).join('');
+      if (Meta.data.daily.date === today) { label = 'TODAY'; value = Meta.data.daily.score; }
     }
     const desc = IS_TOUCH ? m.desc.replace('Press [T] any time to take over.', 'Tap the AI badge any time to take over.') : m.desc;
-    card.innerHTML = `<h3>${m.name}${extra}</h3><p>${desc}</p>${mods}`;
+    card.innerHTML = `<div class="mi">${modeIcon(id)}</div>` +
+      `<div class="mt"><h3>${m.name}${mods}</h3><p>${desc}</p></div>` +
+      `<div class="mb${value ? '' : ' none'}"><i>${label}</i><b>${value ? Math.floor(value).toLocaleString() : '—'}</b></div>`;
     card.onclick = () => { AudioSys.sfx('click'); game.startRun(id); };
     grid.appendChild(card);
-  }
+  });
 }
 
+// The upgrade tree: three branches, each bought from the top down. A node is
+// bright when you can afford it, shows what you are short by when you can't,
+// and names the node it is waiting for while it is locked.
 function buildShop() {
-  $('shopCr').textContent = Meta.data.credits.toLocaleString();
+  const credits = Meta.data.credits;
+  $('shopCr').textContent = credits.toLocaleString();
   const grid = $('shopGrid');
   grid.innerHTML = '';
-  for (const u of UPGRADES) {
-    const rank = Meta.rank(u.id);
-    const cost = Math.round(u.cost * Math.pow(2.0, rank));
-    const maxed = rank >= u.max;
-    const card = document.createElement('div');
-    card.className = 'card' + (maxed ? ' owned' : Meta.data.credits < cost ? ' locked' : '');
-    card.innerHTML = `<h3>${u.name}<span class="cost">${maxed ? 'MAX' : cost + ' CR'}</span></h3>
-      <p>${u.desc}${u.max > 1 ? ` <span style="color:${COL.violet}">[${rank}/${u.max}]</span>` : rank ? ' <span style="color:#9d4dff">[OWNED]</span>' : ''}</p>`;
-    if (!maxed) card.onclick = () => {
-      if (Meta.data.credits < cost) { AudioSys.sfx('powerdn'); return; }
-      Meta.data.credits -= cost;
-      Meta.data.up[u.id] = rank + 1;
-      Meta.save();
-      AudioSys.sfx('powerup');
-      game.unlock('buy1');
-      buildShop(); refreshMenuStats();
-    };
-    grid.appendChild(card);
+  let affordable = 0;
+  for (const branch of Rules.UPGRADE_TREE) {
+    const col = document.createElement('div');
+    col.className = 'branch';
+    col.innerHTML = `<h4>${branch.name}</h4>`;
+    for (const id of branch.nodes) {
+      const u = UPGRADES.find(x => x.id === id);
+      const st = Rules.upgradeState(id, Meta.data.up, credits);
+      if (st.state === 'buy') affordable++;
+      const node = document.createElement('div');
+      node.className = 'node ' + st.state + (st.rank ? ' owned' : '');
+      const pips = Array.from({ length: st.max }, (_, i) => i < st.rank ? '<b>■</b>' : '□').join('');
+      const tag = st.state === 'max' ? (st.max > 1 ? 'MAX' : 'OWNED')
+        : st.state === 'locked' ? 'NEEDS ' + UPGRADES.find(x => x.id === st.parent).name
+        : st.state === 'buy' ? 'BUY ' + st.cost.toLocaleString() + ' CR'
+        : st.cost.toLocaleString() + ' CR · ' + st.short.toLocaleString() + ' SHORT';
+      node.innerHTML = `<h3>${u.name}</h3><p>${u.desc}</p><div class="ns"><span class="pips">${pips}</span><span class="tag">${tag}</span></div>`;
+      node.onclick = () => {
+        const bought = Rules.buyUpgrade(id, Meta.data.up, Meta.data.credits);
+        if (!bought) { if (st.state !== 'max') AudioSys.sfx('powerdn'); return; }
+        Meta.data.up = bought.ranks;
+        Meta.data.credits = bought.credits;
+        Meta.save();
+        AudioSys.sfx('powerup');
+        game.unlock('buy1');
+        buildShop(); refreshMenuStats();
+      };
+      col.appendChild(node);
+    }
+    grid.appendChild(col);
   }
+  $('shopHint').textContent = affordable ? `${affordable} YOU CAN AFFORD` : 'PLAY RUNS TO EARN CREDITS';
 }
 
 function buildAchv() {
@@ -1960,7 +1963,7 @@ $('btnMute').onclick = () => {
 };
 function refreshAiRewardsBtn() {
   $('btnAiRewards').textContent = 'AI Progression: ' + (Meta.data.aiRewards ? 'ON' : 'OFF');
-  $('btnAiRewards').classList.toggle('ghostc', !!Meta.data.aiRewards);
+  $('btnAiRewards').classList.toggle('ghostc', !!Meta.data.aiRewards);   // mint text = switched on
 }
 $('btnAiRewards').onclick = () => {
   AudioSys.init(); AudioSys.sfx('click');
@@ -1974,13 +1977,13 @@ function applyFxSetting() {
   FX.setReduced(reduced);
   document.body.classList.toggle('reduced-fx', reduced);
   $('btnFx').textContent = 'Screen FX: ' + (reduced ? 'REDUCED' : 'FULL');
-  $('btnFx').classList.toggle('ghostc', reduced);
+  $('btnFx').classList.toggle('ghostc', !reduced);
 }
 // Battery saver: shared with Glitch Pong and the arcade (same stored switch)
 function refreshSaverBtn() {
   const label = Power.state === 'on' ? 'ON' : Power.state === 'auto' ? 'AUTO · LOW BATTERY' : 'OFF';
   $('btnSaver').textContent = 'Battery Saver: ' + label;
-  $('btnSaver').classList.toggle('ghostc', !Power.saving);
+  $('btnSaver').classList.toggle('ghostc', Power.saving);
 }
 $('btnSaver').onclick = () => {
   AudioSys.init(); AudioSys.sfx('click');
@@ -2007,7 +2010,7 @@ $('btnPaddleColor').onclick = () => {
 };
 function refreshSentienceBtn() {
   $('btnSentience').textContent = 'Sentient Ball: ' + (game.sentient ? 'ON' : 'OFF');
-  $('btnSentience').classList.toggle('ghostc', !game.sentient);
+  $('btnSentience').classList.toggle('ghostc', game.sentient);
 }
 $('btnSentience').onclick = () => {
   AudioSys.init(); AudioSys.sfx('click');
