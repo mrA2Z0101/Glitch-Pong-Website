@@ -697,6 +697,18 @@ const GlitchSave = (function() {
       return GlitchCosmetics.sanitize(v);
     },
     glitchcade_breakpoint_v1: (v) => (v && typeof v === "object" ? { sectors: Math.floor(num(v.sectors) || 0) } : null),
+    // Black-Hole Nexus (cabinet 03): counts and switches only. nexus/js/rules.js
+    // cleans it properly when that page loads it.
+    glitchcade_nexus_v1: (v) => {
+      if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+      const out = {};
+      Object.keys(v).slice(0, 30).forEach((k) => {
+        if (!ID_RE.test(k)) return;
+        if (typeof v[k] === "boolean") out[k] = v[k];
+        else { const n = num(v[k]); if (n !== null) out[k] = Math.floor(n); }
+      });
+      return out;
+    },
     // Breakpoint-only prizes bought at the counter; glitchcade-breakpoint-prizes.js owns the shape.
     glitchcade_breakpoint_prizes_v1: (v) => {
       if (!v || typeof v !== "object" || typeof GlitchBreakpointPrizes === "undefined") return null;

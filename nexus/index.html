@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<!-- phone: no pinch / double-tap zoom, draw under the notch (body pads by the safe area),
+     and run full-screen when added to the home screen -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Black-Hole Nexus">
+<title>BLACK-HOLE NEXUS — It Knows You Are Holding The Button</title>
+<meta name="theme-color" content="#03040a">
+<link rel="icon" type="image/png" sizes="128x128" href="../icons/icon128.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;800;900&family=Press+Start+2P&family=Share+Tech+Mono&family=VT323&display=swap" rel="stylesheet">
+<style>
+/* ========================================
+   DESIGN TOKENS — Glitch Pong universe
+   (the same set Breakpoint uses)
+   ======================================== */
+:root{
+  --void:   #03040a;
+  --deep:   #080c1a;
+  --panel:  rgba(8,12,28,0.88);
+  --cyan:   #71efff;
+  --pink:   #ff58d9;
+  --purple: #9a5dff;
+  --amber:  #ffd27a;
+  --red:    #ff4d6d;
+  --text:   #eef7ff;
+  --muted:  #7a9ab8;
+  --dim:    #3a4a5a;
+  --line:   rgba(113,239,255,0.14);
+  --line-s: rgba(113,239,255,0.28);
+}
+*{margin:0;padding:0;box-sizing:border-box;user-select:none;-webkit-user-select:none}
+html,body{height:100%;background:var(--void);overflow:hidden;overscroll-behavior:none;touch-action:manipulation;-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none}
+body{
+  font-family:'Share Tech Mono',monospace;color:var(--text);
+  display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(circle at 50% 40%, #0d0a22 0%, #060714 45%, var(--void) 100%);
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+/* global scanlines, Glitch Pong style */
+body::after{
+  content:'';position:fixed;inset:0;z-index:9999;pointer-events:none;
+  background:repeating-linear-gradient(to bottom, transparent 0 3px, rgba(0,0,0,.10) 3px 4px);
+}
+/* fixed design size; js/game.js scales the whole cabinet to fit the window */
+#wrap{position:relative;width:980px;flex-shrink:0;transform-origin:center center}
+/* ---------- HUD ---------- */
+#hudTop{
+  display:flex;justify-content:space-between;align-items:flex-end;
+  padding:6px 10px 4px;letter-spacing:1px;font-size:14px;
+  border-bottom:1px solid var(--line);
+}
+#hudTop .grp{display:flex;gap:22px;align-items:baseline;min-width:250px}
+#hudTop .grp.r{justify-content:flex-end}
+.hlab{color:var(--muted);opacity:.75;font-family:'Orbitron',monospace;font-weight:700;font-size:9px;letter-spacing:3px;display:block;text-transform:uppercase}
+.hval{font-family:'VT323',monospace;font-size:26px;line-height:1;color:var(--cyan);text-shadow:0 0 10px rgba(113,239,255,.55);white-space:pre}
+#hChain .hval{color:var(--pink);text-shadow:0 0 10px rgba(255,88,217,.55)}
+#hMult .hval{color:#c084fc;text-shadow:0 0 10px rgba(154,93,255,.55)}
+#hLives .hval{color:var(--red);text-shadow:0 0 10px rgba(255,77,109,.55);letter-spacing:3px}
+#hLives.mine .hlab{color:var(--pink);opacity:1}
+#hScore.stolen .hval{color:var(--red);text-shadow:-2px 0 0 var(--cyan),2px 0 0 var(--pink)}
+#hSector{color:var(--dim);font-size:10px;letter-spacing:4px;text-align:center;font-family:'Orbitron',monospace}
+#hSector b{display:block;color:var(--text);font-size:13px;font-weight:800;letter-spacing:5px;text-shadow:0 0 12px rgba(154,93,255,.5)}
+/* the bot behind the menus is not your game: its numbers stay hidden */
+body.attract #hudTop .grp, body.attract #hudBot > *{visibility:hidden}
+/* ---------- canvas ---------- */
+#stage{position:relative}
+canvas#game{
+  display:block;width:100%;background:var(--void);touch-action:none;
+  border:1px solid var(--line);
+  box-shadow:0 0 40px rgba(154,93,255,.14), 0 0 90px rgba(255,88,217,.05), inset 0 0 60px rgba(0,0,0,.6);
+}
+#vig{position:absolute;inset:0;pointer-events:none;z-index:6;
+  background:radial-gradient(ellipse at center, transparent 58%, rgba(0,0,0,.6) 100%);}
+/* boss bar */
+#bossBar{position:absolute;top:8px;left:50%;transform:translateX(-50%);width:46%;z-index:8;display:none;text-align:center;pointer-events:none}
+#bossBar.on{display:block}
+#bossName{font-family:'VT323',monospace;font-size:20px;letter-spacing:6px;color:var(--pink);text-shadow:0 0 14px rgba(255,88,217,.8), -2px 0 0 var(--cyan)}
+#bossHp{height:8px;margin-top:3px;background:rgba(255,88,217,.12);border:1px solid rgba(255,88,217,.5)}
+#bossHpFill{height:100%;width:100%;background:linear-gradient(90deg,var(--cyan),var(--pink));box-shadow:0 0 12px rgba(255,88,217,.7);transition:width .15s}
+/* NULL's terminal line: under everything it says, over every menu */
+#nullLine{
+  position:absolute;left:50%;bottom:12px;transform:translateX(-50%);z-index:40;pointer-events:none;
+  width:max-content;max-width:86%;padding:6px 14px 5px;text-align:left;
+  font-family:'VT323',monospace;font-size:21px;line-height:1.15;letter-spacing:1.5px;color:#d9c8ff;
+  background:rgba(4,3,12,.82);border:1px solid rgba(154,93,255,.45);border-left:3px solid var(--purple);
+  box-shadow:0 0 22px rgba(154,93,255,.28);
+  opacity:0;transition:opacity .35s;
+}
+#nullLine.on{opacity:1}
+#nullLine b{color:var(--pink);font-weight:400;margin-right:6px;text-shadow:-1px 0 0 var(--cyan)}
+#nullLine i{display:inline-block;width:9px;height:17px;margin-left:3px;vertical-align:-2px;background:#d9c8ff;animation:caret .8s steps(1) infinite}
+@keyframes caret{50%{opacity:0}}
+body.portrait #nullLine{font-size:24px;max-width:94%}
+/* the crash that isn't one */
+#crash{position:absolute;inset:0;z-index:45;display:none;flex-direction:column;justify-content:center;gap:10px;
+  padding:0 12%;background:#1a0b4a;color:#e9e2ff;font-family:'VT323',monospace;font-size:24px;letter-spacing:1.5px;text-align:left}
+#crash.on{display:flex}
+#crash h3{font-family:'VT323',monospace;font-weight:400;font-size:30px;display:inline-block;align-self:flex-start;background:#e9e2ff;color:#1a0b4a;padding:0 10px}
+#crash p.confess{color:var(--pink);text-shadow:-1px 0 0 var(--cyan)}
+/* ---------- bottom bars ---------- */
+#hudBot{display:flex;gap:14px;align-items:center;padding:7px 10px;font-size:9px;letter-spacing:3px;color:var(--muted);
+  font-family:'Orbitron',monospace;font-weight:700;text-transform:uppercase;border-top:1px solid var(--line)}
+.meter{flex:1;height:5px;background:rgba(113,239,255,.08);border-radius:2px;position:relative;overflow:hidden}
+.meter i{position:absolute;inset:0;width:0%;transition:width .2s;border-radius:2px}
+#heatFill{background:linear-gradient(90deg,var(--cyan),var(--pink));box-shadow:0 0 12px rgba(255,88,217,.7)}
+#bitsFill{background:linear-gradient(90deg,#2ae8f5,var(--cyan));box-shadow:0 0 10px rgba(113,239,255,.7)}
+@keyframes flick{0%,100%{opacity:.55}50%{opacity:1}}
+#heatLab.hot{color:var(--pink);animation:flick .2s infinite}
+#puList{display:flex;gap:6px;min-width:150px;justify-content:flex-end}
+.puTag{font-family:'VT323',monospace;font-size:15px;padding:1px 7px;border:1px solid;letter-spacing:1px}
+#coinLab{font-family:'VT323',monospace;font-size:17px;letter-spacing:1px;color:var(--amber);text-transform:none}
+/* ---------- screens ---------- */
+.screen{position:absolute;inset:0;z-index:20;background:rgba(3,4,10,.90);backdrop-filter:blur(4px);
+  display:none;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:13px;padding:26px 26px 64px;overflow:hidden}
+.screen.on{display:flex}
+.screen::before{
+  content:'';position:absolute;inset:0;z-index:-1;
+  background:
+    linear-gradient(rgba(154,93,255,0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(154,93,255,0.06) 1px, transparent 1px);
+  background-size:52px 52px;
+  mask-image:radial-gradient(circle at 50% 40%, rgba(0,0,0,1) 0%, rgba(0,0,0,.4) 50%, transparent 100%);
+}
+body.touch .screen, body.saver .screen{backdrop-filter:none;background:rgba(3,4,10,.94)}
+.eyebrow{font-family:'Orbitron',monospace;font-size:10px;font-weight:700;letter-spacing:.38em;color:var(--cyan);text-transform:uppercase;opacity:.8}
+h2.st{font-family:'VT323',monospace;font-weight:400;letter-spacing:6px;font-size:36px;line-height:1.15;color:var(--text);text-shadow:2px 0 var(--pink),-2px 0 var(--cyan)}
+/* buttons: the Glitchcade's chunky pixel buttons */
+button{
+  font-family:'Press Start 2P',monospace;text-transform:uppercase;
+  background:transparent;color:var(--cyan);border:none;cursor:pointer;position:relative;
+}
+.screen button:not(.px-btn){
+  font-size:11px;letter-spacing:1px;line-height:1.3;
+  padding:14px 22px;min-width:250px;border-radius:11px;
+  color:#6fb0ea;
+  background:linear-gradient(#4d7c63 0%, #40694f 14%, #37604a 100%);
+  box-shadow:
+    inset 0 2px 0 rgba(196,255,222,.26),
+    inset 0 -5px 0 rgba(0,0,0,.32),
+    inset 0 0 0 2px #2c5344,
+    0 5px 0 #21402f,
+    0 9px 14px rgba(0,0,0,.5);
+  text-shadow:0 2px 0 rgba(0,0,0,.5);
+  transition:transform .08s ease, filter .12s ease;
+}
+.screen button:not(.px-btn):hover{filter:brightness(1.13);transform:translateY(-1px)}
+.screen button:not(.px-btn):active{transform:translateY(3px)}
+.screen button.primary{font-size:15px;padding:19px 26px;min-width:320px;color:#8fd0ff;border-radius:13px}
+.screen button.small{min-width:0;padding:11px 16px;font-size:9px;border-radius:9px}
+.screen button.warn{color:#ec8080}
+.screen button.ghostc{color:#9ff0c8}
+.row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;align-items:center}
+/* main menu: see-through, so the bot's run shows behind it */
+.px-title{
+  font-family:'Press Start 2P',monospace;font-weight:400;
+  font-size:46px;line-height:1.12;letter-spacing:2px;
+  color:#8f86b8;
+  text-shadow:-4px 0 0 var(--cyan), 4px 0 0 var(--pink), 0 0 30px rgba(154,93,255,.5);
+  animation:pxGlitch 4.5s steps(1) infinite;
+  margin:2px 0 2px;
+}
+@keyframes pxGlitch{
+  0%,88%,100%{text-shadow:-4px 0 0 var(--cyan),4px 0 0 var(--pink),0 0 30px rgba(154,93,255,.5);transform:translate(0)}
+  89%{text-shadow:-7px 0 0 var(--cyan),7px 0 0 var(--pink),0 0 40px rgba(154,93,255,.8);transform:translate(3px,-1px)}
+  90%{text-shadow:-2px 0 0 var(--pink),2px 0 0 var(--cyan);transform:translate(-3px,1px)}
+  91%{text-shadow:-4px 0 0 var(--cyan),4px 0 0 var(--pink);transform:translate(0)}
+  93%{text-shadow:-9px 0 0 var(--pink),9px 0 0 var(--cyan),0 0 46px rgba(154,93,255,.9);transform:translate(-4px,0)}
+  94%{text-shadow:-4px 0 0 var(--cyan),4px 0 0 var(--pink),0 0 30px rgba(154,93,255,.5);transform:translate(0)}
+}
+.px-sub{font-family:'Press Start 2P',monospace;font-size:9px;letter-spacing:2px;color:var(--amber);opacity:.85;margin-bottom:6px;text-transform:uppercase}
+.px-btn{
+  font-family:'Press Start 2P',monospace;
+  font-size:19px;letter-spacing:2px;text-transform:uppercase;
+  width:340px;max-width:78vw;padding:18px 18px;margin:0;
+  border:none;cursor:pointer;border-radius:14px;outline:none;
+  color:#6fb0ea;
+  background:linear-gradient(#4d7c63 0%, #40694f 14%, #37604a 100%);
+  box-shadow:
+    inset 0 3px 0 rgba(196,255,222,.28),
+    inset 0 -7px 0 rgba(0,0,0,.32),
+    inset 0 0 0 3px #2c5344,
+    0 6px 0 #21402f,
+    0 12px 18px rgba(0,0,0,.55);
+  text-shadow:0 2px 0 rgba(0,0,0,.5);
+  transition:transform .08s ease, filter .12s ease;
+}
+.px-btn:hover{filter:brightness(1.13);transform:translateY(-2px)}
+.px-btn:active{transform:translateY(4px)}
+.px-btn.red{color:#ec8080}
+.px-btn.sm{font-size:8px;min-width:0;flex:1;padding:10px 4px;letter-spacing:0;border-radius:9px;
+  box-shadow:inset 0 2px 0 rgba(196,255,222,.24),inset 0 -4px 0 rgba(0,0,0,.3),inset 0 0 0 2px #2c5344,0 4px 0 #21402f,0 7px 11px rgba(0,0,0,.5)}
+.px-row{display:flex;gap:8px;flex-wrap:nowrap;justify-content:center;margin-top:2px;width:340px;max-width:78vw}
+#scrMenu{gap:12px;
+  background:radial-gradient(ellipse at 50% 42%, rgba(3,4,10,.68) 0%, rgba(3,4,10,.46) 42%, rgba(3,4,10,.22) 100%);
+  backdrop-filter:none}
+#scrMenu .px-btn.arcade{flex:none;width:340px;max-width:78vw;color:#ffd27a;font-size:11px;padding:13px 8px}
+.menu-stats{display:flex;gap:20px;font-family:'Orbitron',monospace;font-size:9px;font-weight:700;letter-spacing:2px;color:var(--muted);text-transform:uppercase}
+.menu-stats b{font-family:'VT323',monospace;font-size:19px;font-weight:400;color:var(--text);letter-spacing:1px;margin-left:5px}
+/* lists */
+.klist{font-size:13px;color:var(--muted);line-height:1.75;letter-spacing:.6px;text-align:left;max-width:640px}
+.klist b{color:var(--cyan);display:inline-block;min-width:150px;font-family:'Orbitron',monospace;font-size:10px;font-weight:700;letter-spacing:.16em}
+.klist p{margin-top:9px;color:var(--text)}
+.klist p em{font-style:normal;color:var(--amber)}
+.setlist{display:grid;grid-template-columns:auto minmax(0,320px);gap:9px 16px;align-items:center;text-align:left}
+.setlist button{justify-self:stretch}
+.setlist .hint{font-size:12px;color:var(--muted);line-height:1.45;letter-spacing:.5px}
+input[type=range]{accent-color:var(--cyan);width:100%}
+#scrSettings{gap:9px}
+.bigscore{font-family:'VT323',monospace;font-size:64px;line-height:1;color:var(--cyan);text-shadow:0 0 24px rgba(113,239,255,.7), -3px 0 0 var(--pink)}
+.statline{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;max-width:700px}
+.sc{display:flex;flex-direction:column;align-items:center;gap:5px;min-width:104px;padding:10px 16px;
+  border:1px solid var(--line);background:rgba(8,12,28,.6)}
+.sc i{font-family:'Orbitron',monospace;font-style:normal;font-size:9px;font-weight:700;line-height:1.2;letter-spacing:2px;color:var(--cyan);text-transform:uppercase}
+.sc b{font-family:'VT323',monospace;font-size:26px;font-weight:400;color:#fff;letter-spacing:1px;line-height:1}
+.sc.hl b{color:var(--amber)}
+.cause{font-size:13px;color:var(--muted);letter-spacing:1px}
+.cause b{color:var(--pink);font-weight:400}
+#scrOver{gap:15px}
+/* on-screen pause (touch players have no P / Esc key) */
+#btnPauseHud{position:absolute;top:10px;right:12px;z-index:9;min-width:0;width:34px;height:30px;padding:0;
+  font-family:'VT323',monospace;font-size:20px;letter-spacing:0;color:var(--cyan);
+  outline:1.5px solid rgba(113,239,255,.35);background:rgba(8,12,28,.6);display:none}
+#btnPauseHud.on{display:block}
+/* touch screens show the cabinet scaled down, so the small print is set larger */
+body.touch .hlab{font-size:13px;letter-spacing:2px;opacity:.9}
+body.touch .hval{font-size:32px}
+body.touch #hSector{font-size:12px;letter-spacing:3px;color:var(--muted)}
+body.touch #hSector b{font-size:15px}
+body.touch #hudBot{font-size:12px;padding:10px 10px}
+body.touch .meter{height:9px}
+body.touch #btnPauseHud{width:60px;height:52px;font-size:30px}
+body.portrait #hudTop{flex-wrap:wrap;row-gap:4px}
+body.portrait #hSector{order:-1;flex-basis:100%}
+body.portrait #hudTop .grp{gap:16px;min-width:0}
+body.portrait .px-title{font-size:40px}
+body.portrait .px-btn{width:420px;max-width:86%;font-size:24px;padding:26px 18px}
+body.portrait .px-row, body.portrait #scrMenu .px-btn.arcade{width:420px;max-width:86%}
+body.portrait .px-btn.sm{font-size:10px;padding:14px 4px}
+body.portrait #scrMenu .px-btn.arcade{font-size:13px;padding:16px 8px}
+body.portrait .klist{font-size:16px;max-width:94%}
+body.portrait .klist b{font-size:12px;min-width:130px}
+body.portrait .setlist{grid-template-columns:1fr;max-width:92%}
+body.portrait .setlist .hint{font-size:14px;margin:-4px 0 6px}
+body.portrait .screen button.small{padding:15px 18px;font-size:11px}
+body.portrait #puList{min-width:0}
+body.reduced-fx .px-title{animation:none}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="hudTop">
+    <div class="grp">
+      <div id="hScore"><span class="hlab">Score</span><span class="hval" id="vScore">000000</span></div>
+      <div id="hChain"><span class="hlab">Rally</span><span class="hval" id="vChain">0</span></div>
+      <div id="hMult"><span class="hlab">Mult</span><span class="hval" id="vMult">x1</span></div>
+    </div>
+    <div id="hSector">SECTOR <span id="vSector">01</span><b id="vRule">STANDARD</b></div>
+    <div class="grp r">
+      <div id="hBits"><span class="hlab">Salvage</span><span class="hval" id="vBits">0/12</span></div>
+      <div id="hLives"><span class="hlab" id="lBalls">Balls</span><span class="hval" id="vBalls">●●●</span></div>
+    </div>
+  </div>
+
+  <div id="stage">
+    <canvas id="game" width="960" height="704"></canvas>
+    <div id="vig"></div>
+    <div id="bossBar"><div id="bossName">THE EYE</div><div id="bossHp"><div id="bossHpFill"></div></div></div>
+    <button id="btnPauseHud" type="button" aria-label="Pause">II</button>
+
+    <!-- NULL talks here, over the game and over every menu -->
+    <div id="nullLine" aria-live="polite"><b>NULL&gt;</b><span id="nullText"></span><i></i></div>
+
+    <div id="crash">
+      <h3>NEXUS.EXE</h3>
+      <p>A FATAL EXCEPTION 0x03 HAS OCCURRED AT CABINET:03.</p>
+      <p>THE CURRENT GAME WILL BE TERMINATED.</p>
+      <p id="crashMore">* PRESS ANY BUTTON TO LOSE ALL UNSAVED PROGRESS.</p>
+    </div>
+
+    <div id="scrMenu" class="screen on">
+      <p class="px-sub">Cabinet 03 // it knows you are holding the button</p>
+      <h1 class="px-title">BLACK-HOLE<br>NEXUS</h1>
+      <button id="btnPlay" class="px-btn" type="button">Play</button>
+      <button id="btnSettings" class="px-btn red" type="button">Settings</button>
+      <div class="px-row">
+        <button id="btnHow" class="px-btn sm" type="button">How to play</button>
+        <button id="btnRecord" class="px-btn sm" type="button">What it keeps</button>
+      </div>
+      <button id="btnExit" class="px-btn arcade" type="button" style="display:none">Exit to arcade</button>
+      <div class="menu-stats">
+        <span>Best<b id="mBest">0</b></span>
+        <span>Deepest<b id="mSector">—</b></span>
+        <span>◎ Coins<b id="mCoins">0</b></span>
+      </div>
+    </div>
+
+    <div id="scrHow" class="screen">
+      <p class="eyebrow">Cabinet 03</p>
+      <h2 class="st">HOW TO PLAY</h2>
+      <div class="klist">
+        <div><b id="howKey">SPACE / CLICK</b>Hold to climb. Let go to fall. That is the only control.</div>
+        <div><b>P / ESC</b>Pause.</div>
+        <p>There is no paddle. <em>You are the ball</em>, in orbit round a hole in the machine's memory.
+           Collect the white <em>bits</em> to salvage the sector. Lower orbits are faster and worth more:
+           x2 in the middle band, x3 next to the hole.</p>
+        <p>Everything else in orbit is what the other two cabinets threw away. Touch it and the ball is gone.
+           Fall past the horizon and the ball is gone. Passing close scores, and raises <em>Heat</em>.</p>
+        <p><em>Heat</em> multiplies your score up to x3. It also widens the hole, brings more junk, and gets you noticed.</p>
+        <p>Each sector has one rule. Every fifth sector, <em>THE EYE</em> looks through the hole:
+           thread the gap in its gaze, and take the pink charges while it is open.</p>
+        <p>A sector pays <em>2 coins</em> at the prize counter. THE EYE pays <em>10</em>.</p>
+      </div>
+      <button class="small back" type="button">Back</button>
+    </div>
+
+    <div id="scrRecord" class="screen">
+      <p class="eyebrow">Saved in this browser</p>
+      <h2 class="st">WHAT NULL KEEPS</h2>
+      <div class="statline" id="recordList"></div>
+      <p class="cause" id="recordNote"></p>
+      <button class="small back" type="button">Back</button>
+    </div>
+
+    <div id="scrSettings" class="screen">
+      <h2 class="st">SETTINGS</h2>
+      <div class="setlist">
+        <input id="setVol" type="range" min="0" max="100" step="5" aria-label="Volume">
+        <span class="hint">Volume: music, effects and the countdown voice.</span>
+        <button id="setFx" class="small" type="button">Screen FX: Full</button>
+        <span class="hint">Reduced: no shake, no tearing, no fake crash.</span>
+        <button id="setMoods" class="small" type="button">Ball moods: On</button>
+        <span class="hint">The ball refuses the horizon once a sector on your last ball, and has things to say.</span>
+        <button id="setTalk" class="small" type="button">NULL: Talks</button>
+        <span class="hint">The line of text under the screen. It also stops touching your HUD.</span>
+        <button id="setSaver" class="small" type="button">Battery saver: Off</button>
+        <span class="hint">Fewer frames and smaller glows. Shared with the whole arcade.</span>
+        <button id="setSkin" class="small" type="button">Ball skin</button>
+        <span class="hint" id="setSkinHint">From Glitch Pong's Store. Changing it here changes it there.</span>
+        <button id="setTrail" class="small" type="button">Ball trail</button>
+        <span class="hint">Also from the Store.</span>
+        <button id="setReset" class="small warn" type="button">Erase what it keeps</button>
+        <span class="hint">Scores and counts for this cabinet only. Coins and the other games are untouched.</span>
+      </div>
+      <button class="small back" type="button">Back</button>
+    </div>
+
+    <div id="scrPause" class="screen">
+      <p class="eyebrow">Sector <span id="pSector">01</span></p>
+      <h2 class="st">PAUSED</h2>
+      <button id="btnResume" class="primary" type="button">Resume</button>
+      <div class="row">
+        <button id="btnPauseSettings" class="small" type="button">Settings</button>
+        <button id="btnQuit" class="small warn" type="button">End run</button>
+      </div>
+    </div>
+
+    <div id="scrOver" class="screen">
+      <p class="eyebrow" id="oEyebrow">Sector 01</p>
+      <h2 class="st" id="oTitle">GAME OVER</h2>
+      <div class="bigscore" id="oScore">0</div>
+      <div class="statline" id="oStats"></div>
+      <p class="cause" id="oCause"></p>
+      <div class="row">
+        <button id="btnRetry" class="primary" type="button">Again</button>
+      </div>
+      <button id="btnOverMenu" class="small" type="button">Menu</button>
+    </div>
+  </div>
+
+  <div id="hudBot">
+    <span id="heatLab">Heat</span>
+    <div class="meter"><i id="heatFill"></i></div>
+    <span>Salvage</span>
+    <div class="meter"><i id="bitsFill"></i></div>
+    <div id="puList"></div>
+    <span id="coinLab">◎ <b id="vCoins">0</b></span>
+  </div>
+</div>
+
+<!-- shared with the arcade, from the folder above -->
+<script src="../glitchcade-power.js?v=power-1"></script>
+<script src="../glitchpong-cosmetics.js?v=cosmetics-4"></script>
+<script type="module" src="js/game.js?v=1"></script>
+</body>
+</html>

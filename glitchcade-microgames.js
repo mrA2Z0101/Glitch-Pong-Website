@@ -11,7 +11,7 @@
 //   g.t            seconds played
 //   inp            held: left right up down a · pressed this frame: pl pr pu pd pa
 // ═══════════════════════════════════════════════════════════════════════════
-import { FRAGMENT_SECONDS, cleanInitials } from './glitchcade-state.js?v=floor-1';
+import { FRAGMENT_SECONDS, cleanInitials } from './glitchcade-state.js?v=floor-2';
 
 const W = 320, H = 240;
 const COL = { cyan: '#71efff', pink: '#ff58d9', purple: '#9a5dff', amber: '#ffd27a', green: '#50fa7b', red: '#ff4d6d', text: '#eef7ff', dim: '#5a4a8a' };
@@ -22,7 +22,7 @@ function box(ctx, x, y, w, h, col) {
   ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
 }
 
-// ── 03 SIGNAL LOST: gather signal packets while the static closes in ──
+// ── 06 SIGNAL LOST: gather signal packets while the static closes in ──
 const signalLost = {
   hint: 'MOVE: ARROWS — COLLECT THE SIGNAL, AVOID THE STATIC',
   init(g) {
@@ -139,47 +139,8 @@ function defragPiece(g) {
   return { col: Math.floor(g.rand() * 3), kind: Math.floor(g.rand() * 3), y: 34 };
 }
 
-// ── 06 BLACK-HOLE NEXUS: ride the orbit, change altitude to scoop up stars ──
-const blackHole = {
-  hint: 'ALTITUDE: ▲ ▼ — COLLECT STARS, DODGE THE DEBRIS',
-  init(g) {
-    const s = { a: 0, r: 70, stars: [], junk: [], next: 0.2, hit: 0 };
-    for (let i = 0; i < 3; i++) s.junk.push({ a: g.rand() * 6.28, r: 40 + i * 28, w: -(0.9 + g.rand() * 0.8) });
-    return s;
-  },
-  update(s, dt, inp, g) {
-    s.a += 2.3 * dt;
-    s.r = clamp(s.r + ((inp.up ? 1 : 0) - (inp.down ? 1 : 0)) * 90 * dt, 30, 104);
-    s.hit = Math.max(0, s.hit - dt);
-    s.next -= dt;
-    if (s.next <= 0 && s.stars.length < 5) {
-      s.next = 0.45;
-      s.stars.push({ a: g.rand() * 6.28, r: 32 + g.rand() * 70 });
-    }
-    const px = Math.cos(s.a) * s.r, py = Math.sin(s.a) * s.r;
-    s.stars = s.stars.filter((st) => {
-      if (Math.hypot(Math.cos(st.a) * st.r - px, Math.sin(st.a) * st.r - py) < 11) { g.add(1); g.blip('good'); return false; }
-      return true;
-    });
-    s.junk.forEach((j) => {
-      j.a += j.w * dt;
-      if (s.hit <= 0 && Math.hypot(Math.cos(j.a) * j.r - px, Math.sin(j.a) * j.r - py) < 10) {
-        g.add(-1); g.blip('bad'); s.hit = 0.7;
-      }
-    });
-  },
-  draw(s, ctx, g) {
-    const cx = W / 2, cy = H / 2 + 14;
-    ctx.strokeStyle = 'rgba(154,93,255,.25)';
-    [30, 67, 104].forEach((r) => { ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke(); });
-    ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(cx, cy, 16, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = '#b100d3'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(cx, cy, 18 + Math.sin(g.t * 8) * 1.5, 0, Math.PI * 2); ctx.stroke(); ctx.lineWidth = 1;
-    s.stars.forEach((st) => box(ctx, cx + Math.cos(st.a) * st.r - 3, cy + Math.sin(st.a) * st.r - 3, 6, 6, COL.amber));
-    s.junk.forEach((j) => box(ctx, cx + Math.cos(j.a) * j.r - 5, cy + Math.sin(j.a) * j.r - 5, 10, 10, COL.red));
-    const blink = s.hit > 0 && Math.floor(g.t * 20) % 2;
-    box(ctx, cx + Math.cos(s.a) * s.r - 5, cy + Math.sin(s.a) * s.r - 5, 10, 10, blink ? COL.red : g.accent);
-  }
-};
+// (BLACK-HOLE NEXUS was a fragment here until it became a whole game: cabinet
+// 03, in nexus/. SIGNAL LOST runs on the cabinet it left, 06.)
 
 // ── 07 STACK OVERFLOW: pop the marked frame before the stack hits the top ──
 const stackOverflow = {
@@ -345,7 +306,6 @@ export const MICROGAMES = {
   'signal-lost': signalLost,
   firewall,
   defrag,
-  'black-hole-nexus': blackHole,
   'stack-overflow': stackOverflow,
   'packet-hop': packetHop,
   'swarm-protocol': swarm,

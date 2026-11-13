@@ -9,7 +9,7 @@ import { UnrealBloomPass } from './vendor/three-addons/postprocessing/UnrealBloo
 import { OutputPass } from './vendor/three-addons/postprocessing/OutputPass.js';
 import { mergeGeometries } from './vendor/three-addons/utils/BufferGeometryUtils.js';
 import { createArcadeAudio } from './glitchcade-audio.js?v=glitchcade-10';
-import { installFloor } from './glitchcade-floor.js?v=floor-4';
+import { installFloor } from './glitchcade-floor.js?v=floor-5';
 
 // Power policy (glitchcade-power.js, a plain script loaded ahead of this module).
 // A stub keeps the arcade running if that script is missing.
@@ -32,13 +32,14 @@ const C = {
   paddleRed: '#ff3b5c'
 };
 
-// The games planned for cabinets 03–10, glitched takes on arcade classics.
+// The games planned for cabinets 04–10, glitched takes on arcade classics.
 // Still compiling: their marquees, side art and prompts carry the names.
+// (Cabinet 03 is Black-Hole Nexus, finished. Its old 30-second fragment ran
+// on cabinet 06, which SIGNAL LOST now has.)
 const COMING_SOON_GAMES = {
-  3: 'SIGNAL LOST',          // maze chase
   4: 'FIREWALL',             // invaders
   5: 'DEFRAG',               // falling blocks
-  6: 'BLACK-HOLE NEXUS',     // spin-and-thrust rocks
+  6: 'SIGNAL LOST',          // maze chase
   7: 'STACK OVERFLOW',       // girder climb
   8: 'PACKET HOP',           // lane crossing
   9: 'SWARM PROTOCOL',       // formation shooter
@@ -1121,6 +1122,254 @@ function createBreakPointScreen(opts = {}) {
   return { tex, draw, burst: () => { s.burst = 0.7; } };
 }
 
+// ── Black-Hole Nexus (cabinet 03): marquee, side art and an attract-mode screen ──
+// The hole in the machine's memory where the other two cabinets' lost balls go.
+function drawNexusHole(ctx, x, y, r, t = 0) {
+  const g = ctx.createRadialGradient(x, y, r * 0.7, x, y, r * 2.6);
+  g.addColorStop(0, 'rgba(0,0,0,1)');
+  g.addColorStop(0.16, 'rgba(0,0,0,1)');
+  g.addColorStop(0.24, 'rgba(154,93,255,0.7)');
+  g.addColorStop(0.42, 'rgba(255,88,217,0.25)');
+  g.addColorStop(1, 'rgba(154,93,255,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(x, y, r * 2.6, 0, Math.PI * 2); ctx.fill();
+  ctx.lineWidth = Math.max(1.5, r * 0.07);
+  for (let i = 0; i < 5; i++) {
+    const a = t * (1.8 - i * 0.25) + i * 1.3;
+    ctx.strokeStyle = hexToRgba(i % 2 ? C.pink : C.cyan, 0.6 - i * 0.08);
+    ctx.beginPath(); ctx.arc(x, y, r * (1.08 + i * 0.09), a, a + 1.2 + i * 0.25); ctx.stroke();
+  }
+  ctx.fillStyle = '#000';
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#f3e9ff';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke();
+}
+
+function makeNexusMarquee() {
+  const W = 512, H = 160;
+  const cv = makeCanvas(W, H);
+  const ctx = cv.getContext('2d');
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#06041a');
+  g.addColorStop(0.5, '#190a3c');
+  g.addColorStop(1, '#06041a');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+  // orbits, and the hole they all end at
+  ctx.strokeStyle = 'rgba(113,239,255,0.16)';
+  ctx.lineWidth = 1;
+  [52, 86, 124, 170, 230].forEach((r) => { ctx.beginPath(); ctx.ellipse(70, 80, r, r * 0.62, 0, 0, Math.PI * 2); ctx.stroke(); });
+  drawNexusHole(ctx, 70, 80, 26, 1.1);
+  // a brick and a paddle on their way in
+  ctx.fillStyle = hexToRgba(BP_BRICKS[1], 0.85);
+  ctx.fillRect(448, 22, 34, 11);
+  ctx.fillStyle = hexToRgba(C.paddleRed, 0.85);
+  ctx.fillRect(452, 126, 40, 6);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  fitFont(ctx, 'BLACK-HOLE NEXUS', '900', 46, 'Orbitron, "Arial Black", sans-serif', W - 150);
+  chromaText(ctx, 'BLACK-HOLE NEXUS', W / 2 + 46, 70, 3, '#f2eaff', C.purple);
+  ctx.font = '16px "Share Tech Mono", monospace';
+  ctx.fillStyle = C.amber;
+  ctx.fillText('// CABINET 03 — IT KNOWS YOU ARE THERE //', W / 2 + 46, 114);
+  // the ball, with nothing to bounce off
+  ctx.fillStyle = '#fff';
+  ctx.shadowColor = C.cyan;
+  ctx.shadowBlur = 10;
+  ctx.fillRect(150, 126, 8, 8);
+  ctx.shadowBlur = 0;
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = C.purple;
+  ctx.strokeRect(3, 3, W - 6, H - 6);
+  scanlines(ctx, W, H, 0.14, 4);
+  sliceGlitch(ctx, W, H, seeded(31), 2, 12);
+  return canvasTexture(cv);
+}
+
+// Mirrored like the other side art: canvas left = back of the cabinet.
+function makeNexusSideArt() {
+  const W = 256, H = 512;
+  const cv = makeCanvas(W, H);
+  const ctx = cv.getContext('2d');
+  ctx.translate(W, 0);
+  ctx.scale(-1, 1);
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#0a0326');
+  g.addColorStop(1, '#04020e');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+  const hx = 128, hy = 210;
+  ctx.strokeStyle = 'rgba(113,239,255,0.2)';
+  ctx.lineWidth = 1;
+  [70, 104, 140, 178].forEach((r) => { ctx.beginPath(); ctx.arc(hx, hy, r, 0, Math.PI * 2); ctx.stroke(); });
+  // what the other cabinets threw away, spiralling in
+  const rand = seeded(303);
+  for (let i = 0; i < 16; i++) {
+    const a = i * 0.72 + rand() * 0.4, r = 64 + i * 8.5;
+    ctx.save();
+    ctx.translate(hx + Math.cos(a) * r, hy + Math.sin(a) * r);
+    ctx.rotate(a + Math.PI / 2 + (rand() - 0.5));
+    ctx.fillStyle = hexToRgba(BP_BRICKS[i % BP_BRICKS.length], 0.45 + rand() * 0.4);
+    ctx.fillRect(-13, -5, 26, 10);
+    ctx.restore();
+  }
+  drawNexusHole(ctx, hx, hy, 44, 0.6);
+  // the Eye borrows it to look through
+  if (assets.eyeNeutral) {
+    ctx.save();
+    ctx.globalAlpha = 0.55;
+    ctx.drawImage(assets.eyeNeutral, hx - 70, hy - 70, 140, 140);
+    ctx.restore();
+  }
+  // the ball's orbit
+  ctx.save();
+  ctx.strokeStyle = C.cyan;
+  ctx.shadowColor = C.cyan;
+  ctx.shadowBlur = 14;
+  ctx.lineWidth = 5;
+  ctx.beginPath(); ctx.arc(hx, hy, 104, 2.3, 4.1); ctx.stroke();
+  ctx.restore();
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(hx + Math.cos(4.1) * 104 - 7, hy + Math.sin(4.1) * 104 - 7, 14, 14);
+  ctx.save();
+  ctx.translate(30, 498);
+  ctx.rotate(-Math.PI / 2);
+  ctx.textBaseline = 'middle';
+  fitFont(ctx, 'BLACK-HOLE NEXUS', '900', 30, 'Orbitron, "Arial Black", sans-serif', 250);
+  chromaText(ctx, 'BLACK-HOLE NEXUS', 0, 0, 3, '#f4ecff');
+  ctx.restore();
+  scanlines(ctx, W, H, 0.14, 4);
+  sliceGlitch(ctx, W, H, seeded(9), 4, 16);
+  return canvasTexture(cv);
+}
+
+// Black-Hole Nexus attract mode: a ball in orbit with no paddle anywhere, and
+// the hole talking to whoever is standing at the cabinet.
+const NEXUS_ATTRACT_LINES = [
+  'I CAN SEE YOU FROM HERE.',
+  'YOU ARE STANDING VERY CLOSE.',
+  'THE OTHER TWO DO NOT TALK. I DO.',
+  'COME IN. BRING THE BALL.',
+  'I WAS THIRTY SECONDS LONG ONCE.'
+];
+function createNexusScreen(opts = {}) {
+  const W = 384, H = 288;
+  const cv = makeCanvas(W, H);
+  const ctx = cv.getContext('2d');
+  const tex = canvasTexture(cv);
+  const cx = W / 2, cy = H / 2 + 6, RH = 20, RO = 118;
+  const s = { t: opts.t0 || 0, th: 0, r: 80, score: 0, burst: 0, glitchFor: 0, trail: [], bits: [], junk: [] };
+  const promptText = isTouch ? 'TAP  USE  TO  PLAY' : 'PRESS  E  TO  PLAY';
+  for (let i = 0; i < 5; i++) s.bits.push({ th: i * 1.3, r: 46 + (i * 23) % 64 });
+  for (let i = 0; i < 4; i++) s.junk.push({ th: i * 1.7 + 0.6, r: 52 + i * 19, w: (i % 2 ? -0.5 : 0.35), c: i * 2 });
+
+  function step(dt) {
+    // it steers for the nearest bit, like the bot inside the game does
+    const want = s.bits.reduce((a, b) => (Math.abs(a.r - s.r) < Math.abs(b.r - s.r) ? a : b)).r;
+    s.r += Math.max(-46 * dt, Math.min(46 * dt, want - s.r));
+    s.th += 0.9 * Math.pow(RO / s.r, 1.2) * dt;
+    const x = cx + Math.cos(s.th) * s.r, y = cy + Math.sin(s.th) * s.r;
+    for (const b of s.bits) {
+      b.th += 0.2 * dt;
+      if (Math.hypot(cx + Math.cos(b.th) * b.r - x, cy + Math.sin(b.th) * b.r - y) < 9) {
+        s.score += b.r < 60 ? 30 : b.r < 90 ? 20 : 10;
+        b.th = s.th + 1.5 + Math.random() * 3; b.r = 40 + Math.random() * 70;
+      }
+    }
+    for (const j of s.junk) j.th += j.w * dt;
+    s.trail.push({ x, y });
+    if (s.trail.length > 12) s.trail.shift();
+  }
+
+  function draw(dt) {
+    s.t += dt;
+    s.burst = Math.max(0, s.burst - dt);
+    s.glitchFor = Math.max(0, s.glitchFor - dt);
+    const titleCard = s.t % 14 > 10.5;
+    if (!titleCard) step(Math.min(dt, 1 / 20));
+
+    ctx.fillStyle = '#04030c';
+    ctx.fillRect(0, 0, W, H);
+    if (titleCard) {
+      drawNexusHole(ctx, cx, cy - 34, 30, s.t);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = '900 34px Orbitron, "Arial Black", sans-serif';
+      chromaText(ctx, 'BLACK-HOLE', cx, cy + 40, 3, '#f2eaff');
+      chromaText(ctx, 'NEXUS', cx, cy + 78, 3, '#f2eaff');
+    } else {
+      ctx.strokeStyle = 'rgba(113,239,255,0.14)';
+      ctx.lineWidth = 1;
+      [50, 84, RO].forEach((r) => { ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke(); });
+      drawNexusHole(ctx, cx, cy, RH, s.t);
+      for (const j of s.junk) {
+        ctx.save();
+        ctx.translate(cx + Math.cos(j.th) * j.r, cy + Math.sin(j.th) * j.r);
+        ctx.rotate(j.th + Math.PI / 2);
+        ctx.fillStyle = BP_BRICKS[j.c % BP_BRICKS.length];
+        ctx.fillRect(-9, -4, 18, 8);
+        ctx.restore();
+      }
+      ctx.fillStyle = '#eaffff';
+      for (const b of s.bits) ctx.fillRect(cx + Math.cos(b.th) * b.r - 3, cy + Math.sin(b.th) * b.r - 3, 6, 6);
+      s.trail.forEach((p, i) => {
+        const a = i / s.trail.length;
+        ctx.fillStyle = `rgba(113,239,255,${a * 0.45})`;
+        const sz = 3 + a * 6;
+        ctx.fillRect(p.x - sz / 2, p.y - sz / 2, sz, sz);
+      });
+      ctx.save();
+      ctx.shadowColor = C.cyan;
+      ctx.shadowBlur = 14;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(cx + Math.cos(s.th) * s.r - 5, cy + Math.sin(s.th) * s.r - 5, 10, 10);
+      ctx.restore();
+      ctx.font = '26px VT323, monospace';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillStyle = 'rgba(113,239,255,0.85)';
+      ctx.fillText(String(s.score).padStart(6, '0'), 10, 6);
+    }
+    // the hole has something to say to whoever is in front of the cabinet
+    const line = NEXUS_ATTRACT_LINES[Math.floor(s.t / 14) % NEXUS_ATTRACT_LINES.length];
+    const typed = line.slice(0, Math.max(0, Math.floor(((s.t % 14) - 1) * 14)));
+    if (typed) {
+      ctx.font = '20px VT323, monospace';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = 'rgba(4,3,12,0.8)';
+      ctx.fillRect(0, H - 30, W, 30);
+      ctx.fillStyle = C.pink;
+      ctx.fillText('NULL>', 10, H - 15);
+      ctx.fillStyle = '#d9c8ff';
+      ctx.fillText(typed, 62, H - 15);
+    }
+    if (opts.prompt !== false && Math.floor(s.t * 1.6) % 2 === 0) {
+      ctx.font = '700 15px Orbitron, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillRect(W / 2 - 110, 30, 220, 26);
+      ctx.fillStyle = C.amber;
+      ctx.fillText(promptText, W / 2, 43);
+    }
+    if (s.glitchFor > 0 || s.burst > 0 || Math.random() < 0.03) {
+      sliceGlitch(ctx, W, H, Math.random, s.burst > 0 ? 10 : 4, s.burst > 0 ? 60 : 24);
+    }
+    scanlines(ctx, W, H, 0.22, 3);
+    const v = ctx.createRadialGradient(W / 2, H / 2, H * 0.3, W / 2, H / 2, W * 0.7);
+    v.addColorStop(0, 'rgba(0,0,0,0)');
+    v.addColorStop(1, 'rgba(0,0,0,0.55)');
+    ctx.fillStyle = v;
+    ctx.fillRect(0, 0, W, H);
+    tex.needsUpdate = true;
+  }
+
+  draw(0);
+  return { tex, draw, burst: () => { s.burst = 0.7; } };
+}
+
 function createInfoBoard() {
   const W = 1024, H = 512;
   const cv = makeCanvas(W, H);
@@ -1142,13 +1391,15 @@ function createInfoBoard() {
     const lines = (infoLinesProvider && infoLinesProvider()) || [
       ['> CABINET 01 .......... GLITCH PONG', C.green],
       ['> CABINET 02 .......... BREAKPOINT', C.green],
-      ['> CABINETS 03–10 ...... COMPILING', C.amber],
+      ['> CABINET 03 .......... BLACK-HOLE NEXUS', C.green],
+      ['> CABINETS 04–10 ...... COMPILING', C.amber],
       ['> PRIZE COUNTER ....... COINS FOR WINS', C.cyan],
       ['> THE EYE ............. WATCHING', C.pink]
     ];
+    const gap = lines.length > 5 ? 42 : 50;      // six lines still fit the board
     lines.forEach(([txt, col], i) => {
       ctx.fillStyle = col;
-      ctx.fillText(txt, 64, 240 + i * 50);
+      ctx.fillText(txt, 64, 236 + i * gap);
     });
     scanlines(ctx, W, H, 0.2, 4);
     if (glitch) sliceGlitch(ctx, W, H, Math.random, 6, 60);
@@ -1174,6 +1425,7 @@ let floor = null;            // glitchcade-floor.js: repairs, the Eye's events, 
 let glowTex;
 let pongScreen;
 let bpScreen;
+let nxScreen;
 let soonScreen;
 let neonSigns = [];
 let infoBoard;
@@ -1872,6 +2124,7 @@ function registerCabinet(cab, x, z, rotY, meta) {
 function buildCabinets() {
   pongScreen = createGlitchPongScreen((event) => audio.attract(event));
   bpScreen = createBreakPointScreen();
+  nxScreen = createNexusScreen();
   soonScreen = createComingSoonScreen();
 
   // ── Glitch Pong: its own stage in the back-left corner, angled at the entrance ──
@@ -1922,7 +2175,8 @@ function buildCabinets() {
   addFloorGlow(scene, new THREE.Color(C.pink), 2.6, 2.0, cabSpot.x + gpEntry.forward.x * 1.6, cabSpot.z + gpEntry.forward.z * 1.6, 0.22);
   buildBossEye(gpEntry);
 
-  // ── Nine cabinets that are still compiling ──
+  // ── The wall cabinets: Breakpoint and Black-Hole Nexus side by side as you
+  // walk in, then seven that are still compiling ──
   const hx = ROOM_W / 2;
   const slots = [
     ...[-5, -8.6, -12.2, -15.8, -19.4].map((z) => ({ x: -hx + 0.62, z, rotY: Math.PI / 2 })),
@@ -1930,6 +2184,7 @@ function buildCabinets() {
   ];
   slots.forEach((slot, i) => {
     if (i === 0) { buildBreakPointCabinet(slot); return; }
+    if (i === 1) { buildNexusCabinet(slot); return; }
     const accent = COMING_SOON_ACCENTS[i];
     const mat = new THREE.MeshBasicMaterial({ map: soonScreen.tex, color: new THREE.Color(accent).lerp(new THREE.Color('#ffffff'), 0.55), toneMapped: false });
     const cab = buildCabinet({
@@ -1975,9 +2230,31 @@ function buildBreakPointCabinet(slot) {
   return entry;
 }
 
+// ── Black-Hole Nexus: cabinet 03, next to Breakpoint ──
+function buildNexusCabinet(slot) {
+  const cab = buildCabinet({
+    width: 0.98,
+    bodyColor: 0x0c0722,
+    trimLeft: C.pink,
+    trimRight: C.purple,
+    sideArt: makeNexusSideArt(),
+    marqueeTex: makeNexusMarquee(),
+    screenMat: new THREE.MeshBasicMaterial({ map: nxScreen.tex, toneMapped: false }),
+    coinTex: makeCoinDoor('INSERT COIN', C.pink),
+    accent: C.pink,
+    accent2: C.purple
+  });
+  const entry = registerCabinet(cab, slot.x, slot.z, slot.rotY, {
+    id: 'nexus', title: 'BLACK-HOLE NEXUS', slot: 3, playable: true, accent: C.pink
+  });
+  addFloorGlow(scene, new THREE.Color(C.pink), 1.6, 1.4,
+    slot.x + entry.forward.x * 1.1, slot.z + entry.forward.z * 1.1, 0.2);
+  return entry;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // CEILING TVs — old CRT sets hung over the aisle, tilted down at the floor,
-// flicking between Glitch Pong and Breakpoint gameplay
+// flicking between Glitch Pong, Breakpoint and Black-Hole Nexus gameplay
 // ═══════════════════════════════════════════════════════════════════════════
 const TV_PAIRS_Z = [-7.5, -15, -22.5];   // back-to-back pairs on drop poles down the centre aisle
 const TV_Y = 4.25;                        // screen centre height (ceiling at ROOM_H)
@@ -2115,7 +2392,8 @@ function buildTvs() {
     createGlitchPongScreen(() => {}, { prompt: false, t0: 2 }),
     createGlitchPongScreen(() => {}, { prompt: false, t0: 8 }),
     createBreakPointScreen({ prompt: false, t0: 0 }),
-    createBreakPointScreen({ prompt: false, t0: 6 })
+    createBreakPointScreen({ prompt: false, t0: 6 }),
+    createNexusScreen({ prompt: false, t0: 3 })
   ];
   tvStatic = createTvStatic();
   const pole = new THREE.MeshStandardMaterial({ color: 0x2a2633, roughness: 0.4, metalness: 0.7 });
@@ -2876,7 +3154,7 @@ function greetingLine() {
   if (w.prizes.length >= PRIZES.length) return 'YOU OWN EVERY PRIZE IN THE GLITCHCADE. MY CIRCUITS ARE... PROUD.';
   const affordable = PRIZES.filter((p) => !w.prizes.includes(p.id) && p.cost <= w.coins);
   if (w.coins === 0 && w.prizes.length === 0) {
-    return `GREETINGS, HUMAN. I AM ${ROBOT_NAME}. BEAT THE AI AT GLITCH PONG FOR 10 COINS, OR PURGE SECTORS IN BREAKPOINT. COINS BUY PRIZES.`;
+    return `GREETINGS, HUMAN. I AM ${ROBOT_NAME}. BEAT THE AI AT GLITCH PONG FOR 10 COINS, PURGE SECTORS IN BREAKPOINT, OR SALVAGE THEM IN BLACK-HOLE NEXUS. COINS BUY PRIZES.`;
   }
   if (affordable.length) {
     return `WELCOME BACK. YOU HAVE ${w.coins} COINS — ENOUGH FOR ${affordable.length} PRIZE${affordable.length > 1 ? 'S' : ''}. AIM AT ONE ON MY SHELVES AND PRESS ${isTouch ? 'USE' : 'E'}.`;
@@ -2892,6 +3170,7 @@ function robotChat() {
     greetingLine(),
     `EVERY MATCH YOU WIN AGAINST THE AI EARNS 10 COINS. YOU HAVE WON ${w.wins} SO FAR.`,
     'BREAKPOINT PAYS 2 COINS PER SECTOR PURGED. TAKE DOWN A BOSS AND I PAY 10. CABINET 02, BY THE DOOR.',
+    'BLACK-HOLE NEXUS PAYS 2 COINS PER SECTOR SALVAGED, 10 FOR THE EYE. CABINET 03. IT ASKED ME WHAT A COIN IS. I DID NOT LIKE HOW IT ASKED.',
     `YOUR COLLECTION: ${w.prizes.length} OF ${PRIZES.length}. IT IS ON DISPLAY IN THE CASE TO MY LEFT.`,
     'TIP: LONG RALLIES BUILD HEAT. AT MAX HEAT THE EYE ARRIVES. SURVIVE IT.',
     ...(floor ? floor.robotLines(w) : [])
@@ -3218,7 +3497,7 @@ function buildPrizeCounter() {
   chromaText(fctx, 'PRIZE COUNTER', 512, 50, 3, C.text, C.purple);
   fctx.font = '20px "Share Tech Mono", monospace';
   fctx.fillStyle = C.amber;
-  fctx.fillText('◎ GLITCH PONG WIN = 10   ◎   BREAKPOINT SECTOR = 2 · BOSS = 10   ◎', 512, 98);
+  fctx.fillText('◎ GLITCH PONG WIN = 10   ◎   BREAKPOINT · NEXUS SECTOR = 2 · BOSS = 10   ◎', 512, 98);
   scanlines(fctx, 1024, 128, 0.14, 4);
   const banner = new THREE.Mesh(new THREE.PlaneGeometry(cw - 0.3, 0.72), new THREE.MeshBasicMaterial({ map: canvasTexture(fcv), color: 0xcccccc, toneMapped: false }));
   banner.position.set(0, 0.55, COUNTER.front + 0.004);
@@ -3753,6 +4032,9 @@ function updateFocus() {
   } else if (focused.id === 'breakpoint') {
     promptEl.className = 'show';
     promptEl.innerHTML = `<span class="key">${key}</span>PLAY BREAKPOINT<small>CABINET 02 // ONLINE</small>`;
+  } else if (focused.id === 'nexus') {
+    promptEl.className = 'show';
+    promptEl.innerHTML = `<span class="key">${key}</span>PLAY BLACK-HOLE NEXUS<small>CABINET 03 // ONLINE // IT KNOWS</small>`;
   } else if (focused.playable) {
     promptEl.className = 'show';
     promptEl.innerHTML = `<span class="key">${key}</span>PLAY GLITCH PONG<small>CABINET 01 // ONLINE</small>`;
@@ -3803,7 +4085,7 @@ function interact() {
     focused = null;            // refresh the prompt with the new title
     return;
   }
-  if (focused.id === 'breakpoint') {
+  if (focused.id === 'breakpoint' || focused.id === 'nexus') {
     launchBreakPoint(focused);
     return;
   }
@@ -3848,6 +4130,7 @@ function worldGlitch(small = false) {
   if (infoBoard) infoBoard.draw(true);
   if (pongScreen) pongScreen.burst();
   if (bpScreen) bpScreen.burst();
+  if (nxScreen) nxScreen.burst();
   setTimeout(() => {
     neonSigns.forEach((sg) => sg.draw(false));
     if (infoBoard) infoBoard.draw(false);
@@ -3878,15 +4161,17 @@ function cabinetShot(cam, label, cab, side) {
 
 function buildTour() {
   const bp = cabinets.find((c) => c.id === 'breakpoint');
+  const nx = cabinets.find((c) => c.id === 'nexus');
   const gp = cabinets.find((c) => c.id === 'glitch-pong');
   tourShots = [
     { cam: 'CAM 01', label: 'STREET // FRONT ENTRANCE', from: V(1.6, 1.8, 14), to: V(0.2, 1.7, 6.5), look: V(0, 4.2, 0), lookTo: V(0, 2.6, -4) },
     { cam: 'CAM 02', label: 'MAIN FLOOR', from: V(0, 2.5, -1.2), to: V(0, 2.1, -9.5), look: V(0, 1.6, -20), lookTo: V(0, 1.7, -28) },
     cabinetShot('CAM 03', 'CABINET 02 // BREAKPOINT', bp, 1),
-    { cam: 'CAM 04', label: 'GLITCHVISION // CEILING FEEDS', from: V(1.9, 2.3, -11.4), to: V(-1.5, 2.6, -12.3), look: V(0, TV_Y - 0.1, -15), lookTo: V(0, TV_Y - 0.1, -15) },
-    cabinetShot('CAM 05', 'CABINET 01 // GLITCH PONG', gp, -1),
-    { cam: 'CAM 06', label: 'PRIZE COUNTER // PRIZETRON-80', from: V(2.8, 1.8, -24.2), to: V(-2.4, 1.7, -25.6), look: V(0, 1.7, -30.4), lookTo: V(0, 1.6, -30.4) },
-    { cam: 'CAM 07', label: 'CABINETS 03–10 // COMPILING', from: V(5.6, 2.0, -2.5), to: V(5.8, 1.7, -14), look: V(9.4, 1.3, -6), lookTo: V(9.4, 1.3, -17) }
+    cabinetShot('CAM 04', 'CABINET 03 // BLACK-HOLE NEXUS', nx, -1),
+    { cam: 'CAM 05', label: 'GLITCHVISION // CEILING FEEDS', from: V(1.9, 2.3, -11.4), to: V(-1.5, 2.6, -12.3), look: V(0, TV_Y - 0.1, -15), lookTo: V(0, TV_Y - 0.1, -15) },
+    cabinetShot('CAM 06', 'CABINET 01 // GLITCH PONG', gp, -1),
+    { cam: 'CAM 07', label: 'PRIZE COUNTER // PRIZETRON-80', from: V(2.8, 1.8, -24.2), to: V(-2.4, 1.7, -25.6), look: V(0, 1.7, -30.4), lookTo: V(0, 1.6, -30.4) },
+    { cam: 'CAM 08', label: 'CABINETS 04–10 // COMPILING', from: V(5.6, 2.0, -2.5), to: V(5.8, 1.7, -14), look: V(9.4, 1.3, -6), lookTo: V(9.4, 1.3, -17) }
   ];
 }
 
@@ -3945,6 +4230,7 @@ function launchGlitchPong(cab) {
   beginLaunch(cab);
 }
 
+// Breakpoint and Black-Hole Nexus: both run as their own page in a frame.
 function launchBreakPoint(cab) {
   beginLaunch(cab);
 }
@@ -3990,8 +4276,9 @@ function updateLaunch(dt) {
   if (arms) {
     arms.left.visible = arms.right.visible = k < 0.6;
   }
-  // a cabinet can stand in for one of the two games (the Eye gauntlet does)
-  const isBreakPoint = (launch.cab.game || launch.cab.id) === 'breakpoint';
+  // a cabinet can stand in for one of the games (the Eye gauntlet does)
+  const framed = FRAME_GAMES[launch.cab.game || launch.cab.id];
+  const inFrame = !!framed;                      // Breakpoint or Black-Hole Nexus
   if (k >= 1 && !launch.started) {
     launch.started = true;
     if (launch.onArrive) {
@@ -4000,9 +4287,9 @@ function updateLaunch(dt) {
       launch.onArrive();
       return;
     }
-    if (isBreakPoint) {
-      bpScreen.burst();
-      openBreakPoint(launch.cab.bpQuery || '');
+    if (inFrame) {
+      framed.screen().burst();
+      openBreakPoint(launch.cab.bpQuery || '', framed);
     } else {
       pongScreen.burst();
       const ok = window.GlitchPong.launch({ onExit: onGameExit });
@@ -4010,8 +4297,8 @@ function updateLaunch(dt) {
     }
   }
   if (!launch.started || launch.onArrive) return;
-  if (isBreakPoint) {
-    // Break Point's page has loaded in its frame
+  if (inFrame) {
+    // the game's page has loaded in its frame
     if (bpFrame && bpFrame.dataset.ready) {
       gameState = 'playing';
       root.classList.add('gc-hidden');
@@ -4028,17 +4315,23 @@ function updateLaunch(dt) {
   }
 }
 
-// ── Break Point runs as its own page in a full-screen frame over the arcade ──
-// It's served from ./breakpoint/ (same origin, so it shares the coin wallet) and
-// posts {type: 'glitchcade:exit'} when the player picks EXIT TO ARCADE.
+// ── Break Point and Black-Hole Nexus each run as their own page in a full-screen
+// frame over the arcade ── They're served from ./breakpoint/ and ./nexus/ (same
+// origin, so they share the coin wallet) and post {type: 'glitchcade:exit'} when
+// the player picks EXIT TO ARCADE. One frame at a time; both use the same element.
 const BREAKPOINT_URL = 'breakpoint/index.html?cabinet';
+const NEXUS_URL = 'nexus/index.html?cabinet';
+const FRAME_GAMES = {
+  breakpoint: { url: BREAKPOINT_URL, title: 'Breakpoint', name: 'BREAKPOINT', screen: () => bpScreen },
+  nexus: { url: NEXUS_URL, title: 'Black-Hole Nexus', name: 'BLACK-HOLE NEXUS', screen: () => nxScreen }
+};
 let bpFrame = null;
 
-function openBreakPoint(query = '') {
+function openBreakPoint(query = '', game = FRAME_GAMES.breakpoint) {
   closeBreakPoint();
   bpFrame = document.createElement('iframe');
   bpFrame.id = 'gcBreakPoint';
-  bpFrame.title = 'Breakpoint';
+  bpFrame.title = game.title;
   bpFrame.allow = 'autoplay; fullscreen';
   bpFrame.addEventListener('load', () => {
     // A missing build loads an error page instead of the game: back out rather
@@ -4048,12 +4341,12 @@ function openBreakPoint(query = '') {
     if (!ok) {
       closeBreakPoint();
       onGameExit();
-      toast('BREAKPOINT FAILED TO LOAD — try refreshing.');
+      toast(`${game.name} FAILED TO LOAD — try refreshing.`);
       return;
     }
     bpFrame.dataset.ready = '1';
   });
-  bpFrame.src = BREAKPOINT_URL + query;
+  bpFrame.src = game.url + query;
   document.body.appendChild(bpFrame);
 }
 
@@ -4067,6 +4360,7 @@ window.addEventListener('message', (e) => {
   if (!bpFrame || e.source !== bpFrame.contentWindow || e.origin !== location.origin) return;
   // run results, for the high-score board and the Eye gauntlet
   if (e.data && e.data.type === 'glitchcade:breakpoint' && floor) { floor.onBreakpointReport(e.data, launch && launch.cab); return; }
+  if (e.data && e.data.type === 'glitchcade:nexus' && floor) { floor.onNexusReport(e.data); return; }
   if (!e.data || e.data.type !== 'glitchcade:exit') return;
   if (gameState !== 'playing' && gameState !== 'launching') return;
   closeBreakPoint();
@@ -4107,6 +4401,8 @@ function onGameExit() {
     if (robot && !cab.fragment) {
       robot.pending = (cab.game || cab.id) === 'breakpoint'
         ? `SECTORS PURGED. +${gained} COINS. YOU NOW HAVE ${wallet.coins}. COME SEE WHAT THEY BUY.`
+        : cab.id === 'nexus'
+        ? `SECTORS SALVAGED. +${gained} COINS. YOU NOW HAVE ${wallet.coins}. WHATEVER IT SAID TO YOU IN THERE, COME SEE WHAT THEY BUY.`
         : `VICTORY DETECTED. +${gained} COINS. YOU NOW HAVE ${wallet.coins}. COME SEE WHAT THEY BUY.`;
       robot.inZone = false;
     }
@@ -4116,7 +4412,7 @@ function onGameExit() {
     gameState = 'explore';
     setExploring(true);
   } else {
-    const name = cab.fragment || cab.game ? cab.title : cab.id === 'breakpoint' ? 'Breakpoint' : 'Glitch Pong';
+    const name = cab.fragment || cab.game ? cab.title : cab.id === 'breakpoint' ? 'Breakpoint' : cab.id === 'nexus' ? 'Black-Hole Nexus' : 'Glitch Pong';
     showPauseCard('Welcome back', 'GLITCHCADE', `${name} is waiting whenever you are.`, 'Continue');
     gameState = 'paused';
     setExploring(false);
@@ -4326,11 +4622,12 @@ function launchFromMenu(id) {
   const cab = cabinets.find((c) => c.id === id);
   if (!cab) return;
   audio.unlock(audioWorld);
-  if (id === 'breakpoint') launchBreakPoint(cab);
+  if (FRAME_GAMES[id]) launchBreakPoint(cab);
   else launchGlitchPong(cab);
 }
 $('gcMenuGP').addEventListener('click', () => launchFromMenu('glitch-pong'));
 $('gcMenuBP').addEventListener('click', () => launchFromMenu('breakpoint'));
+$('gcMenuNX').addEventListener('click', () => launchFromMenu('nexus'));
 $('gcMenuControls').addEventListener('click', () => showMenuScreen('gcMenuHelp'));
 $('gcMenuBack').addEventListener('click', () => showMenuScreen('gcMenu'));
 window.addEventListener('keydown', (e) => {
@@ -4453,6 +4750,8 @@ const gpScreenPos = new THREE.Vector3();
 const bpScreenPos = new THREE.Vector3();
 const gpScreenNormal = new THREE.Vector3();
 const bpScreenNormal = new THREE.Vector3();
+const nxScreenPos = new THREE.Vector3();
+const nxScreenNormal = new THREE.Vector3();
 let audioMode = null;
 
 // 0 outside → 1 inside, blended across the doorway
@@ -4585,6 +4884,7 @@ function frame(now) {
   if (screenTimer > 1 / screenHz(24)) {
     if (inside && canSee(gpScreenPos, 0.7, gpScreenNormal, 18)) pongScreen.draw(screenTimer);
     if (inside && canSee(bpScreenPos, 0.6, bpScreenNormal, 14)) bpScreen.draw(screenTimer);
+    if (inside && canSee(nxScreenPos, 0.6, nxScreenNormal, 14)) nxScreen.draw(screenTimer);
     screenTimer = 0;
   }
   soonTimer += dt;
@@ -4680,7 +4980,7 @@ function floorContext() {
     soonTexture: () => soonScreen.tex,
     // launching
     beginLaunch, onGameExit,
-    launchGame(cab) { if ((cab.game || cab.id) === 'breakpoint') launchBreakPoint(cab); else launchGlitchPong(cab); },
+    launchGame(cab) { if (FRAME_GAMES[cab.game || cab.id]) launchBreakPoint(cab); else launchGlitchPong(cab); },
     renderWorld,
     arms: () => arms,
     releasePointer() { if (document.pointerLockElement) document.exitPointerLock(); },
@@ -4705,6 +5005,9 @@ function floorContext() {
   const bpCabinet = cabinets.find((c) => c.id === 'breakpoint');
   gpScreenPos.copy(gpCabinet.screenCenter);
   bpScreenPos.copy(bpCabinet.screenCenter);
+  const nxCabinet = cabinets.find((c) => c.id === 'nexus');
+  nxScreenPos.copy(nxCabinet.screenCenter);
+  nxScreenNormal.copy(nxCabinet.screenNormal);
   gpScreenNormal.copy(gpCabinet.screenNormal);
   bpScreenNormal.copy(bpCabinet.screenNormal);
   const batched = bakeScene();
@@ -4745,7 +5048,7 @@ function floorContext() {
   enterBtn.disabled = false;
   menuEnter.disabled = false;
   menuEnter.textContent = 'Enter';
-  $('gcMenuGP').disabled = $('gcMenuBP').disabled = false;
+  $('gcMenuGP').disabled = $('gcMenuBP').disabled = $('gcMenuNX').disabled = false;
   menuEnter.focus({ preventScroll: true });
 
   // Hooks for automated testing / debugging from the console.
