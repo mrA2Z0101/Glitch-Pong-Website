@@ -6,21 +6,13 @@ const Meta = {
   data: null,
   load() {
     try { this.data = JSON.parse(localStorage.getItem('gb_save')) || null; } catch (e) { this.data = null; }
-    if (!this.data) this.data = { xp: 0, credits: 0, up: {}, ach: {}, best: {}, daily: {}, bossKills: {}, vol: 70 };
-    for (const k of ['up', 'ach', 'best', 'daily', 'bossKills']) if (!this.data[k]) this.data[k] = {};
+    if (!this.data) this.data = { xp: 0, credits: 0, up: {}, ach: {}, best: {}, daily: {}, bossKills: {}, seen: {}, vol: 70 };
+    for (const k of ['up', 'ach', 'best', 'daily', 'bossKills', 'seen']) if (!this.data[k]) this.data[k] = {};
   },
   save() { try { localStorage.setItem('gb_save', JSON.stringify(this.data)); } catch (e) {} },
   rank(id) { return this.data.up[id] || 0; },
-  get level() {
-    let lv = 1, need = 100, xp = this.data.xp;
-    while (xp >= need) { xp -= need; lv++; need = Math.floor(100 * Math.pow(lv, 1.35)); }
-    return lv;
-  },
-  get levelProgress() {
-    let lv = 1, need = 100, xp = this.data.xp;
-    while (xp >= need) { xp -= need; lv++; need = Math.floor(100 * Math.pow(lv, 1.35)); }
-    return xp / need;
-  },
+  get level() { return Rules.levelFromXp(this.data.xp).level; },
+  get levelProgress() { return Rules.levelFromXp(this.data.xp).progress; },
 };
 
 // ---------------- DOM ----------------
@@ -114,6 +106,18 @@ const CURIOUS_OF = new Set(['teleport', 'quantum', 'clone']);
 function statChips(pairs) {
   return '<div class="statline">' + pairs.map(([label, val, hl]) =>
     `<span class="sc${hl ? ' hl' : ''}"><i>${label}</i><b>${val}</b></span>`).join('') + '</div>';
+}
+
+// Canvas text that breaks onto a second line when it is too wide (upright phones).
+function wrapText(c, text, x, y, maxW, lineH) {
+  const words = text.split(' ');
+  let line = '';
+  for (const w of words) {
+    const next = line ? line + ' ' + w : w;
+    if (line && c.measureText(next).width > maxW) { c.fillText(line, x, y); y += lineH; line = w; }
+    else line = next;
+  }
+  if (line) c.fillText(line, x, y);
 }
 
 function banner(text) {
@@ -231,6 +235,7 @@ const game = {
   startAttract() {
     applyLayout();               // back on the menu: catch up with any rotation during the run
     this.attract = true;
+    document.body.classList.add('attract');   // hides the demo's score, lives and meters
     this.autoplay = false;
     $('aiBadge').classList.remove('on');
     AudioSys.setMuted(true);       // no sound while it plays on the menu
@@ -241,7 +246,7 @@ const game = {
     this.score = 0; this.combo = 0; this.maxCombo = 0;
     this.lives = 3;
     this.glitch = 0; this.corruption = 0; this.time = 0;
-    this.stats = { bricks: 0, bosses: 0, powerups: 0, timeStart: performance.now() };
+    this.stats = { bricks: 0, bosses: 0, powerups: 0, timeStart: performance.now(), powers: {}, lives: [], comboSector: 0, newEntries: 0 };
     // open on a random sector so the demo showcases variety — including bosses / THE EYE
     this.level = 1 + Math.floor(Math.random() * 12);
     this.aiTargetX = CFG.W / 2;
@@ -251,6 +256,7 @@ const game = {
   },
   stopAttract() {
     this.attract = false;
+    document.body.classList.remove('attract');
     AudioSys.setMuted(false);      // restore the player's volume for real play
   },
   // hand the paddle to / take it back from the machine mid-run
@@ -281,12 +287,7 @@ const game = {
     let target = tgt ? tgt.x : CFG.W / 2;
     if (tgt && tgt.vy > 0 && !tgt.stuck) {
       // predict where it crosses the paddle line (ignoring wall bounces — good enough)
-      const dtToPad = (this.paddle.y - tgt.y) / Math.max(tgt.vy, 1);
-      let px = tgt.x + tgt.vx * dtToPad;
-      const span = CFG.W - 2 * (tgt.r || 6);
-      px = Math.abs(((px - (tgt.r || 6)) % (2 * span) + 2 * span) % (2 * span));
-      if (px > span) px = 2 * span - px;
-      target = px + (tgt.r || 6);
+      target = Rules.landingX(tgt, this.paddle.y, CFG.W, this.rule === 'wrap' ? Rules.wrapLine(CFG.PADDLE_Y) : null);
       // AIM: offset the contact point so the bounce is steered at a surviving brick.
       // The paddle maps rel=(ball.x-p.x)/(p.w/2) to angle=-90°+rel*1.05rad, so we can
       // invert that to pick where on the paddle the ball should land.
@@ -315,8 +316,120 @@ const game = {
     return this.aiInput;
   },
 
+  // ======== the codex ========
+  // The first time you meet something (a brick, a power-up, an enemy, a boss,
+  // an arena's rule, a glitch, a mood of the ball) its codex entry unlocks and
+  // a note says what it is. The menu demo and unrewarded AI runs unlock nothing.
+  meet(kind, id) {
+    if (this.attract || !this.aiEarnsProgress()) return;
+    const key = kind + ':' + id;
+    if (Meta.data.seen[key]) return;
+    const entry = Rules.codexEntry(key);
+    if (!entry) return;
+    Meta.data.seen[key] = true;
+    Meta.save();
+    if (this.stats) this.stats.newEntries++;
+    if (key === 'arena:standard') return;        // the plain court needs no explaining
+    toast('CODEX // ' + entry.name, entry.line);
+  },
+
+  // ======== the guided first sector ========
+  startTutorial() {
+    this.tutor = {
+      t: Rules.tutorNew(), step: null, lastX: null,
+      e: { moved: 0, returns: 0, bricks: 0, bestCombo: 0, falling: 0, powerups: 0, cleared: false },
+    };
+  },
+  endTutorial() {
+    if (!this.tutor) return;
+    this.tutor = null;
+    Meta.data.tutorialDone = true;
+    Meta.save();
+    $('glitchLab').classList.remove('teach');
+    $('btnSkipTut').style.display = 'none';
+  },
+  tickTutorial(rawDt) {
+    const tu = this.tutor;
+    if (tu.lastX !== null) tu.e.moved += Math.abs(this.paddle.x - tu.lastX);
+    tu.lastX = this.paddle.x;
+    tu.e.falling = this.powerups.length;
+    tu.step = Rules.tutorTick(tu.t, tu.e, rawDt);
+    $('glitchLab').classList.toggle('teach', !!tu.step && tu.step.id === 'glitch');
+  },
+  genTutorialLevel() {
+    const cols = CFG.BRICK_COLS, bw = CFG.BRICK_W + CFG.BRICK_GAP;
+    const ox = (CFG.W - cols * bw + CFG.BRICK_GAP) / 2;
+    for (const cell of Rules.tutorialLayout(cols)) {
+      this.bricks.push(new Brick(ox + cell.c * bw, CFG.BRICK_TOP + cell.r * (CFG.BRICK_H + CFG.BRICK_GAP), cell.type));
+    }
+  },
+  renderTutorial() {
+    const step = this.tutor && this.tutor.step;
+    if (!step) return;
+    const k = IS_TOUCH ? 1.4 : 1, w = Math.min(CFG.W - 40, 640), lineH = 20 * k;
+    const text = IS_TOUCH && step.touch ? step.touch : step.text;
+    ctx.save();
+    ctx.font = `${Math.round(15 * k)}px "Share Tech Mono", monospace`;
+    // how many lines it will take, to size the panel
+    let lines = 1, line = '';
+    for (const word of text.split(' ')) {
+      const next = line ? line + ' ' + word : word;
+      if (line && ctx.measureText(next).width > w - 36) { lines++; line = word; } else line = next;
+    }
+    const h = lines * lineH + 34 * k, x = (CFG.W - w) / 2, y = CFG.PADDLE_Y - 96 - h;
+    ctx.fillStyle = 'rgba(3,4,10,.8)'; ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = COL.yellow; ctx.lineWidth = 1.5; ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    ctx.fillStyle = COL.yellow; ctx.fillRect(x, y, 4, h);
+    const prog = Rules.tutorProgress(this.tutor.t);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+    ctx.font = `700 ${Math.round(9 * k)}px Orbitron, monospace`;
+    ctx.fillText(step.filler ? 'TUTORIAL' : `TUTORIAL ${Math.min(prog.total, prog.done + 1)} / ${prog.total}`, x + 18, y + 9 * k);
+    ctx.fillStyle = COL.white; ctx.textAlign = 'center';
+    ctx.font = `${Math.round(15 * k)}px "Share Tech Mono", monospace`;
+    wrapText(ctx, text, CFG.W / 2, y + 24 * k, w - 36, lineH);
+    ctx.restore();
+  },
+
+  // the name of a power-up and what it does, shown for a moment when you catch one
+  renderPickup() {
+    const p = this.pickup;
+    if (!p) return;
+    const d = POWERUPS[p.kind], k = IS_TOUCH ? 1.4 : 1;
+    const fade = Math.min(1, p.t / 0.35, (p.life - p.t) / 0.12);
+    const rise = (1 - Math.min(1, (p.life - p.t) / 0.18)) * 10;
+    const y = CFG.PADDLE_Y - (this.tutor && this.tutor.step ? 250 : 150) + rise;
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, fade);
+    ctx.font = `${Math.round(13 * k)}px "Share Tech Mono", monospace`;
+    const maxDesc = CFG.W - 60 - 46 * k - 28;
+    const dw = Math.min(maxDesc, ctx.measureText(d.desc).width);
+    const descLines = Math.ceil(ctx.measureText(d.desc).width / maxDesc);
+    ctx.font = `900 ${Math.round(20 * k)}px Orbitron, monospace`;
+    const w = Math.max(ctx.measureText(d.name).width, dw) + 46 * k + 28, x = (CFG.W - w) / 2;
+    ctx.fillStyle = 'rgba(3,4,10,.78)'; ctx.fillRect(x, y - 24 * k, w, (46 + 16 * descLines) * k);
+    ctx.fillStyle = d.color; ctx.fillRect(x, y - 24 * k, w, 2);
+    drawPowerIcon(ctx, p.kind, x + 14 + 17 * k, y + 6 * k, 34 * k, d.color);
+    ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    ctx.shadowColor = d.color; ctx.shadowBlur = 12;
+    ctx.fillStyle = d.color;
+    ctx.fillText(d.name, x + 28 + 34 * k, y + 2 * k);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = COL.white;
+    ctx.font = `${Math.round(13 * k)}px "Share Tech Mono", monospace`;
+    wrapText(ctx, d.desc, x + 28 + 34 * k, y + 21 * k, maxDesc, 16 * k);
+    ctx.restore();
+  },
+
   // ======== run lifecycle ========
   get sentient() { return Meta.data.sentience !== false; },
+  // the arena's one rule (see ARENA_RULES in js/rules.js)
+  get rule() { return this.arena.rule; },
+  // MEMORY LEAK: the paddle is this share of its full length
+  get paddleScale() { return this.rule === 'leak' ? Rules.leakFactor(this.leakReturns || 0) : 1; },
+  restorePaddle(say) {
+    if (say && this.paddleScale < 0.999 && this.paddle) FX.text(this.paddle.x, this.paddle.y - 26, 'PADDLE RESTORED', COL.violet, 12);
+    this.leakReturns = 0;
+  },
 
   startRun(mode) {
     applyLayout();               // the phone may have been rotated on the menu
@@ -329,33 +442,34 @@ const game = {
     this.rng = Math.random;
     if (mode === 'daily') {
       const today = todayStr();
-      const seed = hashStr('gb_' + today);
-      this.rng = mulberry32(seed);
-      const r = mulberry32(seed ^ 0x5f5f5f);
-      const pool = [...DAILY_MODS];
+      this.rng = mulberry32(Rules.dailySeed(today));
       this.mods = {};
-      const n = 2 + Math.floor(r() * 2);
-      for (let i = 0; i < n && pool.length; i++) {
-        const m = pool.splice(Math.floor(r() * pool.length), 1)[0];
-        this.mods[m.id] = true;
-      }
+      for (const m of Rules.dailyMods(today)) this.mods[m.id] = true;
       const names = DAILY_MODS.filter(m => this.mods[m.id]).map(m => m.name);
       toast('DAILY GLITCH // ' + today, names.join(' · '));
     }
     this.score = 0; this.combo = 0; this.maxCombo = 0;
-    this.lives = (mode === 'hardcore' ? 1 : 3 + Meta.rank('life_up'));
+    this.lives = Rules.startingLives(mode, Meta.rank('life_up'));
     this.glitch = Meta.rank('startmult') ? 25 : 0;
+    this.overloadArmed = true;
     this.corruption = 0;
     this.time = 0;
-    this.stats = { bricks: 0, bosses: 0, powerups: 0, timeStart: performance.now() };
+    this.stats = { bricks: 0, bosses: 0, powerups: 0, timeStart: performance.now(), powers: {}, lives: [], comboSector: 0, newEntries: 0 };
     this.runCoins = 0;
     this.level = 1;
+    // a first run in an ordinary mode starts with the guided sector
+    this.tutor = null;
+    $('btnSkipTut').style.display = 'none';
+    if (!Meta.data.tutorialDone && !this.autoplay && !Cabinet.startMode && ['classic', 'endless', 'corrupt', 'hardcore', 'time'].includes(mode)) {
+      this.startTutorial();
+      $('btnSkipTut').style.display = '';
+    }
     this.startLevel();
   },
 
   startLevel() {
     const lv = this.level;
-    this.arenaIdx = (lv - 1) % ARENAS.length;
+    this.arenaIdx = Rules.arenaIndex(lv);
     this.arena = ARENAS[this.arenaIdx];
     this.bricks = []; this.powerups = []; this.projectiles = []; this.lasers = [];
     this.enemies = []; this.drones = []; this.balls = [];
@@ -363,12 +477,15 @@ const game = {
     this.timers = {}; this.eventFlags = {}; this.activeEvent = null;
     this.surgeApplied = false;   // a level ending mid-DATA SURGE used to strand this true, disabling the event for the rest of the run
     this.levelTime = 0;
+    this.leakReturns = 0;
     this.sectorAssisted = this.autoplay;
     this.loyaltyUsed = false;
     this.paddleAttacker = null;
     this.ballsPrev = 0;
     this.ghost = null;
     this.mournNext = false;
+    this.pickup = null;
+    if (this.tutor && lv > 1) this.endTutorial();
     this.countdown = null;
     if (!this.attract) {
       this.countdown = { i: 0, t: 0 };
@@ -380,14 +497,11 @@ const game = {
     this.paddle = new Paddle(this);
     FX.reset();
 
-    const isBoss = this.mode === 'bossrush' || (lv % 5 === 0 && this.mode !== 'puzzle');
-    if (isBoss) {
-      const tier = this.mode === 'bossrush' ? lv : Math.floor(lv / 5);
+    if (Rules.isBossSector(this.mode, lv)) {
       // THE EYE — the entity from the Pong arena — claims every 10th sector
       // and the Boss Rush finale; the minibosses rotate through the rest.
-      let BossCls;
-      if (this.mode === 'bossrush') BossCls = lv % 6 === 0 ? TheEye : BOSS_LIST[(lv - 1) % BOSS_LIST.length];
-      else BossCls = lv % 10 === 0 ? TheEye : BOSS_LIST[(lv / 5 - 1) % BOSS_LIST.length];
+      const { boss, tier } = Rules.bossFor(this.mode, lv);
+      const BossCls = boss === 'eye' ? TheEye : BOSS_LIST[boss];
       this.boss = new BossCls(tier);
       this.genBossBricks();
       banner(this.boss instanceof TheEye ? 'THE EYE HAS FOUND YOU' : this.boss.name);
@@ -395,11 +509,14 @@ const game = {
       if (this.boss instanceof TheEye) { FX.setRgb(1); FX.tear(0.8); FX.flash(COL.violet, 0.25); }
       $('bossBar').style.display = 'block';
       $('bossName').textContent = this.boss.name;
+      this.meet('boss', this.boss.name);
     } else {
       $('bossBar').style.display = 'none';
-      if (this.mode === 'puzzle') this.genPuzzleLevel(lv);
+      if (this.tutor) { this.genTutorialLevel(); this.nextEventT = 9999; }   // no glitch events during the lesson
+      else if (this.mode === 'puzzle') this.genPuzzleLevel(lv);
       else this.genLevel(lv);
     }
+    this.meet('arena', this.arena.rule);
     if (this.mode === 'puzzle') this.ballsLeft = 3 + Math.floor(lv / 3);
     this.hazards = [];
     if (this.arena.hazard && lv > 1) this.hazards.push(new HAZARDS[this.arena.hazard]());
@@ -414,52 +531,11 @@ const game = {
   },
 
   genLevel(lv) {
-    const cols = CFG.BRICK_COLS;
-    const rows = Math.min(4 + Math.floor(lv / 2), 9);
-    const bw = CFG.BRICK_W + CFG.BRICK_GAP;
+    const cols = CFG.BRICK_COLS, bw = CFG.BRICK_W + CFG.BRICK_GAP;
     const ox = (CFG.W - cols * bw + CFG.BRICK_GAP) / 2;
-    const weights = brickWeights(lv);
-    const pattern = ['full', 'checker', 'diamond', 'pyramid', 'wave', 'columns'][Math.floor(this.rng() * 6)];
-    const pick = () => {
-      let tot = 0; for (const k in weights) tot += weights[k];
-      let r = this.rng() * tot;
-      for (const k in weights) { r -= weights[k]; if (r <= 0) return k; }
-      return 'normal';
-    };
-    let generators = 0, shields = [];
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        let place = true;
-        if (pattern === 'checker') place = (r + c) % 2 === 0;
-        if (pattern === 'diamond') place = Math.abs(c - cols / 2 + 0.5) + Math.abs(r - rows / 2) * 1.6 < cols / 2;
-        if (pattern === 'pyramid') place = Math.abs(c - cols / 2 + 0.5) <= r + 1;
-        if (pattern === 'wave') place = ((c + Math.round(Math.sin(r * 1.1) * 2)) % 4) !== 3;
-        if (pattern === 'columns') place = c % 3 !== 2;
-        if (!place || this.rng() < 0.06) continue;
-        let type = pick();
-        const b = new Brick(ox + c * bw, CFG.BRICK_TOP + r * (CFG.BRICK_H + CFG.BRICK_GAP), type);
-        if (type === 'shield') shields.push(b);
-        this.bricks.push(b);
-      }
-    }
-    // deep sectors: hide a locked boss core (huge bounty, guarded by generators)
-    if (lv >= 8 && this.rng() < 0.5 && this.bricks.length > 10) {
-      const core = this.bricks[Math.floor(this.rng() * this.bricks.length)];
-      core.morph('bosscore');
-      let placed = 0;
-      while (placed < 2) {
-        const host = this.bricks[Math.floor(this.rng() * this.bricks.length)];
-        if (host.type !== 'bosscore' && host.type !== 'generator') { host.morph('generator'); generators++; placed++; }
-      }
-    }
-    // shield bricks need generators
-    if (shields.length) {
-      const n = Math.min(2, Math.max(1, Math.floor(shields.length / 4)));
-      for (let i = 0; i < n; i++) {
-        const host = this.bricks[Math.floor(this.rng() * this.bricks.length)];
-        if (host && host.type !== 'shield' && host.type !== 'bosscore') { host.morph('generator'); generators++; }
-      }
-      if (!generators) shields.forEach(s => s.morph('normal'));
+    // which cells hold which bricks is decided in js/rules.js
+    for (const cell of Rules.layoutSector(lv, cols, this.rng)) {
+      this.bricks.push(new Brick(ox + cell.c * bw, CFG.BRICK_TOP + cell.r * (CFG.BRICK_H + CFG.BRICK_GAP), cell.type));
     }
   },
 
@@ -502,7 +578,7 @@ const game = {
   },
 
   serve() {
-    const b = new Ball(this.paddle.x, this.paddle.y - 20, -Math.PI / 2, CFG.BALL_SPD * (this.mods.doubleSpeed ? 1.5 : 1) * (1 + this.level * 0.015));
+    const b = new Ball(this.paddle.x, this.paddle.y - 20, -Math.PI / 2, Rules.serveSpeed(this.level, this.mods.doubleSpeed));
     b.stuck = true; b.stuckDx = 0;
     if (this.mournNext) { b.mournPending = true; this.mournNext = false; }
     // mid DATA SURGE the new ball must be surged too, or endEvent's /1.55 leaves it crawling
@@ -538,6 +614,7 @@ const game = {
         if (b.mournPending && this.sentient) {
           b.mournPending = false;
           b.mourn = 3.5;
+          this.meet('mood', 'mourning');
           b.setSpeed(b.speed * 0.78);
           FX.text(b.x, b.y - 24, '...', '#9aa7c7', 14);
         }
@@ -602,17 +679,9 @@ const game = {
   },
 
   // ======== scoring / glitch meter ========
-  get multiplier() {
-    let m = 1;
-    if (this.glitch >= 25) m = 1.5;
-    if (this.glitch >= 50) m = 2;
-    if (this.glitch >= 75) m = 3;
-    if (this.timers.mult > 0) m *= 2;
-    return m;
-  },
+  get multiplier() { return Rules.scoreMultiplier(this.glitch, this.timers.mult > 0); },
   addScore(base, x, y) {
-    const comboBonus = 1 + Math.min(this.combo, 40) * 0.05;
-    const pts = Math.round(base * comboBonus * this.multiplier);
+    const pts = Rules.points(base, this.combo, this.glitch, this.timers.mult > 0);
     this.score += pts;
     if (x !== undefined) FX.text(x, y, '+' + pts, COL.cyan, 12);
     if (this.score >= 10000) this.unlock('score10k');
@@ -621,7 +690,9 @@ const game = {
   addGlitch(n) {
     const before = this.glitch;
     this.glitch = clamp(this.glitch + n, 0, 100);
-    if (this.glitch >= 100 && before < 100) {
+    // an overload, once; the meter has to fall back before it can happen again
+    if (Rules.overloadFires(before, this.glitch, this.overloadArmed !== false)) {
+      this.overloadArmed = false;
       this.unlock('glitch100');
       banner('SYSTEM OVERLOAD');
       AudioSys.sfx('event');
@@ -635,19 +706,12 @@ const game = {
 
   damageBrick(b, dmg, src = {}) {
     if (!b.alive) return false;
-    if (b.type === 'barrier') { AudioSys.sfx('wall'); return false; }
-    if (b.type === 'shield' && this.generatorsAlive()) {
-      FX.text(b.cxm, b.cym, 'SHIELDED', COL.violet, 10);
-      AudioSys.sfx('wall');
-      return false;
-    }
-    if (b.type === 'bosscore' && this.generatorsAlive()) {
-      FX.text(b.cxm, b.cym, 'LOCKED', COL.red, 10);
-      AudioSys.sfx('wall');
-      return false;
-    }
-    if (b.type === 'firewall' && !(src.laser || src.fire || src.emp || src.explosion)) {
-      FX.text(b.cxm, b.cym, 'FIREWALL', '#ff5500', 10);
+    this.meet('brick', b.type);
+    // some bricks shrug off some hits (see brickImmune in js/rules.js)
+    const immune = Rules.brickImmune(b.type, (b.type === 'shield' || b.type === 'bosscore') && this.generatorsAlive(), src);
+    if (immune) {
+      const col = { SHIELDED: COL.violet, LOCKED: COL.red, FIREWALL: '#ff5500' }[immune];
+      if (col) FX.text(b.cxm, b.cym, immune, col, 10);
       AudioSys.sfx('wall');
       return false;
     }
@@ -672,15 +736,16 @@ const game = {
     b.alive = false;
     const def = BRICKS[b.type];
     this.combo++;
-    this.maxCombo = Math.max(this.maxCombo, this.combo);
+    if (this.combo > this.maxCombo) { this.maxCombo = this.combo; this.stats.comboSector = this.level; }
     if (this.combo >= 15) this.unlock('combo15');
     if (this.combo >= 30) this.unlock('combo30');
     this.stats.bricks++;
+    if (this.tutor) { this.tutor.e.bricks++; this.tutor.e.bestCombo = Math.max(this.tutor.e.bestCombo, this.combo); }
     this.unlock('first');
     this.addScore(def.score, b.cxm, b.cym);
     this.addGlitch(1.1);
     AudioSys.sfx('brick', Math.min(this.combo, 12));
-    FX.spawn(b.cxm, b.cym, def.color, 14, { spd: 220 });
+    this.burst(b.cxm, b.cym, def.color);
     FX.shake(1);
 
     switch (b.type) {
@@ -712,17 +777,39 @@ const game = {
     }
 
     // powerup drop
-    let luck = CFG.DROP_CHANCE + Meta.rank('luck') * 0.04 + (this.glitch >= 50 ? 0.04 : 0);
-    let pool = POWERUP_KEYS;
+    let luck = Rules.dropChance(Meta.rank('luck'), this.glitch);
+    let pool = Rules.dropPool(this.mode);
     // anti-softlock: if only firewall bricks remain, shower firewall-piercing drops
-    const alive = this.bricks.filter(x => x.alive && x.type !== 'barrier');
-    if (alive.length && alive.every(x => x.type === 'firewall')) {
+    if (Rules.onlyFirewallsLeft(this.bricks.filter(x => x.alive && x.type !== 'barrier').map(x => x.type))) {
       luck = 0.6;
-      pool = ['fire', 'laser', 'boom', 'emp'];
+      pool = Rules.BREACH_KIT;
     }
-    if (!src.noDrop && chance(luck)) {
+    if (this.tutor) {
+      // the lesson has one certain drop, so there is something to catch
+      if (this.tutor.e.bricks === Rules.TUTORIAL.dropAfter) this.powerups.push(new PowerUp(b.cxm, b.cym, Rules.TUTORIAL.drop));
+    } else if (!src.noDrop && chance(luck)) {
       const kind = pool[Math.floor(Math.random() * pool.length)];
       this.powerups.push(new PowerUp(b.cxm, b.cym, kind));
+    }
+  },
+
+  // What a brick does as it breaks: the effect you wear (a prize from the
+  // Glitchcade's counter; see Prizes in js/wallet.js).
+  burst(x, y, col) {
+    switch (Prizes.burst) {
+      case 'confetti':
+        for (const c of [COL.cyan, COL.magenta, COL.yellow, COL.green, col]) FX.spawn(x, y, c, 4, { spd: 270, grav: 430, size: 4, life: 0.95, dir: -Math.PI / 2, spread: 2.6 });
+        break;
+      case 'shards':
+        FX.spawn(x, y, '#dff6ff', 10, { spd: 150, grav: 640, size: 5, life: 0.85 });
+        FX.spawn(x, y, col, 4, { spd: 120, grav: 640, size: 3, life: 0.7 });
+        break;
+      case 'coins':
+        FX.spawn(x, y, '#ffd166', 9, { spd: 250, grav: 720, size: 6, life: 0.95, dir: -Math.PI / 2, spread: 1.5, square: false });
+        FX.spawn(x, y, col, 4, { spd: 160 });
+        break;
+      default:
+        FX.spawn(x, y, col, 14, { spd: 220 });
     }
   },
 
@@ -790,6 +877,9 @@ const game = {
       return;
     }
     this.paddle.stun = 2.2;
+    // for the recap: whose shot it was
+    const by = shot && shot.src;
+    this.stunBy = by ? (by.kind && ENEMY_INFO[by.kind] ? 'a ' + ENEMY_INFO[by.kind].name : by.name || null) : null;
     this.combo = 0;
     AudioSys.sfx('lose');
     FX.shake(6); FX.flash(COL.red, 0.2);
@@ -797,27 +887,31 @@ const game = {
   },
   spawnEnemy() {
     const lv = this.level;
-    const cap = (1 + Math.floor(lv / 4)) * (this.mods.tripleEnemy ? 3 : 1);
-    if (this.enemies.filter(e => !e.dead).length >= cap) return;
-    const kinds = [];
-    if (lv >= 3) kinds.push(DroneEnemy);
-    if (lv >= 6) kinds.push(VirusOrb);   // turns bricks green: held back with the virus and clone bricks
-    if (lv >= 6) kinds.push(RepairBot, Turret);
+    if (this.enemies.filter(e => !e.dead).length >= Rules.enemyCap(lv, this.mods.tripleEnemy)) return;
+    // drones from sector 3; the rest are held back to sector 6 with the virus and clone bricks
+    const kinds = Rules.enemyKinds(lv);
     if (!kinds.length) return;
-    const K = choice(kinds);
+    const K = ENEMY_CLASSES[choice(kinds)];
     const e = K === Turret
       ? new Turret(chance(0.5) ? 30 : CFG.W - 30, rand(200, 320))
       : new K(rand(100, CFG.W - 100), rand(60, 160));
     this.enemies.push(e);
+    this.meet('enemy', e.kind);
     FX.spawn(e.x, e.y, COL.red, 12);
   },
 
   // ======== powerups ========
   applyPowerup(kind, x, y) {
     this.stats.powerups++;
+    this.restorePaddle(true);       // MEMORY LEAK: a power-up puts the paddle back to full length
     AudioSys.sfx('powerup');
     const d = POWERUPS[kind];
-    FX.text(x, y - 12, d.name, d.color, 13);
+    if (kind !== 'random') {        // the randomizer names what it turned into
+      this.stats.powers[kind] = (this.stats.powers[kind] || 0) + 1;
+      this.meet('power', kind);
+      if (!this.attract) this.pickup = { kind, t: 2.4, life: 2.4 };
+      if (this.tutor) this.tutor.e.powerups++;
+    } else this.meet('power', 'random');
     FX.spawn(x, y, d.color, 12, { spd: 140 });
     const liveBalls = this.balls.filter(b => !b.dead);
     const src = liveBalls[0] || new Ball(this.paddle.x, this.paddle.y - 20, -Math.PI / 2);
@@ -868,7 +962,7 @@ const game = {
       }
       case 'drone': this.drones.push(new AssistDrone()); break;
       case 'random': {
-        const others = POWERUP_KEYS.filter(k => k !== 'random');
+        const others = Rules.dropPool(this.mode).filter(k => k !== 'random');
         this.applyPowerup(choice(others), x, y);
         return;
       }
@@ -900,8 +994,12 @@ const game = {
 
   // ======== glitch events ========
   triggerEvent() {
+    // one event at a time: the one in progress is wound up properly first (a DATA
+    // SURGE that was simply replaced used to leave the ball fast until the sector ended)
+    if (this.activeEvent) this.endEvent();
     const ev = choice(EVENTS);
     this.activeEvent = ev;
+    this.meet('event', ev.id);
     AudioSys.setEvent(ev.id);
     this.eventT = Math.min(ev.dur, EVENT_MAX_DUR);
     banner(ev.name);
@@ -951,6 +1049,16 @@ const game = {
     // the boss is already dead and the sector is about to clear: no penalty
     if (this.boss && this.boss.dead) { this.serve(); this.state = 'serve'; return; }
     this.combo = 0;
+    // for the recap: what was going on when this ball got past
+    const gone = this.lastLost, p = this.paddle;
+    this.stats.lives.push({
+      sector: this.level, arena: this.arena.name, rule: this.rule,
+      event: this.activeEvent ? this.activeEvent.id : null,
+      stunnedBy: p.stun > 0 ? this.stunBy || 'an enemy' : null,
+      gap: gone ? Math.max(0, Math.abs(gone.x - p.x) - p.w / 2) : undefined,
+      speed: gone ? gone.speed / CFG.BALL_MAX : 0,
+    });
+    this.restorePaddle(false);
     AudioSys.sfx('lose');
     FX.shake(10); FX.flash(COL.red, 0.3); FX.setRgb(0.8);
     if (this.attract) { this.serve(); this.state = 'serve'; return; } // demo never dies
@@ -973,15 +1081,16 @@ const game = {
 
   levelCleared() {
     if (this.attract) { this.level++; this.startLevel(); showScreen('scrMenu'); return; }
+    if (this.tutor) { this.tutor.e.cleared = true; this.endTutorial(); }
     this.state = 'clear';
     this.clearProtectiveTarget();
     AudioSys.setEvent(null);
     AudioSys.sfx('life');
-    const clearBonus = 500 + this.level * 100;
+    const clearBonus = Rules.clearBonus(this.level);
     let bonus = clearBonus;
     let timeBonus = 0;
     if (this.mode === 'time') {
-      timeBonus = Math.max(0, Math.round(4000 - this.levelTime * 25));
+      timeBonus = Rules.timeBonus(this.levelTime);
       bonus += timeBonus;
     }
     this.score += bonus;
@@ -1054,12 +1163,14 @@ const game = {
 
   endRun(won) {
     this.state = 'over';
+    this.endTutorial();
     this.clearProtectiveTarget();
     AudioSys.stopMusic();
     const secs = (performance.now() - this.stats.timeStart) / 1000;
     const earns = this.aiEarnsProgress();
-    const xpGain = earns ? Math.round(this.score / 10 * (1 + Meta.rank('xp_boost') * 0.2)) : 0;
-    const crGain = earns ? Math.round(this.score / 55 + this.level * 15) : 0;
+    const rewards = Rules.runRewards(this.score, this.level, Meta.rank('xp_boost'));
+    const xpGain = earns ? rewards.xp : 0;
+    const crGain = earns ? rewards.credits : 0;
     const bestKey = this.mode;
     const prevBest = Meta.data.best[bestKey] || 0;
     const newBest = earns && this.score > 0 && this.score > prevBest;
@@ -1095,7 +1206,11 @@ const game = {
             [newBest ? 'New Best!' : 'Best', (Meta.data.best[bestKey] ?? this.score).toLocaleString(), true],
           ])
         : `<div class="clear-bonus">AI AUTOPLAY — NO PROGRESSION EARNED</div>`) +
-      (newBest && prevBest ? `<div class="clear-bonus">NEW PERSONAL BEST — previous ${prevBest.toLocaleString()}</div>` : '');
+      (newBest && prevBest ? `<div class="clear-bonus">NEW PERSONAL BEST — previous ${prevBest.toLocaleString()}</div>` : '') +
+      '<div class="recap">' + Rules.runRecap({
+        mode: this.mode, won: !!won, maxCombo: this.maxCombo, comboSector: this.stats.comboSector,
+        powers: this.stats.powers, lives: this.stats.lives, newEntries: this.stats.newEntries,
+      }).map((row) => `<div class="rc"><i>${row.label}</i><span>${row.power ? `<img src="${powerIconUrl(row.power)}" alt="">` : ''}${row.text}</span></div>`).join('') + '</div>';
     if (newBest) AudioSys.sfx('achieve');
     showScreen('scrOver');
     refreshMenuStats();
@@ -1174,6 +1289,8 @@ const game = {
     } else {
       this.paddle.update(dt, input);
     }
+    if (this.pickup && (this.pickup.t -= rawDt) <= 0) this.pickup = null;
+    if (this.tutor) this.tickTutorial(rawDt);
 
     // 3-2-1-GO: only the paddle moves; everything else waits for the launch
     if (this.countdown) {
@@ -1233,6 +1350,7 @@ const game = {
       if (this.corruption > 20 && chance(dt * this.corruption / 90)) FX.setRgb(this.corruption / 220);
       if (this.corruption > 55 && chance(dt * 0.5)) FX.tear(0.25);
       this.glitch = Math.max(0, this.glitch - dt * 0.55);
+      if (Rules.overloadRearms(this.glitch)) this.overloadArmed = true;
       AudioSys.setGlitch(Math.max(this.glitch / 100, this.corruption / 130));
     }
 
@@ -1319,7 +1437,7 @@ const game = {
     }
     const before = this.balls.length;
     const lost = this.balls.find(b => b.dead);
-    if (lost) this.lastLostTrail = lost.trail.slice(0, 14);
+    if (lost) { this.lastLostTrail = lost.trail.slice(0, 14); this.lastLost = { x: lost.x, speed: lost.speed }; }
     this.balls = this.balls.filter(b => !b.dead);
     this.siblingRivalry();
     if (this.balls.length === 0 && before > 0 && this.state === 'play') this.loseLife();
@@ -1382,6 +1500,10 @@ const game = {
     ball.vy = Math.sin(angle) * ball.speed;
     ball.y = p.y - p.h / 2 - ball.r - 1;
     this.combo = 0;
+    if (this.tutor) this.tutor.e.returns++;
+    // MEMORY LEAK: a ball that comes back having broken nothing costs the paddle some length.
+    // (`dull` counts returns since its last brick and has just been raised for this one.)
+    if (this.rule === 'leak' && ball.dull > 1) this.leakReturns = (this.leakReturns || 0) + 1;
     p.glow = 1;
     AudioSys.sfx('paddle', (rel + 1) / 2);
     FX.spawn(ball.x, p.y - p.h / 2, PaddleColor.hex, 6, { spd: 120, dir: -Math.PI / 2, spread: 1.6 });
@@ -1419,6 +1541,7 @@ const game = {
     }
     if (changed) {
       FX.text(CFG.W / 2, this.paddle.y - 58, 'RETALIATION — TARGET LOCKED', '#ff8a3d', 13);
+      this.meet('mood', 'protective');
       AudioSys.sfx('click');
     }
   },
@@ -1432,7 +1555,7 @@ const game = {
     }
     ball.protecting = foe;
     ball.mood = 'protective';
-    ball.homeOn(foe, dt);
+    ball.homeOn(foe.aimPoint ? foe.aimPoint(ball) : foe, dt);
     return true;
   },
 
@@ -1448,7 +1571,8 @@ const game = {
       // Launch straight at the shooter; guidance continues between bounces.
       ball.mood = 'protective';
       ball.protecting = foe;
-      return Math.atan2(foe.y - ball.y, foe.x - ball.x);
+      const at = foe.aimPoint ? foe.aimPoint(ball) : foe;
+      return Math.atan2(at.y - ball.y, at.x - ball.x);
     }
     if (boss instanceof TheEye) {
       // GRUDGE: it hasn't forgotten the Pong arena
@@ -1466,6 +1590,7 @@ const game = {
     if (mood !== ball.mood && mood && !this.attract) {
       const say = { bored: ['BORED...', '#8d97ad'], grudge: ['GRUDGE', '#ff8fb8'], curious: ['?', '#eef7ff'] }[mood];
       FX.text(ball.x, ball.y - 26, say[0], say[1], 12);
+      this.meet('mood', mood);
     }
     ball.mood = mood;
     if (mood !== 'protective') ball.protecting = null;
@@ -1485,8 +1610,11 @@ const game = {
   },
 
   renderProtectiveTarget() {
-    const foe = this.protectiveTarget();
-    if (!foe) return;
+    const target = this.protectiveTarget();
+    if (!target) return;
+    // the part of it the ball is steering at (one head of the hydra, not the space between them)
+    const hunter = this.balls.find(b => b.protecting === target);
+    const foe = target.aimPoint && hunter ? target.aimPoint(hunter) : target;
     const rx = (foe.rx || foe.r || 16) + 10, ry = (foe.ry || foe.r || 16) + 10;
     const col = '#ff8a3d';
     ctx.save();
@@ -1494,7 +1622,7 @@ const game = {
     ctx.globalAlpha = 0.36;
     ctx.setLineDash([5, 7]); ctx.lineDashOffset = FX.reduced ? 0 : -this.time * 36;
     for (const ball of this.balls) {
-      if (ball.dead || ball.stuck || ball.protecting !== foe ||
+      if (ball.dead || ball.stuck || ball.protecting !== target ||
           (ball.invisible > 0 && Math.floor(ball.invisible * 10) % 2 === 0)) continue;
       ctx.beginPath(); ctx.moveTo(ball.x, ball.y); ctx.lineTo(foe.x, foe.y); ctx.stroke();
     }
@@ -1521,6 +1649,7 @@ const game = {
       ball.rampage = 0;
       ball.setSpeed(ball.speed * 1.08);
       FX.text(ball.x, ball.y + 26, 'RAMPAGE!', '#ffd166', 15);
+      this.meet('mood', 'rampage');
       AudioSys.sfx('event');
       return;
     }
@@ -1549,7 +1678,10 @@ const game = {
   siblingRivalry() {
     const n = this.balls.length, prev = this.ballsPrev;
     this.ballsPrev = n;
-    if (n > 1 && prev <= 1) for (const b of this.balls) b.breaks = 0;   // a fresh multi-ball: everyone starts level
+    if (n > 1 && prev <= 1) {
+      for (const b of this.balls) b.breaks = 0;   // a fresh multi-ball: everyone starts level
+      if (this.sentient) this.meet('mood', 'rivalry');
+    }
     if (n === 1 && prev > 1 && this.sentient && !this.attract) {
       const last = this.balls[0];
       if (last.breaks > 0) {
@@ -1587,6 +1719,7 @@ const game = {
     ball.setSpeed(ball.speed);
     banner('THE BALL REFUSED TO FALL');
     FX.text(ball.x, p.y - 30, 'LOYAL', COL.green, 14);
+    this.meet('mood', 'loyal');
     FX.spawn(ball.x, p.y, COL.green, 14, { spd: 160, dir: -Math.PI / 2, spread: 1.4 });
     AudioSys.sfx('event');
   },
@@ -1618,6 +1751,7 @@ const game = {
           ball.showoff = true;
           ball.setSpeed(ball.speed * 1.06);
           FX.text(ball.x, ball.y - 24, 'SHOW-OFF', '#ff58d9', 13);
+          this.meet('mood', 'showoff');
         }
         const base = BRICKS[b.type]?.score || 0;
         if (ball.rampaging) { ball.rampage++; this.addScore(base); }                     // RAMPAGE: double
@@ -1645,10 +1779,8 @@ const game = {
   render() {
     const a = this.arena;
     ctx.clearRect(0, 0, CFG.W, CFG.H);
-    // background
-    ctx.fillStyle = a.bg;
-    ctx.fillRect(0, 0, CFG.W, CFG.H);
-    this.renderGrid();
+    // the arena's place (js/backdrops.js); its moving details rest in battery saver and reduced FX
+    Backdrop.draw(ctx, a, CFG.W, CFG.H, this.time, !Power.saving && !FX.reduced);
     // moving walls
     if (this.wallInsetL > 1 || this.wallInsetR > 1) {
       ctx.save();
@@ -1661,7 +1793,7 @@ const game = {
       ctx.beginPath(); ctx.moveTo(CFG.W - this.wallInsetR, 0); ctx.lineTo(CFG.W - this.wallInsetR, CFG.H); ctx.stroke();
       ctx.restore();
     }
-    for (const h of this.hazards) h.render(ctx);
+    for (const h of this.hazards) h.render(ctx, this);
     for (const b of this.bricks) if (b.alive) b.render(ctx, this);
     for (const p of this.powerups) p.render(ctx);
     for (const e of this.enemies) e.render(ctx);
@@ -1680,7 +1812,7 @@ const game = {
       ctx.restore();
     }
     if (this.ghost) this.renderGhost();
-    for (const ball of this.balls) ball.render(ctx);
+    for (const ball of this.balls) ball.render(ctx, this);
     for (const ball of this.balls) {
       if (ball.mood === 'curious' && !ball.stuck) {
         ctx.save();
@@ -1722,6 +1854,8 @@ const game = {
       ctx.restore();
     }
     FX.render(ctx);
+    this.renderPickup();
+    this.renderTutorial();
     if (this.countdown) this.renderCountdown();
     FX.composite(mainCtx, scene);
     this.renderHud();
@@ -1777,6 +1911,22 @@ const game = {
       ctx.fillText(ph.key, CFG.W / 2, CFG.H / 2);
     }
     ctx.restore();
+    // what this arena does, while there is time to read it
+    if (this.rule && this.rule !== 'standard') {
+      const rule = Rules.arenaRule(this.arena), y = Math.min(CFG.H / 2 + 170, CFG.PADDLE_Y - 90);
+      const k = IS_TOUCH ? 1.45 : 1;            // touch screens show the field scaled down
+      ctx.save();
+      ctx.textAlign = 'center';
+      ctx.fillStyle = 'rgba(3,4,10,.78)';
+      ctx.fillRect(0, y - 26 * k, CFG.W, 78 * k);
+      ctx.fillStyle = this.arena.accent;
+      ctx.font = `800 ${Math.round(15 * k)}px Orbitron, monospace`;
+      ctx.fillText(rule.name, CFG.W / 2, y - 3);
+      ctx.fillStyle = COL.white;
+      ctx.font = `${Math.round(13 * k)}px "Share Tech Mono", monospace`;
+      wrapText(ctx, rule.line, CFG.W / 2, y + 18 * k, CFG.W - 50, 17 * k);
+      ctx.restore();
+    }
   },
 
   renderGrid() {
@@ -1799,7 +1949,9 @@ const game = {
   },
 
   updateArenaHud() {
-    $('hArena').innerHTML = `<b>${this.arena.name}</b>SECTOR ${String(this.level).padStart(2, '0')}`;
+    $('hArena').innerHTML = this.attract ? '<b>BREAKPOINT</b>DEMO PLAY'
+      : `<b>${this.arena.name}</b>SECTOR ${String(this.level).padStart(2, '0')}` +
+        (this.rule && this.rule !== 'standard' ? ' · ' + Rules.arenaRule(this.arena).name : '');
   },
 
   renderHud() {
@@ -1807,7 +1959,8 @@ const game = {
     hudSet('hScore', this.score.toLocaleString());
     hudSet('hCombo', this.combo);
     hudSet('hMult', 'x' + this.multiplier);
-    hudSet('hLevel', this.level);
+    // the sector number is in the middle of the HUD; this is how much of it is left
+    hudSet('hLevel', this.boss && !this.boss.dead ? 'BOSS' : this.bricks.reduce((n, b) => n + (b.alive && b.type !== 'barrier' ? 1 : 0), 0));
     hudSet('hLives', this.mode === 'puzzle' ? '◦' + this.ballsLeft : '♥'.repeat(Math.min(this.lives, 6)));
     hudStyle('xpFill', (Meta.levelProgress * 100).toFixed(1) + '%');
     hudStyle('glFill', this.glitch.toFixed(0) + '%');
@@ -1830,7 +1983,7 @@ const game = {
     } else hudHtml(ab, '');
     // powerup tags
     const tags = [];
-    const push = (kind, t) => { if (t > 0) tags.push(`<span class="puTag" style="color:${POWERUPS[kind].color};border-color:${POWERUPS[kind].color}">${POWERUPS[kind].tag} ${Math.ceil(t)}</span>`); };
+    const push = (kind, t) => { if (t > 0) tags.push(`<span class="puTag" title="${POWERUPS[kind].name}" style="color:${POWERUPS[kind].color};border-color:${POWERUPS[kind].color}"><img src="${powerIconUrl(kind)}" alt="${POWERUPS[kind].name}">${Math.ceil(t)}</span>`); };
     push('mult', this.timers.mult); push('slow', this.timers.slow); push('warp', this.timers.warp);
     push('freeze', this.timers.freezeP); push('shield', this.timers.shield);
     if (this.paddle) { push('laser', this.paddle.laserT); push('magnet', this.paddle.magnetT); push('wide', this.paddle.wideT); }
@@ -1872,51 +2025,162 @@ function refreshMenuStats() {
 function buildModeGrid() {
   const grid = $('modeGrid');
   grid.innerHTML = '';
-  for (const [id, m] of Object.entries(MODES)) {
+  const today = todayStr();
+  const ids = Object.keys(MODES);
+  ids.forEach((id, i) => {
+    const m = MODES[id];
     const card = document.createElement('div');
-    card.className = 'card';
-    const best = Meta.data.best[id];
-    let extra = best ? `<span class="cost">BEST ${best.toLocaleString()}</span>` : '';
-    let mods = '';
+    // an odd card out at the end takes the full row instead of sitting alone on the left
+    card.className = 'card mode' + (i === ids.length - 1 && ids.length % 2 ? ' wide' : '');
+    let label = 'BEST', value = Meta.data.best[id] || 0, mods = '';
     if (id === 'daily') {
-      const today = todayStr();
-      const seed = mulberry32(hashStr('gb_' + today) ^ 0x5f5f5f);
-      const pool = [...DAILY_MODS];
-      const n = 2 + Math.floor(seed() * 2);
-      const names = [];
-      for (let i = 0; i < n && pool.length; i++) names.push(pool.splice(Math.floor(seed() * pool.length), 1)[0].name);
-      mods = '<div>' + names.map(x => `<span class="modtag">${x}</span>`).join('') + '</div>';
-      if (Meta.data.daily.date === today) extra = `<span class="cost">TODAY ${Meta.data.daily.score.toLocaleString()}</span>`;
+      mods = Rules.dailyMods(today).map(x => `<span class="modtag">${x.name}</span>`).join('');
+      if (Meta.data.daily.date === today) { label = 'TODAY'; value = Meta.data.daily.score; }
     }
     const desc = IS_TOUCH ? m.desc.replace('Press [T] any time to take over.', 'Tap the AI badge any time to take over.') : m.desc;
-    card.innerHTML = `<h3>${m.name}${extra}</h3><p>${desc}</p>${mods}`;
+    card.innerHTML = `<div class="mi">${modeIcon(id)}</div>` +
+      `<div class="mt"><h3>${m.name}${mods}</h3><p>${desc}</p></div>` +
+      `<div class="mb${value ? '' : ' none'}"><i>${label}</i><b>${value ? Math.floor(value).toLocaleString() : '—'}</b></div>`;
     card.onclick = () => { AudioSys.sfx('click'); game.startRun(id); };
     grid.appendChild(card);
-  }
+  });
 }
 
+// The upgrade tree: three branches, each bought from the top down. A node is
+// bright when you can afford it, shows what you are short by when you can't,
+// and names the node it is waiting for while it is locked.
 function buildShop() {
-  $('shopCr').textContent = Meta.data.credits.toLocaleString();
+  const credits = Meta.data.credits;
+  $('shopCr').textContent = credits.toLocaleString();
   const grid = $('shopGrid');
   grid.innerHTML = '';
-  for (const u of UPGRADES) {
-    const rank = Meta.rank(u.id);
-    const cost = Math.round(u.cost * Math.pow(2.0, rank));
-    const maxed = rank >= u.max;
-    const card = document.createElement('div');
-    card.className = 'card' + (maxed ? ' owned' : Meta.data.credits < cost ? ' locked' : '');
-    card.innerHTML = `<h3>${u.name}<span class="cost">${maxed ? 'MAX' : cost + ' CR'}</span></h3>
-      <p>${u.desc}${u.max > 1 ? ` <span style="color:${COL.violet}">[${rank}/${u.max}]</span>` : rank ? ' <span style="color:#9d4dff">[OWNED]</span>' : ''}</p>`;
-    if (!maxed) card.onclick = () => {
-      if (Meta.data.credits < cost) { AudioSys.sfx('powerdn'); return; }
-      Meta.data.credits -= cost;
-      Meta.data.up[u.id] = rank + 1;
-      Meta.save();
-      AudioSys.sfx('powerup');
-      game.unlock('buy1');
-      buildShop(); refreshMenuStats();
-    };
-    grid.appendChild(card);
+  let affordable = 0;
+  for (const branch of Rules.UPGRADE_TREE) {
+    const col = document.createElement('div');
+    col.className = 'branch';
+    col.innerHTML = `<h4>${branch.name}</h4>`;
+    for (const id of branch.nodes) {
+      const u = UPGRADES.find(x => x.id === id);
+      const st = Rules.upgradeState(id, Meta.data.up, credits);
+      if (st.state === 'buy') affordable++;
+      const node = document.createElement('div');
+      node.className = 'node ' + st.state + (st.rank ? ' owned' : '');
+      const pips = Array.from({ length: st.max }, (_, i) => i < st.rank ? '<b>■</b>' : '□').join('');
+      const tag = st.state === 'max' ? (st.max > 1 ? 'MAX' : 'OWNED')
+        : st.state === 'locked' ? 'NEEDS ' + UPGRADES.find(x => x.id === st.parent).name
+        : st.state === 'buy' ? 'BUY ' + st.cost.toLocaleString() + ' CR'
+        : st.cost.toLocaleString() + ' CR · ' + st.short.toLocaleString() + ' SHORT';
+      node.innerHTML = `<h3>${u.name}</h3><p>${u.desc}</p><div class="ns"><span class="pips">${pips}</span><span class="tag">${tag}</span></div>`;
+      node.onclick = () => {
+        const bought = Rules.buyUpgrade(id, Meta.data.up, Meta.data.credits);
+        if (!bought) { if (st.state !== 'max') AudioSys.sfx('powerdn'); return; }
+        Meta.data.up = bought.ranks;
+        Meta.data.credits = bought.credits;
+        Meta.save();
+        AudioSys.sfx('powerup');
+        game.unlock('buy1');
+        buildShop(); refreshMenuStats();
+      };
+      col.appendChild(node);
+    }
+    grid.appendChild(col);
+  }
+  $('shopHint').textContent = affordable ? `${affordable} YOU CAN AFFORD` : 'PLAY RUNS TO EARN CREDITS';
+}
+
+// ---------------- the codex ----------------
+// Controls, then one tab per kind of thing in the game. An entry shows its
+// picture, name and what it does once you have met it; before that it is a "???".
+let codexTab = 'controls';
+const ENEMY_CLASSES = { drone: DroneEnemy, virus: VirusOrb, repair: RepairBot, turret: Turret };
+const THUMB_GAME = { mods: {}, time: 0, generatorsAlive: () => false };
+
+function codexThumb(cv, e, known) {
+  const c = cv.getContext('2d'), w = cv.width, h = cv.height;
+  c.clearRect(0, 0, w, h);
+  if (!known) {
+    c.fillStyle = 'rgba(122,154,184,.35)'; c.font = '900 22px Orbitron, monospace'; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillText('?', w / 2, h / 2 + 1);
+    return;
+  }
+  try {
+    if (e.kind === 'brick') {
+      const b = new Brick((w - CFG.BRICK_W) / 2, (h - CFG.BRICK_H) / 2, e.id);
+      b.visT = -0.1;                                   // the invisible brick, caught while it shows
+      b.render(c, THUMB_GAME);
+    } else if (e.kind === 'power') {
+      drawPowerIcon(c, e.id, w / 2, h / 2, 32);
+    } else if (e.kind === 'enemy') {
+      const en = new ENEMY_CLASSES[e.id](w / 2, h / 2);
+      c.save(); c.translate(w / 2, h / 2); c.scale(1.25, 1.25); c.translate(-w / 2, -h / 2); en.render(c); c.restore();
+    } else if (e.kind === 'boss') {
+      const K = [...BOSS_LIST, TheEye].find((B) => new B(1).name === e.id);
+      const boss = new K(1);
+      // sized so each one's widest part fits the frame
+      const k = e.id === 'MEMORY GUARDIAN' ? 0.24 : e.id === 'THE EYE' ? 0.3 : 0.4;
+      boss.x = CFG.W / 2;
+      if (boss.heads) boss.heads.forEach((head, i) => { head.x = CFG.W / 2 + (i - 1) * 62; head.y = boss.y; });   // the hydra's heads, drawn together
+      c.save(); c.translate(w / 2, h / 2); c.scale(k, k); c.translate(-CFG.W / 2, -boss.y); boss.render(c); c.restore();
+    } else if (e.kind === 'arena') {
+      c.drawImage(Backdrop.thumb(ARENAS.find((a) => a.name === e.id), w, h), 0, 0);
+    } else if (e.kind === 'event') {
+      c.strokeStyle = c.fillStyle = COL.magenta; c.lineWidth = 2; c.lineJoin = 'round';
+      c.beginPath(); c.moveTo(w / 2, 8); c.lineTo(w / 2 + 17, h - 9); c.lineTo(w / 2 - 17, h - 9); c.closePath(); c.stroke();
+      c.font = '900 16px Orbitron, monospace'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.fillText('!', w / 2, h / 2 + 5);
+    } else if (e.kind === 'mood') {
+      const col = MOOD_INFO[e.id].color;
+      for (let i = 5; i > 0; i--) { c.globalAlpha = 0.08 * (6 - i); c.fillStyle = col; c.fillRect(w / 2 - 4 - i * 5, h / 2 - 4 + i * 2, 9 - i, 9 - i); }
+      c.globalAlpha = 1; c.shadowColor = col; c.shadowBlur = 12; c.fillStyle = col;
+      c.beginPath(); c.arc(w / 2 + 6, h / 2 - 2, 8, 0, 7); c.fill();
+      c.shadowBlur = 0; c.fillStyle = '#fff'; c.beginPath(); c.arc(w / 2 + 4, h / 2 - 4, 3, 0, 7); c.fill();
+    }
+  } catch (err) { /* a thumbnail that can't be drawn is left blank */ }
+}
+
+function buildCodex() {
+  const sections = Rules.codexSections(), count = Rules.codexCount(Meta.data.seen);
+  $('cxCount').innerHTML = `DISCOVERED <b>${count.seen}</b> / ${count.total}`;
+  const tabs = $('cxTabs');
+  tabs.innerHTML = '';
+  const tabDefs = [{ id: 'controls', name: 'CONTROLS' }, ...sections];
+  for (const t of tabDefs) {
+    const b = document.createElement('button');
+    b.className = 'small' + (t.id === codexTab ? ' ghostc' : '');
+    const n = count.sections[t.id];
+    b.textContent = t.name + (n ? ` ${n.seen}/${n.total}` : '');
+    b.onclick = () => { AudioSys.sfx('click'); codexTab = t.id; buildCodex(); };
+    tabs.appendChild(b);
+  }
+  const list = $('cxList');
+  list.innerHTML = '';
+  list.scrollTop = 0;
+  if (codexTab === 'controls') {
+    list.className = 'cxlist controls';
+    const rows = IS_TOUCH
+      ? [['DRAG', 'move the paddle'], ['TAP', 'launch the ball, fire the laser paddle'], ['ROUND BUTTON', 'your special ability, once you own one'],
+         ['II', 'pause'], ['AI BADGE', 'take the paddle back from the AI']]
+      : [['◀ ▶ / A D / MOUSE', 'move the paddle'], ['SPACE / CLICK', 'launch the ball, fire the laser paddle'], ['X', 'special ability (EMP or laser array), once you own one'],
+         ['T', 'hand the paddle to the AI, or take it back'], ['P / ESC', 'pause'], ['R', 'restart the run']];
+    list.innerHTML = '<div class="keys">' + rows.map(([k, v]) => `<b>${k}</b><span>${v}</span>`).join('') + '</div>' +
+      '<p>Break every brick to clear a sector. Every fifth sector is a boss. The <span style="color:var(--pink)">GLITCH</span> meter fills as you break bricks: it multiplies your score and makes the machine fight back harder.</p>' +
+      '<p>Everything else is in the other tabs, and unlocks the first time you meet it in a run.</p>';
+    return;
+  }
+  list.className = 'cxlist';
+  const section = sections.find((s) => s.id === codexTab);
+  for (const e of section.entries) {
+    const known = !!Meta.data.seen[e.key];
+    const row = document.createElement('div');
+    row.className = 'cx' + (known ? '' : ' locked');
+    const cv = document.createElement('canvas');
+    cv.width = 78; cv.height = 46;
+    row.appendChild(cv);
+    const text = document.createElement('div');
+    text.innerHTML = known ? `<h3>${e.name}</h3><p>${e.line}</p>` : '<h3>???</h3><p>Not met yet.</p>';
+    row.appendChild(text);
+    list.appendChild(row);
+    codexThumb(cv, e, known);
   }
 }
 
@@ -1946,10 +2210,10 @@ function goMenu() {
 
 // wire buttons
 $('btnPlay').onclick = () => { AudioSys.init(); AudioSys.sfx('click'); buildModeGrid(); showScreen('scrModes'); };
-$('btnSettings').onclick = () => { AudioSys.init(); AudioSys.sfx('click'); showScreen('scrSettings'); };
+$('btnSettings').onclick = () => { AudioSys.init(); AudioSys.sfx('click'); Skins.refresh(); Prizes.refresh(); refreshLooks(); showScreen('scrSettings'); };
 $('btnShop').onclick = () => { AudioSys.init(); AudioSys.sfx('click'); buildShop(); showScreen('scrShop'); };
 $('btnAchv').onclick = () => { AudioSys.init(); AudioSys.sfx('click'); buildAchv(); showScreen('scrAchv'); };
-$('btnHelp').onclick = () => { AudioSys.init(); AudioSys.sfx('click'); showScreen('scrHelp'); };
+$('btnHelp').onclick = () => { AudioSys.init(); AudioSys.sfx('click'); buildCodex(); showScreen('scrHelp'); };
 $('btnMute').onclick = () => {
   AudioSys.init(); AudioSys.sfx('click');
   const cur = +$('vol').value;
@@ -1960,7 +2224,7 @@ $('btnMute').onclick = () => {
 };
 function refreshAiRewardsBtn() {
   $('btnAiRewards').textContent = 'AI Progression: ' + (Meta.data.aiRewards ? 'ON' : 'OFF');
-  $('btnAiRewards').classList.toggle('ghostc', !!Meta.data.aiRewards);
+  $('btnAiRewards').classList.toggle('ghostc', !!Meta.data.aiRewards);   // mint text = switched on
 }
 $('btnAiRewards').onclick = () => {
   AudioSys.init(); AudioSys.sfx('click');
@@ -1974,13 +2238,13 @@ function applyFxSetting() {
   FX.setReduced(reduced);
   document.body.classList.toggle('reduced-fx', reduced);
   $('btnFx').textContent = 'Screen FX: ' + (reduced ? 'REDUCED' : 'FULL');
-  $('btnFx').classList.toggle('ghostc', reduced);
+  $('btnFx').classList.toggle('ghostc', !reduced);
 }
 // Battery saver: shared with Glitch Pong and the arcade (same stored switch)
 function refreshSaverBtn() {
   const label = Power.state === 'on' ? 'ON' : Power.state === 'auto' ? 'AUTO · LOW BATTERY' : 'OFF';
   $('btnSaver').textContent = 'Battery Saver: ' + label;
-  $('btnSaver').classList.toggle('ghostc', !Power.saving);
+  $('btnSaver').classList.toggle('ghostc', Power.saving);
 }
 $('btnSaver').onclick = () => {
   AudioSys.init(); AudioSys.sfx('click');
@@ -2005,9 +2269,47 @@ $('btnPaddleColor').onclick = () => {
   PaddleColor.cycle();
   refreshPaddleColorBtn();
 };
+// Skins from Glitch Pong's Store (paddle, ball, trail) and Break Point's own
+// prizes from the Glitchcade counter (bricks, break effect). Each button steps
+// through what you own.
+const LOOKS = [
+  { btn: 'btnSkinPaddle', label: 'Paddle Skin', from: Skins, slot: 'paddle' },
+  { btn: 'btnSkinBall',   label: 'Ball',        from: Skins, slot: 'ball' },
+  { btn: 'btnSkinTrail',  label: 'Trail',       from: Skins, slot: 'trail' },
+  { btn: 'btnBricks',     label: 'Bricks',      from: Prizes, slot: 'bricks' },
+  { btn: 'btnBurst',      label: 'Break FX',    from: Prizes, slot: 'burst' },
+];
+const looksOwned = (look) => (look.from === Skins ? Skins.wardrobe(look.slot).length : Prizes.owned(look.slot));
+function refreshLooks() {
+  $('skinRows').style.display = Skins.available ? '' : 'none';
+  $('prizeRows').style.display = Prizes.available ? '' : 'none';
+  for (const look of LOOKS) {
+    if (!look.from.available) continue;
+    const owned = looksOwned(look), all = look.from.total(look.slot);
+    $(look.btn).textContent = `${look.label}: ${look.from.name(look.slot)}`;
+    $(look.btn).title = `You own ${owned} of ${all}`;
+    $(look.btn).classList.toggle('ghostc', look.from === Skins ? Skins.get(look.slot) !== 'default' : Prizes[look.slot] !== 'default');
+  }
+  if (Skins.available) $('skinCount').textContent = LOOKS.slice(0, 3).map((l) => `${looksOwned(l)}/${Skins.total(l.slot)}`).join(' · ');
+  if (Prizes.available) $('prizeCount').textContent = LOOKS.slice(3).map((l) => `${looksOwned(l)}/${Prizes.total(l.slot)}`).join(' · ');
+}
+for (const look of LOOKS) {
+  $(look.btn).onclick = () => {
+    AudioSys.init();
+    if (looksOwned(look) < 2) {
+      AudioSys.sfx('powerdn');
+      toast(look.label.toUpperCase(), look.from === Skins ? 'You only own the standard one. Unlock more in Glitch Pong\'s Store.' : 'You only own the standard one. PRIZETRON-80 sells more at the Glitchcade prize counter.');
+      return;
+    }
+    AudioSys.sfx('click');
+    look.from.cycle(look.slot);
+    refreshLooks();
+  };
+}
+
 function refreshSentienceBtn() {
   $('btnSentience').textContent = 'Sentient Ball: ' + (game.sentient ? 'ON' : 'OFF');
-  $('btnSentience').classList.toggle('ghostc', !game.sentient);
+  $('btnSentience').classList.toggle('ghostc', game.sentient);
 }
 $('btnSentience').onclick = () => {
   AudioSys.init(); AudioSys.sfx('click');
@@ -2034,6 +2336,13 @@ $('btnWipe').onclick = () => {
 };
 document.querySelectorAll('[data-back]').forEach(b => b.onclick = () => { AudioSys.sfx('click'); goMenu(); });
 $('btnResume').onclick = () => game.togglePause();
+$('btnSkipTut').onclick = () => { AudioSys.sfx('click'); game.endTutorial(); game.togglePause(); };
+$('btnTutorial').onclick = () => {
+  AudioSys.init(); AudioSys.sfx('click');
+  Meta.data.tutorialDone = false;
+  Meta.save();
+  toast('TUTORIAL', 'Your next Classic run starts with the guided sector.');
+};
 $('btnRestart').onclick = () => game.startRun(game.mode);
 $('btnQuit').onclick = () => goMenu();
 $('btnNext').onclick = () => game.nextLevel();
@@ -2045,6 +2354,9 @@ if (Cabinet.active) $('btnArcade').style.display = '';
 window.addEventListener('storage', (e) => {
   if (e.key === Wallet.KEY) refreshMenuStats();
   if (e.key === PaddleColor.KEY) { PaddleColor.refresh(); refreshPaddleColorBtn(); }   // changed in Glitch Pong
+  // a skin equipped in Glitch Pong's Store, or a prize bought at the counter
+  if (e.key === Skins.COSMETICS_KEY || e.key === Skins.PROGRESSION_KEY) { Skins.refresh(); refreshLooks(); }
+  if (e.key && e.key === Prizes.KEY) { Prizes.refresh(); refreshLooks(); }
 });
 $('vol').oninput = (e) => {
   AudioSys.init();
@@ -2063,6 +2375,7 @@ refreshMenuStats();
 refreshAiRewardsBtn();
 refreshPaddleColorBtn();
 refreshSentienceBtn();
+refreshLooks();
 refreshSaverBtn();
 applyFxSetting();
 
@@ -2154,7 +2467,7 @@ window.addEventListener('resize', queueScreenChange);
 window.addEventListener('orientationchange', queueScreenChange);
 window.visualViewport?.addEventListener('resize', queueScreenChange);
 applyLayout();
-document.fonts?.ready.then(() => { if (game.attract) onScreenChange(); else fitToScreen(); });   // HUD height settles once the web fonts land
+document.fonts?.ready.then(() => { Backdrop.fontsLoaded(); if (game.attract) onScreenChange(); else fitToScreen(); });   // HUD height settles once the web fonts land
 
 let lastT = performance.now();
 // How many frames a second this moment deserves. The menu, its demo and the result

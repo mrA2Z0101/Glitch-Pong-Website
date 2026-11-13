@@ -6,13 +6,9 @@ const AudioSys = (() => {
   let volume = 0.7, started = false, muted = false;
   // Stream only the current song; decoding every two-minute track would use
   // hundreds of MB on phones. Both takes alternate when a song finishes.
-  const TRACKS = {
-    sector: ['sector-zero-1', 'sector-zero-2'],
-    memory: ['ghosts-in-the-memory-1', 'ghosts-in-the-memory-2'],
-    virus: ['infection-protocol-1', 'infection-protocol-2'],
-    nexus: ['event-horizon-1', 'event-horizon-2'],
-    eye: ['do-not-blink-1', 'do-not-blink-2'],
-  };
+  // Which recordings each theme plays is in js/config.js (MUSIC).
+  const TRACKS = MUSIC;
+  const trackUrl = (file) => (file.includes('/') ? file : 'sounds/music/' + file) + '.mp3';
   const takes = {};
   const positions = {};
   const EVENT_THEMES = {
@@ -228,7 +224,7 @@ const AudioSys = (() => {
       if (position > 0 && position < musicEl.duration - 0.1) musicEl.currentTime = position;
       updateMusicFX();
     };
-    musicEl.src = `sounds/music/${file}.mp3`;
+    musicEl.src = trackUrl(file);
     playTrack();
   }
   function trackFailed() {
@@ -306,10 +302,7 @@ const AudioSys = (() => {
     if (!ctx || muted) return; // the menu's attract game stays silent
     arena = ARENAS[arenaIdx % ARENAS.length];
     arpPat = ARP_PATTERNS[arenaIdx % ARP_PATTERNS.length];
-    baseMusicKey = eyeBoss ? 'eye'
-      : ['MEMORY LEAK', 'DIGITAL CATHEDRAL'].includes(arena.name) ? 'memory'
-      : ['VIRUS HIVE', 'CORRUPTED BIOS'].includes(arena.name) ? 'virus'
-      : arena.name === 'BLACK HOLE NEXUS' ? 'nexus' : 'sector';
+    baseMusicKey = eyeBoss ? 'eye' : TRACKS[arena.music] ? arena.music : 'sector';
     musicEvent = null;
     started = true;
     changeTheme(desiredTheme());

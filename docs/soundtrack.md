@@ -14,10 +14,25 @@ reliable URLs. A `-1` file is the original take; `-2` is the take labelled `2`.
 | Neon on Wet Asphalt | Outside on the arcade street | `sounds/music/neon-on-wet-asphalt-{1,2}.mp3` |
 | PRIZETRON's Groove | Positional speakers at the jukebox and prize counter | `sounds/music/prizetrons-groove-{1,2}.mp3` |
 
+Two Breakpoint arenas borrow the music of the Glitch Pong arena they share a
+place with, from files already in `sounds/music`:
+
+| Breakpoint arena | Plays | Files |
+| --- | --- | --- |
+| NEON GRID | Glitch Pong's The Construct playlist | `sounds/music/construct_music{1..6}.mp3` |
+| AI MAINFRAME | Glitch Pong's Matrix Mainframe playlist | `sounds/music/matrix_music{1..6}.mp3` |
+
+Which theme an arena plays is its `music` entry in `breakpoint/js/config.js`,
+and the files behind each theme are in `MUSIC` in the same file. To give an
+arena a theme of its own, add the recordings, add a line to `MUSIC`, and set
+the arena's `music`.
+
 THE EYE's theme always takes priority. Other arenas and bosses use the active
 glitch's theme while an event is happening, then return to their arena music.
-Breakpoint's generic arenas are GLITCH ARENA, NEON GRID, QUANTUM
-REACTOR, AI MAINFRAME, DATA TUNNEL, INFINITE SERVER, and BROKEN SIMULATION.
+The arenas still on Sector Zero are GLITCH ARENA, QUANTUM REACTOR, DATA
+TUNNEL, INFINITE SERVER and BROKEN SIMULATION. Tracks for the last four have
+been generated in Suno (two takes each: Quantum Reactor, Data Tunnel, Infinite
+Server, Broken Simulation) but not downloaded.
 Songs continue across sectors using the same theme, and alternate takes when
 they finish. The menu's attract game stays silent. The existing volume/mute
 controls also control recorded music, while SFX and countdown voices are kept.
