@@ -322,7 +322,7 @@ body.gc-exploring #gcStart, body.gc-launching #gcStart { opacity: 0; pointer-eve
   body.gp-playing #gpRotatePrompt { display: flex; }
 }
 
-/* Breakpoint (cabinet 02) runs in a full-screen frame over the arcade */
+/* Breakpoint (cabinet 02) and Black-Hole Nexus (cabinet 03) run in a full-screen frame over the arcade */
 #gcBreakPoint {
   position: fixed; inset: 0;
   width: 100%; height: 100%;
@@ -431,6 +431,8 @@ body.gc-intro .gm-screen.on {
   box-shadow: inset 0 2px 0 rgba(196,255,222,.24), inset 0 -4px 0 rgba(0,0,0,.3), inset 0 0 0 2px #2c5344, 0 4px 0 #21402f, 0 7px 11px rgba(0,0,0,.5);
 }
 .gm-row { display: flex; gap: 8px; width: 340px; max-width: 78vw; margin-top: 2px; }
+/* three cabinets to a row: one line each */
+.gm-row .gm-btn.sm { font-size: 8px; letter-spacing: 0; white-space: nowrap; padding: 13px 4px; }
 .gm-stats {
   display: flex; gap: 18px; justify-content: center; flex-wrap: wrap;
   margin-top: 4px;
@@ -702,10 +704,11 @@ body.gc-touch .gf-pad { display: flex; }
       <div class="gm-row">
         <button id="gcMenuGP" class="gm-btn sm" type="button" disabled>Glitch Pong</button>
         <button id="gcMenuBP" class="gm-btn sm" type="button" disabled>Breakpoint</button>
+        <button id="gcMenuNX" class="gm-btn sm" type="button" disabled>Nexus</button>
       </div>
       <button id="gcMenuSaver" class="gm-btn sm gm-saver" type="button" aria-pressed="false">Battery Saver: Off</button>
       <div class="gm-stats">
-        <span>Cabinets <b id="gmCabs">2/10</b></span>
+        <span>Cabinets <b id="gmCabs">3/10</b></span>
         <span>◎ Coins <b id="gmCoins">0</b></span>
         <span>Prizes <b id="gmPrizes">0/12</b></span>
       </div>
@@ -784,10 +787,10 @@ body.gc-touch .gf-pad { display: flex; }
 <script src="glitchpong-arenas.js?v=arenas-4"></script>
 <script src="glitchpong-ai.js?v=ai-1"></script>
 <script src="glitchcade-power.js?v=power-1"></script>
-<script src="glitchpong-site.js?v=glitchcade-23"></script>
+<script src="glitchpong-site.js?v=glitchcade-24"></script>
 <!-- Private admin mode and cheat menu. Does nothing until the passphrase is entered. -->
-<script src="glitchpong-admin.js?v=admin-1"></script>
-<script type="module" src="glitchcade.js?v=glitchcade-22"></script>
+<script src="glitchpong-admin.js?v=admin-2"></script>
+<script type="module" src="glitchcade.js?v=glitchcade-23"></script>
 
 <script>
 if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {

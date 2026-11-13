@@ -37,7 +37,7 @@ protect anything that matters, because nothing here ever leaves your own browser
 |---|---|
 | **Profile** | Set level (1–50) or jump to **MAX**. Add 100 / 1,000 / 10,000 coins. **Unlock prizes**, **achievements**, **cosmetics**. **Unlock everything**: level 50, all perks, 10,000 coins, every prize, achievement and cosmetic (bought and gilded), all arcade cabinets repaired and every toy and record collected. It reloads the page. |
 | **Match** | **Heat → max**, **Spawn the Eye**, **God mode** (the left goal can't be scored on, and the Eye can't take points off the left side), score +/− for each side, **Skip round** (left scores), **Win match**, **Lose match**. |
-| **System** | **Reset progress** (asks twice; wipes progression, coins, achievements, cosmetics and the arcade floor; keeps settings and admin mode). **Disable admin mode**. |
+| **System** | **Reset progress** (asks twice; wipes progression, coins, achievements, cosmetics, the arcade floor and Black-Hole Nexus's record; keeps settings and admin mode). **Disable admin mode**. |
 
 - A running match is **frozen while the menu is open**.
 - Spawn the Eye and Skip round wait for the ball to be in play (not the 3-2-1 countdown).
