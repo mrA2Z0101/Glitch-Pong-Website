@@ -455,7 +455,7 @@ export function installFloor(ctx) {
   // ───────────────────────────────────────────────────────────────────────
   // CEILING TV CHANNELS — high scores and the longest-rally replay
   // ───────────────────────────────────────────────────────────────────────
-  const SCORE_TARGETS = { 'glitch-pong': 30, breakpoint: 8000, nexus: 12000 };
+  const SCORE_TARGETS = { 'glitch-pong': 30, breakpoint: 8000, nexus: 30000 };
 
   function recordScore(id, score) {
     const f = F();

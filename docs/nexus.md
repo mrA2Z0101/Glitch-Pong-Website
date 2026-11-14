@@ -1,12 +1,22 @@
 # Black-Hole Nexus
 
-How Black-Hole Nexus (cabinet 03, `nexus/`) is put together: the orbit, the sector rules, THE EYE, the two characters who talk, what it shares with Glitch Pong and Breakpoint, and where to change each. What was measured is at the end.
+How Black-Hole Nexus (cabinet 03, `nexus/`) is put together: the classic underneath it, the flight, the debris, the sector rules, THE EYE, the two characters who talk, what it shares with Glitch Pong and Breakpoint, and where to change each. What was measured is at the end.
 
 It began as the 30-second ROM fragment on cabinet 06. It is now a whole game on cabinet 03, next to Breakpoint, and the fragment is gone (see [glitchcade-floor.md](glitchcade-floor.md) for what happened to the cabinets and to old saves).
 
+## The classic underneath
+
+Every cabinet in the Glitchcade is a take on one arcade classic, in the Glitch Pong look. Glitch Pong is the bat-and-ball game. Breakpoint is the brick breaker. Black-Hole Nexus is the **spin-and-thrust rock shooter**:
+
+- You turn, thrust the way you are facing, and keep drifting when you let go.
+- You fire. What you hit breaks in two, and those pieces break in two again.
+- Fly off one side of the screen and you come back on the other. So does the debris.
+
+It takes the genre's mechanics and nothing else: no ship, no rocks, none of the original's art, sound or layout. What the glitch adds is a hole in the middle of the screen that pulls on everything, Heat, a rule for each sector, and THE EYE.
+
 ## The idea
 
-Every ball that got past a paddle in Glitch Pong, and every ball that fell off the bottom in Breakpoint, went somewhere. It went here: a hole in the machine's memory. In this cabinet there is no paddle. You are the ball, in orbit round the hole, and there is one control: hold to climb, let go to fall.
+Every ball that got past a paddle in Glitch Pong, and every ball that fell off the bottom in Breakpoint, went somewhere. It went here: a hole in the machine's memory. In this cabinet there is no paddle. You are the ball, and what you are shooting is what the other two cabinets threw away: Breakpoint's bricks, Glitch Pong's paddles, blocks of static.
 
 Two characters talk, and both know they are in a game:
 
@@ -19,10 +29,10 @@ Two characters talk, and both know they are in a game:
 
 | File | What is in it |
 |---|---|
-| `nexus/index.html` | The page: HUD, menus, styles (Breakpoint's design tokens and buttons) |
-| `js/rules.js` | The whole game as numbers: the orbit, what is on the rings, scoring, Heat, each sector's rule, THE EYE, the bot, the save. No page code. |
+| `nexus/index.html` | The page: HUD, menus, touch buttons, styles (Breakpoint's design tokens and buttons) |
+| `js/rules.js` | The whole game as numbers: the flight, the debris, scoring, Heat, each sector's rule, THE EYE, the bot, the save. No page code. |
 | `js/voice.js` | Every line NULL and the ball can say, and when each one is allowed. No page code. |
-| `js/game.js` | Drawing, sound triggers, menus, and the things NULL does to the page |
+| `js/game.js` | Drawing, sound triggers, controls, menus, and the things NULL does to the page |
 | `js/audio.js` | Streamed music and synthesized sound effects |
 | `js/wallet.js` | What is shared with the other cabinets: coins, the cabinet bridge, ball colour, skin and trail |
 
@@ -35,32 +45,50 @@ node scripts/nexus-sim.mjs         # plays 12 runs with the bot and prints what 
 
 The game is ES modules, so it has to be served (`python -m http.server` from the repo root, then `/nexus/`); it does not open from a file.
 
-## The orbit
+## Controls
+
+| | Keyboard | Touch |
+|---|---|---|
+| Turn | ← → or A D | ◀ ▶, bottom left |
+| Thrust | ↑ or W | ▲, bottom right |
+| Fire | Space (hold to keep firing) | ●, bottom right |
+| Pause | P or Esc | The II button |
+
+There is no mouse control. The touch buttons can be held together.
+
+## The flight
 
 All in `TUNE` at the top of `js/rules.js`.
 
-- The ball orbits the hole. Lower orbits are faster (`W_EDGE`, `W_EXP`).
-- Holding the button pushes it outward (`THRUST`). Letting go lets the hole pull it in (`G0`, stronger near the hole by `G_K`). The button always beats the pull, even at the horizon while the hole is breathing in; a test checks that.
-- The outer limit is the edge of the screen (`R_OUT`). The ball can sit against it safely, but nothing can be collected from there and Heat drains.
-- The inner limit is the horizon (`R_HOLE`, wider with Heat and in MEMORY LEAK). Past it the ball is lost.
-- You have three balls. A new one starts in a high orbit and cannot be hurt for 2.2 seconds.
+- **Turning** is 4.2 radians a second (`TURN`): a half turn takes three quarters of a second.
+- **Thrust** pushes the ball the way it is facing (`THRUST`). It keeps drifting afterwards and slows gradually (`DRAG`). Top speed is 320 pixels a second.
+- **The hole pulls** on the ball all the time: gently at the edge of the screen (`G0`), four and a half times harder at the horizon (`G_K`). Thrust always beats it, even at the horizon while the hole is breathing in; a test checks that.
+- **The edge of the screen wraps** (`R_OUT`). The field is round, so going off one side puts you on the opposite side, moving the same way.
+- **The horizon** (`R_HOLE`, wider with Heat and in MEMORY LEAK) is the inner limit. Past it the ball is lost.
+- You have three balls. Each one starts high up in a slow orbit, which drag wears down in a few seconds, and cannot be hurt for its first 2.2 seconds.
 
-What is in orbit with you:
+**Shots** leave at 520 pixels a second and last 0.62 seconds, so they reach a little more than the radius of the field. Holding fire sends one every 0.24 seconds, with four on screen at most. They stop at the edge of the screen and the hole bends them slightly.
 
-| Thing | What it does |
-|---|---|
-| **Bit** (white square) | Collect to fill the sector's quota (12 in sector 1, two more each sector, 28 at most). Worth 10, times the band. |
-| **Core** (gold diamond) | Only near the hole. Worth 50 and counts as two bits. |
-| **Debris** | Bricks from Breakpoint, broken paddles from Glitch Pong, blocks of static. Touch one and the ball is gone. Passing within 13 pixels without touching scores 25 and adds Heat. |
-| **Power-up** (hexagon) | FIREWALL takes one hit. MAGNET pulls bits within 100 pixels for 8 seconds. TIME FREEZE stops everything but the ball for 4 seconds. From sector 2. |
+## The debris
 
-Everything spirals slowly inward and the hole eats it. New things flicker for half a second to a second before they can be touched.
+| Size | Radius | Worth | When shot |
+|---|---|---|---|
+| Big | 29 | 10 | Breaks into two medium pieces |
+| Medium | 18 | 20 | Breaks into two small pieces |
+| Small | 10 | 40 | Gone |
 
-**Bands.** A bit is worth x1 outside radius 210, x2 inside it and x3 inside radius 130. The two lines are drawn on the field.
+So one big piece is seven pieces all told. A sector is cleared by breaking its quota of pieces (`quota`): 35 in sector 1, seven more each sector, 91 at most.
 
-**Rally.** Each bit within 4 seconds of the last adds 5%, up to double at 20.
+- A big piece comes in over the edge of the screen, away from the ball, flickering for a second before it can be touched or shot. More arrive until the quota is met (`debrisTarget`). Debris gets 6% faster each sector, up to 1.9 times.
+- Touch a piece and the ball is gone. Passing within 13 pixels without touching scores 25 and adds Heat.
+- The hole pulls on debris a little and eats what reaches it. What it eats does not count toward the quota.
+- **Power-ups** drop from small pieces 8% of the time, from sector 2, one on screen at a time, for 10 seconds. FIREWALL takes one hit. SPREAD SHOT fires three at once for 8 seconds. TIME FREEZE stops the debris and THE EYE for 4 seconds.
 
-**Heat** multiplies everything, on the same steps as Breakpoint's Glitch meter: x1.5 from 25%, x2 from 50%, x3 from 75%. It rises with bits and with time spent in the lower bands, and falls at the edge of the screen and by 30 when a ball is lost. It also widens the horizon by up to 12 pixels and adds debris. From 40% the hole breathes in every 15 to 21 seconds: 1.2 seconds of warning, then 3 seconds of a 35% stronger pull. At 80% (Critical) NULL takes the last four digits off the score readout and throws them in as debris.
+## Scoring
+
+- **Depth.** A kill is worth x1 if the ball is outside radius 210 when it makes it, x2 inside that and x3 inside radius 130. The two lines are drawn on the field. It is where the ball is that counts, not the piece.
+- **Rally.** Each kill within 3 seconds of the last adds 5%, up to double at 20.
+- **Heat** multiplies everything, on the same steps as Breakpoint's Glitch meter: x1.5 from 25%, x2 from 50%, x3 from 75%. It rises with kills and with time spent in the lower bands, and falls by 30 when a ball is lost. It also widens the horizon by up to 12 pixels and adds debris. From 40% the hole breathes in every 15 to 21 seconds: 1.2 seconds of warning, then 3 seconds of a pull 1.9 times as strong. At 80% (Critical) NULL takes the last four digits off the score readout and throws them at the ball as small pieces, which can be shot like any other.
 
 ## Sector rules
 
@@ -69,23 +97,24 @@ Every fifth sector is THE EYE. The others take these in turn, coming round again
 | Sector | Rule | What it does |
 |---|---|---|
 | 1 | STANDARD | No tricks. |
-| 2 | MEMORY LEAK | Every bit the hole eats widens it by 4 pixels, up to 48. |
-| 3 | KERNEL PANIC | The field is dark. The ball lights a circle round itself, and collecting a bit lights the whole field for 0.4 seconds. |
-| 4 | LAG SPIKE | Every 5 to 8 seconds, after a second of warning, the ball snaps back to where it was 0.6 seconds ago. The warning shows where. |
+| 2 | MEMORY LEAK | Every piece the hole eats widens it by 3 pixels, up to 36. Every piece you break narrows it by 1. |
+| 3 | KERNEL PANIC | The field is dark. The ball lights a circle round itself, each shot carries a small light, and a hit lights the whole field for 0.4 seconds. |
+| 4 | LAG SPIKE | Every 5 to 8 seconds, after a second of warning, the ball snaps back to where it was 0.6 seconds ago, with the speed it had then. The warning shows where. |
 | 5 | THE EYE | See below. |
-| 6 | QUANTUM SHIFT | Every 6 to 10 seconds, after 1.2 seconds of warning, the ball jumps to the far side of the hole at the same height. The warning shows where. |
-| 7 | OVERCLOCK | Everything orbits 35% faster and a bit is worth half again. |
+| 6 | QUANTUM SHIFT | Every 6 to 8 seconds, after 1.2 seconds of warning, every piece of debris jumps to the far side of the hole. The warning shows where each will land. A piece that would land on the ball stays where it is. |
+| 7 | OVERCLOCK | The debris drifts 35% faster and a kill is worth half again. |
 
 KERNEL PANIC is drawing only: the rules do not know the lights are off.
 
 ## THE EYE
 
-The Eye opens in the hole and there are no bits. `eyeSpec()` has the numbers for each visit.
+The Eye opens in the hole. There is no quota: the sector ends when the Eye is shut for good. `eyeSpec()` has the numbers for each visit.
 
-- **Its gaze** is a bar of light from the hole to the edge of the screen, turning against the ball, with a gap in it. The gap moves in and out. Be at the gap's height when the bar passes. Anywhere else, it takes a ball.
+- **Its gaze** is a bar of light from the hole to the edge of the screen, turning round, with a gap in it. The gap moves in and out. Be at the gap's height when the bar passes. Anywhere else, it takes a ball.
 - **It blinks.** After a 0.7 second warning it shuts for 1.6 seconds. While it is shut it is not looking, so the bar is off.
-- **Charges** (pink rings) appear one at a time. Collect one while the Eye is open and the ball fires it back: one hit, and the Eye is stunned for 1.5 seconds. Collect one while it is shut and it is wasted.
-- It has 4 hits the first time, one more each visit, 8 at most. The gap is narrower each visit, and the second Eye's bar turns faster than the first's. From the third Eye (sector 15) there are two bars, opposite each other, turning a little slower.
+- **Shoot it.** A shot that reaches the hole while the Eye is open is a hit. While it is shut the shot is wasted. It takes 48 hits the first time, 12 more each visit, 96 at most.
+- The gap is narrower and the bar turns faster each visit. From the third Eye (sector 15) there are two bars, opposite each other, turning a little slower.
+- Debris keeps arriving, less of it than in an ordinary sector.
 
 Beating it pays 10 coins and 2,000 points.
 
@@ -109,11 +138,12 @@ NULL's lines are typed out on the line under the field, over the game and over e
 | The hour | The clock |
 | That you looked at another tab, and for how long | `visibilitychange` |
 | That you paused, and that you are still paused 25 seconds later | The pause screen |
+| That you have stopped firing for 9 seconds, or have just flown off the edge of the screen | The run |
 
 **What it does to the page:**
 
 - **Plays the attract mode.** The run behind the menu is the bot, and NULL says it is itself pretending to be you.
-- **Takes your score.** At Critical Heat four digits leave the score readout, which shows the holes, and arrive on the field as debris. A ball lost to one is recorded as "hit by a digit of your own score".
+- **Takes your score.** At Critical Heat four digits leave the score readout, which shows the holes, and fly at the ball as small pieces of debris. A ball lost to one is recorded as "hit by a digit of your own score".
 - **Relabels the ball counter.** When a ball goes past the horizon the BALLS label reads MINE +1 for two seconds.
 - **Crashes, but not really.** At the start of sector 3, the first time, the screen is replaced by a fatal error for 3.6 seconds, and halfway through NULL admits it. After that it has a 6% chance at the start of each later sector, at most once a run.
 - **Argues with the exit button.** In the cabinet, EXIT TO ARCADE reads something else for under half a second when the pointer reaches it.
@@ -121,10 +151,10 @@ NULL's lines are typed out on the line under the field, over the game and over e
 
 **What it is not allowed to do.** These are what keep it fair:
 
-- It never moves the ball, holds the button, or moves a button you are about to press.
+- It never moves the ball, presses a control, or moves a button you are about to press.
 - The crash happens during a countdown and the clock is stopped for all of it, so nothing can be lost to it.
 - The exit button always exits.
-- The stolen digits are ordinary debris: they take 1.2 seconds to become solid and can be dodged.
+- The stolen digits are ordinary small debris: they take 1.2 seconds to become solid, and can be dodged or shot.
 
 **Switches** (Settings): *NULL: Silent* stops the terminal line and everything in the second list except the attract mode and the stolen digits, which are part of the rules. *Screen FX: Reduced* stops the shake, the tearing, the crash and the exit button's flicker.
 
@@ -134,9 +164,9 @@ Four of Breakpoint's moods, with the same names:
 
 | Mood | What it does |
 |---|---|
-| **LOYAL** | On your last ball it refuses the horizon and throws itself back out, once a sector. This one changes the rules; *Ball moods: Off* removes it. |
-| **SHOW-OFF** | Six bits in a rally: a longer, brighter trail. |
-| **GRUDGE** | Against THE EYE: a charge it picks up is fired straight back. |
+| **LOYAL** | On your last ball it refuses the horizon and throws itself back out, once a sector. *Ball moods: Off* removes it. |
+| **SHOW-OFF** | Six kills in a rally: a longer, brighter trail. |
+| **GRUDGE** | Against THE EYE its shots bend toward the hole five times as hard, so a shot that would have gone wide still lands. *Ball moods: Off* removes this too. |
 | **MOURNING** | After a lost ball the next one is dim for 3.5 seconds while the lost ball's last path fades out. |
 
 Its lines appear next to it in small lower-case letters. *Ball moods: Off* silences them.
@@ -149,6 +179,7 @@ Add it to the event's list in `NULL_LINES` or `BALL_LINES`. NULL's lines are upp
 
 | | Glitch Pong | Breakpoint | Black-Hole Nexus |
 |---|---|---|---|
+| The classic underneath | Bat and ball | Brick breaker | Spin-and-thrust rock shooter |
 | The risk meter | Heat | Glitch meter | Heat, on the Glitch meter's steps |
 | The sentient ball | Jukes, grudges | Nine moods | Four of those moods, and it speaks |
 | THE EYE | Arrives at full Heat | Every tenth sector | Every fifth sector, in the hole |
@@ -160,7 +191,7 @@ Add it to the event's list in `NULL_LINES` or `BALL_LINES`. NULL's lines are upp
 | Ball colour, skin, trail | Chosen in the Store | Worn | Worn |
 | The look | | The same tokens, fonts and buttons | The same again |
 
-The debris is drawn from the other games: bricks in Breakpoint's colours, paddles in Glitch Pong's blue and red.
+The debris is drawn from the other games: chunks of wall in Breakpoint's brick colours, paddles in Glitch Pong's blue and red.
 
 Everything shared goes through `localStorage`, so the three games must be served from the same site.
 
@@ -181,45 +212,49 @@ Two of the daily challenges ask for coins earned here. The cabinet counts the co
 
 ## What was measured
 
-`node scripts/nexus-sim.mjs` plays full runs with the bot that also plays the attract mode. The bot sees only what a player sees and answers with the one button, but it is steadier than a person and it never panics, so these numbers say what the rules allow, not how a first run goes. No person has play-tested the difficulty yet.
+`node scripts/nexus-sim.mjs` plays full runs with the bot that also plays the attract mode. The bot sees only what a player sees and answers with the same four controls, but it aims faster and steadier than a person and it never panics, so these numbers say what the rules allow, not how a first run goes. **No person has play-tested this yet**, and a turn-and-thrust game is much harder for a person than for a bot.
 
-Twenty runs each:
+Twenty runs each. The second bot looks only a short way ahead for danger (skill 0.2); it did about as well as the first, so looking ahead is not what limits the bot.
 
-| | Bot at full skill | Bot that looks a short way ahead (skill 0.2) |
+| | Bot at full skill | Bot at skill 0.2 |
 |---|---|---|
-| Sector reached (median) | 15 | 10 |
-| Sector reached (least to most) | 10 to 15 | 5 to 15 |
-| Time in play (median) | 14 minutes | 6½ minutes |
-| Coins (median) | 44 | 26 |
-| Score (median) | 72,000 | 43,000 |
-| Beat the first Eye | 20 of 20 | 19 of 20 |
-| Beat the second Eye | 17 of 20 | 9 of 20 |
-| Balls lost to debris / the gaze / its own score | 18 / 41 / 1 | 32 / 19 / 9 |
+| Sector reached (median) | 11 | 12 |
+| Sector reached (least to most) | 3 to 17 | 7 to 15 |
+| Time in play (median) | 7½ minutes | 9 minutes |
+| Coins (median) | 36 | 38 |
+| Score (median) | 204,000 | 248,000 |
+| Beat the first Eye | 19 of the 19 that reached it | 20 of 20 |
+| Beat the second Eye | 11 of 12 | 15 of 18 |
+| Beat the third Eye | 1 of 4 | 0 of 3 |
+| Balls lost to debris / the gaze / the hole / its own score | 48 / 9 / 2 / 1 | 37 / 12 / 8 / 3 |
 
-- **A sector takes the full-skill bot between 27 seconds (sector 1) and 81 seconds (sector 10, THE EYE).**
-- **Letting go of the button** loses all three balls in about 8 seconds of play and earns nothing.
-- **Holding it down forever** collects nothing in 90 seconds: no bit can be reached from the edge of the screen.
-- **Coins.** About 3 to 4 coins a minute for the bot. A person will be slower.
-- **The third Eye is a wall for the bot.** None of the 15 full-skill runs that reached sector 15 got past it. Started at sector 15 with three balls, the bot beat it in 3 runs of 20. Two bars leave it little time to fetch a charge between passes. Whether that is too hard for a person is not known.
+- **A sector takes the full-skill bot between 26 seconds (sector 1) and 55 seconds (sector 12).** THE EYE takes it 35 seconds the first time, 46 the second and 79 the third.
+- **Doing nothing** loses all three balls in about 16 seconds of play. So does holding fire without moving, and so does spinning on the spot while firing. None of them clears a sector.
+- **The third Eye** is where most long runs end. Started at sector 15 with three balls, the bot beat it in 17 runs of 20; arriving there with what was left of a run, in 1 of 7.
+- **Coins: 4 to 5 a minute for the bot. That is probably too generous.** Breakpoint's AI takes 17 minutes over a 12-sector Classic run ([breakpoint-balance.md](breakpoint-balance.md)), which at the same prices is 40 coins, or about 2½ a minute. A person will be slower than the bot here, but by how much is not known. If it turns out to pay too well, raise `quota` or lower `COINS`.
 
-Two things were changed because of what the bot did:
+Three things were changed because of what the bot did:
 
-- **The hole's breath was too strong.** At 1.7 times the normal pull, a ball inside radius 93 could not climb out even with the button held. It is 1.35 times now, and a test checks the button always wins.
-- **The second Eye had two bars.** The bot lost to it nearly every time. One bar until the third Eye; and the first two Eyes turn a little slower with a wider gap than first written.
+- **THE EYE fell in 17 seconds.** It took 18 hits. It takes 48 now.
+- **The hole was eating most of the debris before it could be shot.** In one MEMORY LEAK sector it ate 83 pieces in two minutes while the bot broke 21. The hole's pull on debris was cut from 0.3 of its pull on the ball to 0.12, debris now comes in on paths that pass wider of the hole, and in MEMORY LEAK breaking a piece narrows the hole again.
+- **Sectors were over in 20 seconds.** The quota went from 21 pieces in sector 1 to 35, and shots were limited to four on screen, one every 0.24 seconds.
 
 ## Where to change things
 
 | To change | Look at |
 |---|---|
-| How the ball handles | `TUNE` in `js/rules.js`: `THRUST`, `G0`, `G_K`, `DAMP`, `W_EDGE`, `W_EXP` |
+| How the ball handles | `TUNE` in `js/rules.js`: `TURN`, `THRUST`, `DRAG`, `MAX_SPEED`, `G0`, `G_K` |
+| The shots | `TUNE`: `SHOT_SPEED`, `SHOT_LIFE`, `SHOT_GAP`, `SHOTS` |
+| What a piece is worth, and how it breaks | `TUNE.PIECE`, `TUNE.RAD`, `breakPiece` |
 | Scoring, bands, Heat | `TUNE`, `heatMultiplier`, `bandOf`, `chainBonus` |
-| How long a sector is, how much debris | `quota`, `debrisTarget` |
+| How long a sector is, how much debris, how fast | `quota`, `debrisTarget`, `debrisSpeed` |
 | A sector rule, or a new one | `SECTOR_RULES`, and its branch in `step()`; give NULL a `rule_<id>` line |
 | THE EYE | `eyeSpec`, `gapRadius` |
 | What a sector pays | `COINS` |
 | What NULL or the ball says | `js/voice.js` |
 | What NULL does to the page | `onEvent`, `hud` and `startCrash` in `js/game.js` |
+| How the debris is drawn | `drawDebris` in `js/game.js` |
 | The music | `MUSIC` in `js/audio.js` |
 | The cabinet in the arcade | `makeNexusMarquee`, `makeNexusSideArt`, `createNexusScreen`, `buildNexusCabinet` in `glitchcade.js` |
 
-After changing a number in `js/rules.js`, run the tests and the sim: the tests fail if the bot can no longer reach THE EYE in most runs.
+After changing a number in `js/rules.js`, run the tests and the sim: the tests fail if the bot can no longer reach sector 4 in most runs.

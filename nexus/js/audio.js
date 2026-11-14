@@ -104,9 +104,12 @@ export function createAudio() {
 
   const SFX = {
     click: () => tone(520, 0.05, { vol: 0.1 }),
-    // a bit: higher the deeper you took it, and higher again as the rally builds
-    bit: (band = 1, chain = 0) => tone(420 * band * Math.pow(1.03, Math.min(chain, 20)), 0.09, { type: 'triangle', vol: 0.16, to: 640 * band }),
-    core: () => { tone(660, 0.1, { type: 'triangle', vol: 0.18 }); tone(990, 0.16, { type: 'triangle', vol: 0.16, when: 0.07 }); },
+    shot: () => tone(880, 0.07, { to: 300, vol: 0.05 }),
+    // a piece breaking: lower for the big ones, and higher as the rally builds
+    break: (size = 1, chain = 0) => {
+      noise(0.1 + size * 0.05, { freq: 2600 - size * 600, vol: 0.12 + size * 0.04 });
+      tone((520 - size * 110) * Math.pow(1.03, Math.min(chain, 20)), 0.09, { type: 'triangle', vol: 0.13, to: 300 });
+    },
     graze: () => noise(0.08, { freq: 3800, vol: 0.12 }),
     power: () => { tone(330, 0.08, { vol: 0.14 }); tone(495, 0.08, { vol: 0.14, when: 0.07 }); tone(660, 0.14, { vol: 0.14, when: 0.14 }); },
     shield: () => { noise(0.25, { freq: 900, vol: 0.25 }); tone(220, 0.25, { to: 90, vol: 0.18 }); },
@@ -119,6 +122,7 @@ export function createAudio() {
     theft: () => { for (let i = 0; i < 4; i++) tone(1200 - i * 180, 0.07, { vol: 0.12, when: i * 0.06 }); },
     clear: () => { [392, 523, 659, 784].forEach((f, i) => tone(f, 0.16, { type: 'triangle', vol: 0.18, when: i * 0.09 })); },
     eyeHit: () => { noise(0.3, { freq: 1500, vol: 0.3 }); tone(140, 0.35, { to: 60, type: 'sawtooth', vol: 0.25 }); },
+    eyeTick: () => tone(190, 0.06, { to: 90, type: 'sawtooth', vol: 0.1 }),
     deflect: () => tone(1400, 0.12, { to: 2200, vol: 0.12 }),
     blink: () => tone(110, 0.2, { type: 'sine', vol: 0.2 }),
     over: () => { [392, 330, 262, 196].forEach((f, i) => tone(f, 0.3, { type: 'sawtooth', vol: 0.16, when: i * 0.22 })); },

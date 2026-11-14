@@ -34,8 +34,9 @@ const C = {
 
 // The games planned for cabinets 04–10, glitched takes on arcade classics.
 // Still compiling: their marquees, side art and prompts carry the names.
-// (Cabinet 03 is Black-Hole Nexus, finished. Its old 30-second fragment ran
-// on cabinet 06, which SIGNAL LOST now has.)
+// Cabinet 03 is Black-Hole Nexus, finished: its classic is the spin-and-thrust
+// rock shooter. Its old 30-second fragment ran on cabinet 06, which SIGNAL
+// LOST now has. Every cabinet is a take on one classic, in this look.
 const COMING_SOON_GAMES = {
   4: 'FIREWALL',             // invaders
   5: 'DEFRAG',               // falling blocks
@@ -1123,7 +1124,8 @@ function createBreakPointScreen(opts = {}) {
 }
 
 // ── Black-Hole Nexus (cabinet 03): marquee, side art and an attract-mode screen ──
-// The hole in the machine's memory where the other two cabinets' lost balls go.
+// A glitched spin-and-thrust rock shooter, set in the hole in the machine's
+// memory where the other two cabinets' lost balls go.
 function drawNexusHole(ctx, x, y, r, t = 0) {
   const g = ctx.createRadialGradient(x, y, r * 0.7, x, y, r * 2.6);
   g.addColorStop(0, 'rgba(0,0,0,1)');
@@ -1244,8 +1246,9 @@ function makeNexusSideArt() {
   return canvasTexture(cv);
 }
 
-// Black-Hole Nexus attract mode: a ball in orbit with no paddle anywhere, and
-// the hole talking to whoever is standing at the cabinet.
+// Black-Hole Nexus attract mode: a ball with no paddle anywhere, shooting what
+// the other cabinets threw away, and the hole talking to whoever is standing
+// at the cabinet.
 const NEXUS_ATTRACT_LINES = [
   'I CAN SEE YOU FROM HERE.',
   'YOU ARE STANDING VERY CLOSE.',
@@ -1259,26 +1262,51 @@ function createNexusScreen(opts = {}) {
   const ctx = cv.getContext('2d');
   const tex = canvasTexture(cv);
   const cx = W / 2, cy = H / 2 + 6, RH = 20, RO = 118;
-  const s = { t: opts.t0 || 0, th: 0, r: 80, score: 0, burst: 0, glitchFor: 0, trail: [], bits: [], junk: [] };
+  const s = { t: opts.t0 || 0, th: 0, r: 84, a: 0, cool: 0, score: 0, burst: 0, glitchFor: 0, trail: [], shots: [], junk: [] };
   const promptText = isTouch ? 'TAP  USE  TO  PLAY' : 'PRESS  E  TO  PLAY';
-  for (let i = 0; i < 5; i++) s.bits.push({ th: i * 1.3, r: 46 + (i * 23) % 64 });
-  for (let i = 0; i < 4; i++) s.junk.push({ th: i * 1.7 + 0.6, r: 52 + i * 19, w: (i % 2 ? -0.5 : 0.35), c: i * 2 });
+  const SIZE = [0, 5, 9, 14];             // how big a piece of each size is on this little screen
+  function addJunk(size, x, y, vx, vy, c) { s.junk.push({ size, x, y, vx, vy, c, rot: Math.random() * 6 }); }
+  function addBig() {
+    const th = s.th + 1.4 + Math.random() * 3.4;
+    addJunk(3, Math.cos(th) * RO, Math.sin(th) * RO, -Math.cos(th + 0.6) * 14, -Math.sin(th + 0.6) * 14, Math.floor(Math.random() * 8));
+  }
+  addBig(); addBig();
 
+  // A small stand-in for the game: the ball circles, turns to face the nearest
+  // piece and fires; what it hits breaks in two, as in the game itself.
   function step(dt) {
-    // it steers for the nearest bit, like the bot inside the game does
-    const want = s.bits.reduce((a, b) => (Math.abs(a.r - s.r) < Math.abs(b.r - s.r) ? a : b)).r;
-    s.r += Math.max(-46 * dt, Math.min(46 * dt, want - s.r));
-    s.th += 0.9 * Math.pow(RO / s.r, 1.2) * dt;
-    const x = cx + Math.cos(s.th) * s.r, y = cy + Math.sin(s.th) * s.r;
-    for (const b of s.bits) {
-      b.th += 0.2 * dt;
-      if (Math.hypot(cx + Math.cos(b.th) * b.r - x, cy + Math.sin(b.th) * b.r - y) < 9) {
-        s.score += b.r < 60 ? 30 : b.r < 90 ? 20 : 10;
-        b.th = s.th + 1.5 + Math.random() * 3; b.r = 40 + Math.random() * 70;
-      }
+    s.th += 0.5 * dt;
+    s.r = 84 + Math.sin(s.t * 0.7) * 16;
+    const x = Math.cos(s.th) * s.r, y = Math.sin(s.th) * s.r;
+    let near = null, nd = Infinity;
+    for (const j of s.junk) {
+      j.x += j.vx * dt; j.y += j.vy * dt; j.rot += dt * 0.8;
+      if (Math.hypot(j.x, j.y) > RO && j.x * j.vx + j.y * j.vy > 0) { j.x = -j.x; j.y = -j.y; }   // off one side, back on the other
+      const d = Math.hypot(j.x - x, j.y - y);
+      if (d < nd) { nd = d; near = j; }
     }
-    for (const j of s.junk) j.th += j.w * dt;
-    s.trail.push({ x, y });
+    if (near) {
+      let turn = Math.atan2(near.y - y, near.x - x) - s.a;
+      turn = Math.atan2(Math.sin(turn), Math.cos(turn));
+      s.a += Math.max(-4 * dt, Math.min(4 * dt, turn));
+      s.cool -= dt;
+      if (s.cool <= 0 && Math.abs(turn) < 0.2) { s.cool = 0.32; s.shots.push({ x, y, vx: Math.cos(s.a) * 190, vy: Math.sin(s.a) * 190, life: 0.6 }); }
+    }
+    for (let i = s.shots.length - 1; i >= 0; i--) {
+      const sh = s.shots[i];
+      sh.x += sh.vx * dt; sh.y += sh.vy * dt; sh.life -= dt;
+      const hit = s.junk.find((j) => Math.hypot(j.x - sh.x, j.y - sh.y) < SIZE[j.size] + 2);
+      if (hit) {
+        s.junk.splice(s.junk.indexOf(hit), 1);
+        s.score += [0, 40, 20, 10][hit.size];
+        if (hit.size > 1) {
+          for (const side of [-1, 1]) addJunk(hit.size - 1, hit.x, hit.y, hit.vx - (sh.vy / 190) * side * 18, hit.vy + (sh.vx / 190) * side * 18, hit.c + (side > 0 ? 1 : 0));
+        }
+      }
+      if (hit || sh.life <= 0) s.shots.splice(i, 1);
+    }
+    if (s.junk.reduce((n, j) => n + j.size, 0) < 5) addBig();
+    s.trail.push({ x: cx + x, y: cy + y });
     if (s.trail.length > 12) s.trail.shift();
   }
 
@@ -1304,15 +1332,22 @@ function createNexusScreen(opts = {}) {
       [50, 84, RO].forEach((r) => { ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke(); });
       drawNexusHole(ctx, cx, cy, RH, s.t);
       for (const j of s.junk) {
+        // a chunk of brick wall, then a couple of bricks, then one
+        const z = SIZE[j.size];
         ctx.save();
-        ctx.translate(cx + Math.cos(j.th) * j.r, cy + Math.sin(j.th) * j.r);
-        ctx.rotate(j.th + Math.PI / 2);
+        ctx.translate(cx + j.x, cy + j.y);
+        ctx.rotate(j.rot);
         ctx.fillStyle = BP_BRICKS[j.c % BP_BRICKS.length];
-        ctx.fillRect(-9, -4, 18, 8);
+        ctx.fillRect(-z, -z * 0.55, z * 2, z * 0.5);
+        ctx.fillStyle = BP_BRICKS[(j.c + 1) % BP_BRICKS.length];
+        if (j.size > 1) ctx.fillRect(-z * 0.7, z * 0.05, z * 1.9, z * 0.5);
         ctx.restore();
       }
-      ctx.fillStyle = '#eaffff';
-      for (const b of s.bits) ctx.fillRect(cx + Math.cos(b.th) * b.r - 3, cy + Math.sin(b.th) * b.r - 3, 6, 6);
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (const sh of s.shots) { ctx.moveTo(cx + sh.x, cy + sh.y); ctx.lineTo(cx + sh.x - sh.vx * 0.03, cy + sh.y - sh.vy * 0.03); }
+      ctx.stroke();
       s.trail.forEach((p, i) => {
         const a = i / s.trail.length;
         ctx.fillStyle = `rgba(113,239,255,${a * 0.45})`;
@@ -1323,7 +1358,9 @@ function createNexusScreen(opts = {}) {
       ctx.shadowColor = C.cyan;
       ctx.shadowBlur = 14;
       ctx.fillStyle = '#ffffff';
-      ctx.fillRect(cx + Math.cos(s.th) * s.r - 5, cy + Math.sin(s.th) * s.r - 5, 10, 10);
+      const bx = cx + Math.cos(s.th) * s.r, by = cy + Math.sin(s.th) * s.r;
+      ctx.fillRect(bx - 5, by - 5, 10, 10);
+      ctx.fillRect(bx + Math.cos(s.a) * 10 - 1.5, by + Math.sin(s.a) * 10 - 1.5, 3, 3);    // which way it is facing
       ctx.restore();
       ctx.font = '26px VT323, monospace';
       ctx.textAlign = 'left';

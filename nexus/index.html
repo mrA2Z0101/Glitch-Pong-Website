@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Black-Hole Nexus">
-<title>BLACK-HOLE NEXUS — It Knows You Are Holding The Button</title>
+<title>BLACK-HOLE NEXUS — It Knows Who Is Pressing The Buttons</title>
 <meta name="theme-color" content="#03040a">
 <link rel="icon" type="image/png" sizes="128x128" href="../icons/icon128.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -227,6 +227,22 @@ input[type=range]{accent-color:var(--cyan);width:100%}
   font-family:'VT323',monospace;font-size:20px;letter-spacing:0;color:var(--cyan);
   outline:1.5px solid rgba(113,239,255,.35);background:rgba(8,12,28,.6);display:none}
 #btnPauseHud.on{display:block}
+/* touch: four round buttons in the corners of the field, outside the well */
+#pad{display:none}
+body.touch.playing #pad{display:block}
+#pad button{position:absolute;bottom:14px;z-index:9;width:104px;height:104px;padding:0;border-radius:50%;
+  font-family:'Orbitron',monospace;font-size:34px;font-weight:900;line-height:1;color:var(--cyan);
+  background:rgba(6,10,22,.62);outline:2px solid rgba(113,239,255,.35);touch-action:none}
+#pad button.held{background:rgba(113,239,255,.22);outline-color:var(--cyan);box-shadow:0 0 22px rgba(113,239,255,.5)}
+#pad .pl{left:14px}
+#pad .pl2{left:128px}
+#pad .pr{right:14px;color:var(--pink);outline-color:rgba(255,88,217,.4)}
+#pad .pr2{right:128px;color:var(--amber);outline-color:rgba(255,210,122,.4)}
+/* in a wide field the turn buttons stack so they stay clear of the well */
+body.touch:not(.portrait) #pad .pl2{left:14px;bottom:128px}
+body.touch:not(.portrait) #pad .pr2{right:14px;bottom:128px}
+body.touch:not(.portrait) #nullLine{max-width:66%}
+body.touch.portrait #nullLine{bottom:128px}
 /* touch screens show the cabinet scaled down, so the small print is set larger */
 body.touch .hlab{font-size:13px;letter-spacing:2px;opacity:.9}
 body.touch .hval{font-size:32px}
@@ -262,7 +278,7 @@ body.reduced-fx .px-title{animation:none}
     </div>
     <div id="hSector">SECTOR <span id="vSector">01</span><b id="vRule">STANDARD</b></div>
     <div class="grp r">
-      <div id="hBits"><span class="hlab">Salvage</span><span class="hval" id="vBits">0/12</span></div>
+      <div id="hBits"><span class="hlab">Salvage</span><span class="hval" id="vBits">0/35</span></div>
       <div id="hLives"><span class="hlab" id="lBalls">Balls</span><span class="hval" id="vBalls">●●●</span></div>
     </div>
   </div>
@@ -272,6 +288,14 @@ body.reduced-fx .px-title{animation:none}
     <div id="vig"></div>
     <div id="bossBar"><div id="bossName">THE EYE</div><div id="bossHp"><div id="bossHpFill"></div></div></div>
     <button id="btnPauseHud" type="button" aria-label="Pause">II</button>
+
+    <!-- touch: turn on the left, thrust and fire on the right -->
+    <div id="pad">
+      <button type="button" data-k="left" class="pl" aria-label="Turn left">◀</button>
+      <button type="button" data-k="right" class="pl2" aria-label="Turn right">▶</button>
+      <button type="button" data-k="thrust" class="pr2" aria-label="Thrust">▲</button>
+      <button type="button" data-k="fire" class="pr" aria-label="Fire">●</button>
+    </div>
 
     <!-- NULL talks here, over the game and over every menu -->
     <div id="nullLine" aria-live="polite"><b>NULL&gt;</b><span id="nullText"></span><i></i></div>
@@ -284,7 +308,7 @@ body.reduced-fx .px-title{animation:none}
     </div>
 
     <div id="scrMenu" class="screen on">
-      <p class="px-sub">Cabinet 03 // it knows you are holding the button</p>
+      <p class="px-sub">Cabinet 03 // it knows who is pressing the buttons</p>
       <h1 class="px-title">BLACK-HOLE<br>NEXUS</h1>
       <button id="btnPlay" class="px-btn" type="button">Play</button>
       <button id="btnSettings" class="px-btn red" type="button">Settings</button>
@@ -304,16 +328,19 @@ body.reduced-fx .px-title{animation:none}
       <p class="eyebrow">Cabinet 03</p>
       <h2 class="st">HOW TO PLAY</h2>
       <div class="klist">
-        <div><b id="howKey">SPACE / CLICK</b>Hold to climb. Let go to fall. That is the only control.</div>
-        <div><b>P / ESC</b>Pause.</div>
-        <p>There is no paddle. <em>You are the ball</em>, in orbit round a hole in the machine's memory.
-           Collect the white <em>bits</em> to salvage the sector. Lower orbits are faster and worth more:
-           x2 in the middle band, x3 next to the hole.</p>
-        <p>Everything else in orbit is what the other two cabinets threw away. Touch it and the ball is gone.
-           Fall past the horizon and the ball is gone. Passing close scores, and raises <em>Heat</em>.</p>
-        <p><em>Heat</em> multiplies your score up to x3. It also widens the hole, brings more junk, and gets you noticed.</p>
+        <div><b>◀ ▶ &nbsp;/&nbsp; A D</b>Turn.</div>
+        <div><b>▲ &nbsp;/&nbsp; W</b>Thrust the way you are facing. The ball keeps drifting when you let go.</div>
+        <div><b>SPACE</b>Fire. Hold it to keep firing.</div>
+        <div><b>P / ESC</b>Pause. On a phone the four buttons are in the corners.</div>
+        <p>There is no paddle. <em>You are the ball</em>, and the hole in the middle of the screen is pulling on you.
+           Shoot the debris: a big piece breaks into two smaller ones, and those break again.
+           Break enough pieces and the sector is salvaged.</p>
+        <p>Touch a piece and the ball is gone. Fall past the horizon and the ball is gone.
+           Fly off the edge of the screen and you come back on the far side. So does the debris.</p>
+        <p>A hit is worth more the closer <em>you</em> are to the hole when you make it: x2 inside the first ring, x3 inside the second.
+           <em>Heat</em> multiplies your score up to x3. It also widens the hole and brings more debris.</p>
         <p>Each sector has one rule. Every fifth sector, <em>THE EYE</em> looks through the hole:
-           thread the gap in its gaze, and take the pink charges while it is open.</p>
+           thread the gap in its gaze, and shoot it while it is open.</p>
         <p>A sector pays <em>2 coins</em> at the prize counter. THE EYE pays <em>10</em>.</p>
       </div>
       <button class="small back" type="button">Back</button>
