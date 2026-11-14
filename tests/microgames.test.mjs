@@ -20,11 +20,6 @@ const PILOTS = {
     const p = s.piece;
     return { pl: p.kind < p.col, pr: p.kind > p.col, down: p.kind === p.col };
   },
-  'black-hole-nexus'(s) {
-    if (!s.stars.length) return {};
-    const star = s.stars.reduce((a, b) => (Math.abs(a.r - s.r) < Math.abs(b.r - s.r) ? a : b));
-    return { up: star.r > s.r + 2, down: star.r < s.r - 2 };
-  },
   // human pace: lines the pointer up, then needs a beat before the next press
   'stack-overflow'(s, g) {
     if (Math.floor(s.ptr) !== s.mark || g.t - (s.botLast || -9) < 0.75) return {};

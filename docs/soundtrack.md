@@ -85,6 +85,21 @@ scene directly, while later movement retains the normal zone fades.
 Music uses streamed media elements routed through Web Audio instead of decoding
 the entire soundtrack into memory. No build step or extra dependency is needed.
 
+## Black-Hole Nexus (cabinet 03)
+
+Black-Hole Nexus has no recordings of its own. It streams files the other two
+cabinets already ship, one at a time, from where they are:
+
+| Plays | When | Files |
+| --- | --- | --- |
+| Glitch Pong's Black-Hole Nexus playlist and Breakpoint's Event Horizon, in turn | Menus and every ordinary sector | `sounds/music/blackhole_nebula{1..5}.mp3`, `breakpoint/sounds/music/event-horizon-{1,2}.mp3` |
+| DO NOT BLINK | THE EYE's sectors | `breakpoint/sounds/music/do-not-blink-{1,2}.mp3` |
+
+The list is `MUSIC` in `nexus/js/audio.js`. The recording slows and dulls while
+the hole breathes in or time is frozen, and runs a little fast at Critical
+Heat. The countdown voice is Glitch Pong's (`sounds/sfx/{3,2,1,GO}.mp3`). Sound
+effects are synthesized.
+
 ## Glitch Pong arena tracks
 
 Glitch Arena plays the four `in_game_music` tracks. Matrix Mainframe, The

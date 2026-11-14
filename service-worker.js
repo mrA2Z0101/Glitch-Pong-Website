@@ -1,5 +1,5 @@
-const SHELL_CACHE = "glitch-pong-shell-v51";
-const RUNTIME_CACHE = "glitch-pong-runtime-v51";
+const SHELL_CACHE = "glitch-pong-shell-v52";
+const RUNTIME_CACHE = "glitch-pong-runtime-v52";
 
 const SHELL_FILES = [
   "./",
@@ -7,16 +7,16 @@ const SHELL_FILES = [
   "./glitch-pong.html",
   "./styles.css",
   "./glitchpong-site.js",
-  "./glitchcade.js?v=glitchcade-22",
+  "./glitchcade.js?v=glitchcade-23",
   "./glitchcade-power.js?v=power-1",
   "./glitchcade-audio.js?v=glitchcade-10",
-  "./glitchcade-floor.js?v=floor-4",
-  "./glitchcade-state.js?v=floor-1",
-  "./glitchcade-microgames.js?v=floor-1",
-  "./glitchpong-site.js?v=glitchcade-23",
+  "./glitchcade-floor.js?v=floor-5",
+  "./glitchcade-state.js?v=floor-2",
+  "./glitchcade-microgames.js?v=floor-2",
+  "./glitchpong-site.js?v=glitchcade-24",
   "./glitchpong-arenas.js?v=arenas-4",
   "./glitchpong-ai.js?v=ai-1",
-  "./glitchpong-admin.js?v=admin-1",
+  "./glitchpong-admin.js?v=admin-2",
   "./glitchpong-p2p.js?v=p2p-3",
   "./glitchpong-cosmetics.js?v=cosmetics-4",
   "./glitchcade-breakpoint-prizes.js?v=bp-prizes-1",

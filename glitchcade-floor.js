@@ -1,7 +1,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // GLITCHCADE FLOOR — everything on the arcade floor that isn't a finished game
 //
-//   · repairing cabinets 03–10 and their 30-second ROM fragments
+//   · repairing cabinets 04–10 and their 30-second ROM fragments
 //   · THE EYE taking over the ceiling TVs, with building-wide glitch events
 //   · prizes that do something (the ball, the heat gauge, the golden marquee)
 //   · the daily challenge board, high scores and rally replays on the TVs
@@ -19,8 +19,8 @@ import {
   GAUNTLET_REWARD,
   createFloorStore, repairCost, fragmentPayout, cappedPayout, insertScore, scoreBoard, onlineCount,
   dailyChallenge, dailyProgress, statSnapshot, capsuleOfDay, todayStr, hashStr, mulberry32, cleanInitials
-} from './glitchcade-state.js?v=floor-1';
-import { createFragmentPlayer } from './glitchcade-microgames.js?v=floor-1';
+} from './glitchcade-state.js?v=floor-2';
+import { createFragmentPlayer } from './glitchcade-microgames.js?v=floor-2';
 
 export function installFloor(ctx) {
   const {
@@ -42,7 +42,11 @@ export function installFloor(ctx) {
     try { if (typeof GlitchProgression !== 'undefined' && GlitchProgression.data) return GlitchProgression.data; } catch (e) {}
     try { return JSON.parse(localStorage.getItem('glitchPong_progression_v1')) || {}; } catch (e) { return {}; }
   }
-  const stats = () => statSnapshot(Wallet.get(), gpData(), F());
+  // Black-Hole Nexus's record (cabinet 03 keeps its own, see nexus/js/rules.js).
+  function nexusData() {
+    try { return JSON.parse(localStorage.getItem('glitchcade_nexus_v1')) || {}; } catch (e) { return {}; }
+  }
+  const stats = () => statSnapshot(Wallet.get(), gpData(), F(), nexusData());
   const owns = (prizeId) => Wallet.get().prizes.includes(prizeId);
   const playerName = () => F().initials || 'YOU';
 
@@ -349,7 +353,8 @@ export function installFloor(ctx) {
     return [
       ['> CABINET 01 .......... GLITCH PONG', C.green],
       ['> CABINET 02 .......... BREAKPOINT', C.green],
-      [`> CABINETS 03–10 ...... ${n ? `${n} OF 8 REPAIRED` : 'OFFLINE — REPAIR THEM'}`, n === 8 ? C.green : C.amber],
+      ['> CABINET 03 .......... BLACK-HOLE NEXUS', C.green],
+      [`> CABINETS 04–10 ...... ${n ? `${n} OF ${REPAIRABLE_SLOTS.length} REPAIRED` : 'OFFLINE — REPAIR THEM'}`, n === REPAIRABLE_SLOTS.length ? C.green : C.amber],
       [`> DAILY GLITCH ........ ${f.daily.claimed ? 'CLAIMED' : prog.done ? 'CLAIM AT THE DOOR' : 'BOARD BY THE DOOR'}`, C.cyan],
       ['> THE EYE ............. WATCHING', C.pink]
     ];
@@ -450,7 +455,7 @@ export function installFloor(ctx) {
   // ───────────────────────────────────────────────────────────────────────
   // CEILING TV CHANNELS — high scores and the longest-rally replay
   // ───────────────────────────────────────────────────────────────────────
-  const SCORE_TARGETS = { 'glitch-pong': 30, breakpoint: 8000 };
+  const SCORE_TARGETS = { 'glitch-pong': 30, breakpoint: 8000, nexus: 12000 };
 
   function recordScore(id, score) {
     const f = F();
@@ -465,7 +470,8 @@ export function installFloor(ctx) {
     const f = F();
     const pages = [
       { head: 'CABINET 01 // GLITCH PONG', sub: 'LONGEST RALLY', rows: scoreBoard(f.scores['glitch-pong'], SCORE_TARGETS['glitch-pong']) },
-      { head: 'CABINET 02 // BREAKPOINT', sub: 'HIGH SCORE', rows: scoreBoard(f.scores.breakpoint, SCORE_TARGETS.breakpoint) }
+      { head: 'CABINET 02 // BREAKPOINT', sub: 'HIGH SCORE', rows: scoreBoard(f.scores.breakpoint, SCORE_TARGETS.breakpoint) },
+      { head: 'CABINET 03 // BLACK-HOLE NEXUS', sub: 'HIGH SCORE', rows: scoreBoard(f.scores.nexus, SCORE_TARGETS.nexus) }
     ];
     deadCabs.filter(isRepaired).sort((a, b) => a.slot - b.slot).forEach((cab) => {
       const fr = FRAGMENTS[cab.slot];
@@ -1338,11 +1344,11 @@ export function installFloor(ctx) {
     else if (wins + losses >= 3 && wins === 0) out.push(`ZERO WINS IN ${wins + losses} MATCHES. I ADMIRE PERSISTENCE. THE EASY AI DOES NOT JUDGE.`);
     else if (wins + losses >= 5) out.push(`YOUR RECORD: ${wins} WINS, ${losses} LOSSES. ${wins >= losses ? 'THE MACHINES ARE CONCERNED.' : 'THE MACHINES ARE NOT YET CONCERNED.'}`);
     if (rally >= 12) out.push(`YOUR ${rally}-HIT RALLY IS ON THE CEILING TVS. I HAVE WATCHED IT ${rally >= 30 ? 'ELEVEN TIMES' : 'TWICE'}.`);
-    const n = f.repaired.length;
-    if (n < 8) {
+    const n = f.repaired.length, dark = REPAIRABLE_SLOTS.length - n;
+    if (dark > 0) {
       out.push(chipReady()
         ? 'YOU OWN AN OVERCLOCK CHIP. INSTALL IT IN A DEAD CABINET AND IT REPAIRS THE MACHINE FOR FREE.'
-        : `${8 - n} CABINET${8 - n > 1 ? 'S ARE' : ' IS'} STILL DARK. THE NEXT REPAIR COSTS ${repairCost(n)} COINS. A REPAIRED MACHINE RUNS A 30-SECOND ROM FRAGMENT THAT PAYS.`);
+        : `${dark} CABINET${dark > 1 ? 'S ARE' : ' IS'} STILL DARK. THE NEXT REPAIR COSTS ${repairCost(n)} COINS. A REPAIRED MACHINE RUNS A 30-SECOND ROM FRAGMENT THAT PAYS.`);
     }
     if (f.hockey.wins + f.hockey.losses) {
       out.push(f.hockey.wins >= f.hockey.losses
@@ -2096,6 +2102,12 @@ export function installFloor(ctx) {
     onBreakpointReport(data, cab) {
       if (data.event === 'run' && Number(data.score) > 0) recordScore('breakpoint', Math.floor(Number(data.score)));
       if (data.event === 'eye-defeated' && data.mode === 'bossrush' && cab === gauntletCab.entry) gauntletCab.eyeDefeatedInBreakpoint();
+    },
+    // Black-Hole Nexus (in its frame) reporting a finished run.
+    onNexusReport(data) {
+      if (data.event === 'run' && Number(data.score) > 0 && recordScore('nexus', Math.floor(Number(data.score)))) {
+        ctx.toast(`NEW BLACK-HOLE NEXUS HIGH SCORE ON THE BOARD: ${Math.floor(Number(data.score))}`);
+      }
     },
     // for tests and the console
     debug: {
