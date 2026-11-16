@@ -37,6 +37,7 @@ There is no mouse control.
 - **The sentient ball**, with four of Breakpoint's moods: LOYAL, SHOW-OFF, GRUDGE, MOURNING. It talks.
 - **NULL**, who talks more. It reads your save, the clock, and what you did in cabinets 01 and 02.
 - **Glitchcade coins**: 2 a sector, 10 for THE EYE, into the same wallet as the other two games.
+- **The look of the other two cabinets:** holographic glass, neon, a painted backdrop for each sector, and light that blooms.
 - **Ball colour, skin and trail** from Glitch Pong's Store. The debris is Breakpoint's bricks and Glitch Pong's paddles.
 
 How it is put together, what NULL can and cannot do, and what was measured: [docs/nexus.md](../docs/nexus.md).

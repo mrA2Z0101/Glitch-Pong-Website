@@ -13,6 +13,7 @@ import {
 import { STATIC_LINES, BALL_LINES, EXIT_FLICKER, AWAY_TITLE, pick } from './voice.js';
 import { Wallet, Save, Cabinet, Look, otherCabinets } from './wallet.js';
 import { createAudio } from './audio.js';
+import { TAU, roundRect, light, tube, glass, comet, sparks, brackets, createBloom, seeded } from './neon.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('game');
@@ -181,6 +182,8 @@ function burst(x, y, color, n, speed = 140, life = 0.6) {
     const a = Math.random() * Math.PI * 2, v = speed * (0.3 + Math.random() * 0.7);
     fx.parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: life * (0.5 + Math.random() * 0.5), max: life, color, size: 2 + Math.random() * 3 });
   }
+  // anything big enough goes off with a ring of light
+  if (n >= 10) fx.parts.push({ x, y, vx: 0, vy: 0, life: life * 0.7, max: life * 0.7, color, size: 0, ring: 12 + speed * 0.16 });
 }
 function float(x, y, text, color, size = 18) { fx.floats.push({ x, y, text, color, size, life: 0.9 }); }
 function banner(title, sub, line, dur, legend) { fx.banner = { title, sub, line, t: dur, dur, legend }; }
@@ -548,16 +551,156 @@ window.addEventListener('storage', (e) => { if (!e.key || e.key === Wallet.KEY) 
 // ═══════════════════════════════════════════════════════════════════════════
 // DRAWING
 // ═══════════════════════════════════════════════════════════════════════════
+// The picture is built the way Glitch Pong and Breakpoint build theirs: a
+// painted backdrop kept on its own sheet, glass and neon over it, and a bloom
+// pass that lets the bright things spill light. The rules are not touched.
+const still = document.createElement('canvas');
+const bloom = createBloom();
+let stillFor = '';
+const motes = Array.from({ length: 28 }, (_, i) => ({ x: Math.random(), y: Math.random(), vx: (Math.random() - 0.5) * 0.012, vy: -0.004 - Math.random() * 0.012, r: 5 + Math.random() * 12, k: i }));
+
+// what each of Glitch Pong's arenas leaves on the wall behind its maze
+const ACCENT = {
+  // the court the first game was played on
+  standard(c, col) {
+    c.strokeStyle = rgba(col, 0.1); c.lineWidth = 1.5;
+    c.setLineDash([10, 12]); c.beginPath(); c.moveTo(cx, 0); c.lineTo(cx, LH); c.stroke(); c.setLineDash([]);
+    c.beginPath(); c.arc(cx, cy, 330, 0, TAU); c.stroke();
+    c.beginPath(); c.arc(cx, cy, 420, 0, TAU); c.stroke();
+  },
+  // a stack that has run off the top of the screen
+  overflow(c, col, rnd) {
+    c.font = '11px "Share Tech Mono", monospace'; c.textAlign = 'center';
+    for (let x = 14; x < LW; x += 22) {
+      const top = rnd() * LH, n = 6 + Math.floor(rnd() * 16);
+      for (let j = 0; j < n; j++) { c.fillStyle = rgba(col, 0.03 + 0.14 * (j / n)); c.fillText((rnd() * 16 | 0).toString(16).toUpperCase(), x, (top + j * 13) % LH); }
+    }
+  },
+  // the emergency lighting
+  panic(c, col) {
+    for (const y of [0, LH - 26]) for (let x = -40; x < LW + 40; x += 34) {
+      c.fillStyle = rgba(col, 0.07);
+      c.beginPath(); c.moveTo(x, y + 26); c.lineTo(x + 16, y + 26); c.lineTo(x + 34, y); c.lineTo(x + 18, y); c.fill();
+    }
+  },
+  // frost creeping in from the corners
+  coolant(c, col, rnd) {
+    c.strokeStyle = rgba(col, 0.09); c.lineWidth = 1;
+    for (let i = 0; i < 46; i++) {
+      const x = rnd() * LW, y = rnd() * LH, r = 5 + rnd() * 16;
+      c.beginPath();
+      for (let k = 0; k < 3; k++) { const a = rnd() * 0.3 + k * Math.PI / 3; c.moveTo(x - Math.cos(a) * r, y - Math.sin(a) * r); c.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r); }
+      c.stroke();
+    }
+  },
+  // the two ends of the shift, one each side
+  portal(c) {
+    for (const [x, col] of [[ox - 70, C.cyan], [ox + W * TS + 70, C.pink]]) for (let i = 0; i < 7; i++) {
+      c.strokeStyle = rgba(col, 0.16 - i * 0.02); c.lineWidth = 1.5;
+      c.beginPath(); c.ellipse(x, cy, 26 + i * 22, 60 + i * 44, 0, 0, TAU); c.stroke();
+    }
+  },
+  // memory running down the glass
+  leak(c, col, rnd) {
+    for (let i = 0; i < 44; i++) {
+      const x = rnd() * LW, y = rnd() * LH * 0.8, l = 40 + rnd() * 170;
+      const g = c.createLinearGradient(0, y, 0, y + l);
+      g.addColorStop(0, rgba(col, 0)); g.addColorStop(1, rgba(col, 0.16));
+      c.fillStyle = g; c.fillRect(x, y, 1.5, l);
+      c.fillStyle = rgba(col, 0.22); c.beginPath(); c.arc(x + 0.75, y + l, 2, 0, TAU); c.fill();
+    }
+  },
+  // rings going out, and coming back
+  echo(c, col) {
+    for (let i = 0; i < 9; i++) {
+      c.strokeStyle = rgba(i % 2 ? C.cyan : col, 0.13 - i * 0.01); c.lineWidth = 1.5;
+      c.beginPath(); c.arc(cx, cy, 300 + i * 46, 0, TAU); c.stroke();
+    }
+  },
+  // the disc, a block at a time
+  defrag(c, col, rnd) {
+    for (let y = 10; y < LH; y += 15) for (let x = 10; x < LW; x += 21) {
+      const v = rnd();
+      if (v < 0.5) continue;
+      c.fillStyle = rgba(v > 0.93 ? C.amber : col, v > 0.8 ? 0.11 : 0.04);
+      c.fillRect(x, y, 17, 11);
+    }
+  },
+  // the line the train keeps to
+  train(c, col) {
+    const y = ty(10);
+    for (const dy of [-TS / 2 - 3, TS / 2 + 3]) { c.strokeStyle = rgba(col, 0.25); c.lineWidth = 2; c.beginPath(); c.moveTo(0, y + dy); c.lineTo(LW, y + dy); c.stroke(); }
+    c.strokeStyle = rgba(col, 0.12); c.lineWidth = 3;
+    c.beginPath(); for (let x = 6; x < LW; x += 20) { c.moveTo(x, y - TS / 2 - 3); c.lineTo(x, y + TS / 2 + 3); } c.stroke();
+  },
+  // it has been watching the whole time
+  lair(c, col) {
+    for (let i = 0; i < 6; i++) {
+      c.strokeStyle = rgba(i % 2 ? C.pink : col, 0.16 - i * 0.02); c.lineWidth = 2;
+      c.beginPath(); c.ellipse(cx, cy, 380 + i * 50, 150 + i * 44, 0, 0, TAU); c.stroke();
+    }
+  }
+};
+
+// the wall behind the maze: painted once for each maze and each window size
+function paintBackdrop(s) {
+  const q = Power.saving ? 1 : Math.min(1.5, Math.max(1, ratio)), rule = s.maze.rule;
+  const key = `${LW}x${LH}:${q}:${rule}`;
+  if (key === stillFor) return;
+  stillFor = key;
+  still.width = Math.round(LW * q); still.height = Math.round(LH * q);
+  const c = still.getContext('2d');
+  c.setTransform(q, 0, 0, q, 0, 0);
+  const col = WALLS[rule] || C.cyan, rnd = seeded(41 + rule.length * 977 + rule.charCodeAt(0) * 13);
+  c.fillStyle = C.void; c.fillRect(0, 0, LW, LH);
+  const neb = (x, y, R, tint, a) => {
+    const g = c.createRadialGradient(x, y, 0, x, y, R);
+    g.addColorStop(0, rgba(tint, a)); g.addColorStop(0.5, rgba(tint, a * 0.35)); g.addColorStop(1, rgba(tint, 0));
+    c.fillStyle = g; c.fillRect(0, 0, LW, LH);
+  };
+  neb(cx, cy, 640, '#241a6e', 0.5);
+  neb(LW * 0.04, LH * 0.2, 380, col, 0.16);
+  neb(LW * 0.96, LH * 0.78, 400, C.pink, 0.12);
+  neb(LW * 0.92, LH * 0.06, 300, C.purple, 0.14);
+  for (let i = 0; i < 150; i++) {
+    const x = rnd() * LW, y = rnd() * LH, z = rnd();
+    c.fillStyle = `rgba(${200 + z * 55 | 0},${210 + z * 45 | 0},255,${0.08 + z * z * 0.5})`;
+    c.beginPath(); c.arc(x, y, 0.35 + z * 0.9, 0, TAU); c.fill();
+  }
+  // the grid the other cabinets sit on
+  c.strokeStyle = rgba(col, 0.055); c.lineWidth = 1;
+  c.beginPath();
+  for (let x = ox % 54; x <= LW; x += 54) { c.moveTo(x, 0); c.lineTo(x, LH); }
+  for (let y = oy % 54; y <= LH; y += 54) { c.moveTo(0, y); c.lineTo(LW, y); }
+  c.stroke();
+  (ACCENT[rule] || ACCENT.standard)(c, col, rnd);
+  c.textAlign = 'left';
+  // light coming up off the floor, as in Breakpoint
+  const fg = c.createLinearGradient(0, LH - 150, 0, LH);
+  fg.addColorStop(0, rgba(col, 0)); fg.addColorStop(1, rgba(col, 0.15));
+  c.fillStyle = fg; c.fillRect(0, LH - 150, LW, 150);
+  // the corners fall off into the dark
+  const v = c.createRadialGradient(cx, cy, 300, cx, cy, Math.hypot(LW, LH) * 0.62);
+  v.addColorStop(0, 'rgba(1,1,6,0)'); v.addColorStop(1, 'rgba(1,1,6,0.74)');
+  c.fillStyle = v; c.fillRect(0, 0, LW, LH);
+  brackets(c, 12, 12, LW - 24, LH - 24, col, 26, 0.4);
+  // the maze's own floor: darker, so a packet is never lost against the wall behind
+  roundRect(c, ox - 5, oy - 5, W * TS + 10, H * TS + 10, 8);
+  c.fillStyle = 'rgba(3,4,12,0.72)'; c.fill();
+  c.strokeStyle = rgba(col, 0.16); c.lineWidth = 1; c.stroke();
+}
+
 function draw() {
   const s = view, t = clock;
+  const rich = fxFull() && !Power.saving && !bloomOff;
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
   ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; noGlow();
-  ctx.fillStyle = C.void;
-  ctx.fillRect(0, 0, LW, LH);
+  paintBackdrop(s);
+  ctx.drawImage(still, 0, 0, LW, LH);
   ctx.save();
   if (fx.shake > 0 && fxFull()) ctx.translate((Math.random() - 0.5) * fx.shake * 14, (Math.random() - 0.5) * fx.shake * 14);
 
-  drawBack();
+  if (fxFull() && !Power.saving) drawMotes(s, t);
   drawWalls(s);
   drawPackets(s, t);
   drawHazards(s, t);
@@ -568,8 +711,10 @@ function draw() {
   if (!lightsOut) drawChasers(s, t, 1);
   if (s.echo && s.phase === 'play') drawEcho(s, t);
   drawBall(s, t);
-  drawParts();
+  sparks(ctx, fx.parts);
   ctx.restore();
+  // everything bright spills a little light, as it does in the other two cabinets
+  if (rich) bloom.apply(ctx, canvas, LW, LH, IS_TOUCH ? 0.7 : 0.85);
   if (lightsOut) {
     drawDark(s);
     ctx.save();
@@ -579,6 +724,7 @@ function draw() {
     drawHazards(s, t);
   }
   if (s.eye) drawEye(s, t);
+  drawBubble(s);
   drawFloats();
   ctx.restore();
   drawBanner(s, t);
@@ -597,77 +743,114 @@ function draw() {
   }
 }
 
-function drawBack() {
-  // the screen behind the maze: the same grid the other cabinets sit on
-  ctx.strokeStyle = 'rgba(154,93,255,0.07)';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  for (let x = cx % 32; x <= LW; x += 32) { ctx.moveTo(x, 0); ctx.lineTo(x, LH); }
-  for (let y = cy % 32; y <= LH; y += 32) { ctx.moveTo(0, y); ctx.lineTo(LW, y); }
-  ctx.stroke();
-  ctx.fillStyle = '#04050f';
-  ctx.fillRect(ox, oy, W * TS, H * TS);
+// motes of light drifting up the wall behind the maze
+function drawMotes(s, t) {
+  const col = WALLS[s.maze.rule] || C.cyan;
+  for (const m of motes) {
+    const x = (((m.x + m.vx * t) % 1) + 1) % 1 * LW, y = (((m.y + m.vy * t) % 1) + 1) % 1 * LH;
+    if (x > ox - 8 && x < ox + W * TS + 8 && y > oy - 8 && y < oy + H * TS + 8) continue;     // never over the maze
+    light(ctx, x, y, m.r, m.k % 3 ? col : C.pink, 0.2 + 0.12 * Math.sin(t * 0.8 + m.k));
+  }
 }
 
-// The walls are drawn once for each maze (and again when one moves) and kept.
+// The walls are drawn once for each maze (and again when one moves) and kept:
+// panes of glass with a tube of neon round them, the corners turned.
 function drawWalls(s) {
   const m = s.maze, key = `${s.n}:${ratio}:${m.grid.reduce((a, v, i) => (a + v * (i % 97 + 1)) % 1000003, 0)}`;
   if (key !== wallsFor) {
     wallsFor = key;
     walls.width = Math.round(W * TS * ratio); walls.height = Math.round(H * TS * ratio);
     wctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    wctx.globalCompositeOperation = 'source-over';
     wctx.clearRect(0, 0, W * TS, H * TS);
-    const col = WALLS[m.rule] || C.cyan;
+    const col = WALLS[m.rule] || C.cyan, k = 4, r = 6, h = TS / 2;
     const solid = (x, y) => x < 0 || y < 0 || x >= W || y >= H || m.grid[idx(x, y)] === WALL;
+    // the glass: every wall tile, cut back from the corridors beside it
+    wctx.fillStyle = rgba(col, 0.15);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (solid(x, y)) wctx.fillRect(x * TS, y * TS, TS, TS);
+    wctx.globalCompositeOperation = 'destination-out';
+    wctx.fillStyle = '#000';
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (!solid(x, y)) wctx.fillRect(x * TS - k, y * TS - k, TS + k * 2, TS + k * 2);
+    // lines of scan across the glass, the way a hologram has them
+    wctx.globalCompositeOperation = 'source-atop';
     wctx.fillStyle = rgba(col, 0.1);
-    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (m.grid[idx(x, y)] === WALL) wctx.fillRect(x * TS + 3, y * TS + 3, TS - 6, TS - 6);
-    // a neon line along every wall face that looks onto a corridor
-    wctx.strokeStyle = rgba(col, 0.9); wctx.lineWidth = 2; wctx.lineCap = 'round';
-    wctx.shadowColor = col; wctx.shadowBlur = 6 * glowK;
+    for (let y = 1; y < H * TS; y += 3) wctx.fillRect(0, y, W * TS, 1);
+    wctx.globalCompositeOperation = 'source-over';
+    // the tube: walked corner by corner, so every turn is a curve
     wctx.beginPath();
-    const k = 4;
-    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-      if (m.grid[idx(x, y)] !== WALL) continue;
-      const X = x * TS, Y = y * TS;
-      if (!solid(x, y - 1) && y > 0) { wctx.moveTo(X + (solid(x - 1, y) ? 0 : k), Y + k); wctx.lineTo(X + TS - (solid(x + 1, y) ? 0 : k), Y + k); }
-      if (!solid(x, y + 1) && y < H - 1) { wctx.moveTo(X + (solid(x - 1, y) ? 0 : k), Y + TS - k); wctx.lineTo(X + TS - (solid(x + 1, y) ? 0 : k), Y + TS - k); }
-      if (!solid(x - 1, y) && x > 0) { wctx.moveTo(X + k, Y + (solid(x, y - 1) ? 0 : k)); wctx.lineTo(X + k, Y + TS - (solid(x, y + 1) ? 0 : k)); }
-      if (!solid(x + 1, y) && x < W - 1) { wctx.moveTo(X + TS - k, Y + (solid(x, y - 1) ? 0 : k)); wctx.lineTo(X + TS - k, Y + TS - (solid(x, y + 1) ? 0 : k)); }
+    for (let vy = 0; vy <= H; vy++) for (let vx = 0; vx <= W; vx++) {
+      const nw = solid(vx - 1, vy - 1), ne = solid(vx, vy - 1), sw = solid(vx - 1, vy), se = solid(vx, vy);
+      const edgeX = vx === 0 || vx === W, edgeY = vy === 0 || vy === H;
+      // a face runs along each half-edge that has wall on one side and corridor on the other
+      const N = !edgeX && nw !== ne, S = !edgeX && sw !== se, Wf = !edgeY && nw !== sw, E = !edgeY && ne !== se;
+      if (!(N || S || Wf || E)) continue;
+      const X = vx * TS, Y = vy * TS;
+      // each face sits a little inside the wall it belongs to
+      const nx = nw ? -k : k, sx = sw ? -k : k, wy = nw ? -k : k, ey = ne ? -k : k;
+      const turn = (vert, horiz, dx, dy) => {
+        // from the end of the vertical face, round the corner, to the end of the horizontal one
+        const px = X + dx, py = Y + dy;
+        wctx.moveTo(px, Y + vert * h); wctx.lineTo(px, py + vert * r);
+        wctx.quadraticCurveTo(px, py, px + horiz * r, py);
+        wctx.lineTo(X + horiz * h, py);
+      };
+      const n = N + S + Wf + E;
+      if (n === 4) {
+        if (nw) { turn(-1, -1, -k, -k); turn(1, 1, k, k); } else { turn(-1, 1, k, -k); turn(1, -1, -k, k); }
+      } else if (N && S) { wctx.moveTo(X + nx, Y - h); wctx.lineTo(X + nx, Y + h); }
+      else if (Wf && E) { wctx.moveTo(X - h, Y + wy); wctx.lineTo(X + h, Y + wy); }
+      else if (N && E) turn(-1, 1, nx, ey);
+      else if (N && Wf) turn(-1, -1, nx, wy);
+      else if (S && E) turn(1, 1, sx, ey);
+      else if (S && Wf) turn(1, -1, sx, wy);
+      else if (N) { wctx.moveTo(X + nx, Y - h); wctx.lineTo(X + nx, Y); }
+      else if (S) { wctx.moveTo(X + sx, Y + h); wctx.lineTo(X + sx, Y); }
+      else if (Wf) { wctx.moveTo(X - h, Y + wy); wctx.lineTo(X, Y + wy); }
+      else if (E) { wctx.moveTo(X + h, Y + ey); wctx.lineTo(X, Y + ey); }
     }
-    wctx.stroke();
-    wctx.shadowBlur = 0;
+    tube(wctx, col, 2, 1);
     // the pen's door
-    for (let i = 0; i < W * H; i++) if (m.grid[i] === DOOR) { const c = xy(i); wctx.fillStyle = C.pink; wctx.fillRect(c.x * TS + 2, c.y * TS + TS / 2 - 2, TS - 4, 4); }
+    for (let i = 0; i < W * H; i++) if (m.grid[i] === DOOR) {
+      const c = xy(i);
+      wctx.beginPath(); wctx.moveTo(c.x * TS + 1, c.y * TS + h); wctx.lineTo(c.x * TS + TS - 1, c.y * TS + h);
+      tube(wctx, C.pink, 2.6, 1);
+    }
   }
   ctx.drawImage(walls, ox, oy, W * TS, H * TS);
 }
 
 function drawPackets(s, t) {
   const m = s.maze;
-  ctx.fillStyle = 'rgba(234,255,255,0.9)';
-  for (const i of m.packets) { const c = xy(i); ctx.fillRect(tx(c.x) - 2, ty(c.y) - 2, 4, 4); }
+  // packets: points of light, all in one stroke of the brush
+  ctx.fillStyle = '#eaffff';
+  ctx.beginPath();
+  for (const i of m.packets) { const c = xy(i), x = tx(c.x), y = ty(c.y); ctx.moveTo(x + 2.3, y); ctx.arc(x, y, 2.3, 0, TAU); }
+  ctx.fill();
+  ctx.fillStyle = rgba(C.cyan, 0.16);
+  ctx.beginPath();
+  for (const i of m.packets) { const c = xy(i), x = tx(c.x), y = ty(c.y); ctx.moveTo(x + 5, y); ctx.arc(x, y, 5, 0, TAU); }
+  ctx.fill();
   // overrides: the big ones
   for (const i of m.overrides) {
-    const c = xy(i), z = 6 + Math.sin(t * 6) * 1.5;
+    const c = xy(i), z = 6.5 + Math.sin(t * 6) * 1.5, x = tx(c.x), y = ty(c.y);
+    light(ctx, x, y, 22 + Math.sin(t * 6) * 4, C.amber, 0.75);
     ctx.save();
-    ctx.translate(tx(c.x), ty(c.y)); ctx.rotate(Math.PI / 4);
-    glow(C.amber, 16);
-    ctx.fillStyle = C.amber;
-    ctx.fillRect(-z, -z, z * 2, z * 2);
-    noGlow();
-    ctx.fillStyle = '#fff'; ctx.fillRect(-2.5, -2.5, 5, 5);
+    ctx.translate(x, y); ctx.rotate(Math.PI / 4 + t * 0.6);
+    roundRect(ctx, -z, -z, z * 2, z * 2, 2.5);
+    ctx.fillStyle = rgba(C.amber, 0.4); ctx.fill();
+    tube(ctx, C.amber, 1.6, 1);
     ctx.restore();
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x, y, 2.6, 0, TAU); ctx.fill();
   }
   // QUANTUM SHIFT's two doors
   if (m.portals) m.portals.forEach((i, k) => {
-    const c = xy(i);
-    ctx.strokeStyle = k ? C.pink : C.cyan; ctx.lineWidth = 2;
-    glow(k ? C.pink : C.cyan, 14);
+    const c = xy(i), col = k ? C.pink : C.cyan;
+    light(ctx, tx(c.x), ty(c.y), 22, col, 0.55);
     for (let r = 0; r < 2; r++) {
       const a = t * (r ? -2.2 : 2.6);
-      ctx.beginPath(); ctx.arc(tx(c.x), ty(c.y), 6 + r * 4, a, a + 4.4); ctx.stroke();
+      ctx.beginPath(); ctx.arc(tx(c.x), ty(c.y), 6 + r * 4, a, a + 4.4);
+      tube(ctx, col, 1.6, 1);
     }
-    noGlow();
   });
 }
 
@@ -677,47 +860,59 @@ function drawHazards(s, t) {
   if (l) {
     const firing = l.state === 'fire';
     const col = l.cause === 'train' ? '#ff9a3d' : C.pink;
-    ctx.fillStyle = firing ? rgba('#ffffff', 0.85) : rgba(col, Math.floor(t * 10) % 2 ? 0.34 : 0.14);
-    if (firing) glow(col, 24);
-    for (const i of l.cells) { const c = xy(i); ctx.fillRect(tx(c.x) - TS / 2 + 3, ty(c.y) - TS / 2 + 3, TS - 6, TS - 6); }
-    noGlow();
+    for (const i of l.cells) {
+      const c = xy(i), x = tx(c.x), y = ty(c.y);
+      roundRect(ctx, x - TS / 2 + 3, y - TS / 2 + 3, TS - 6, TS - 6, 4);
+      if (firing) {
+        ctx.fillStyle = 'rgba(255,255,255,0.86)'; ctx.fill();
+        light(ctx, x, y, TS * 1.3, col, 0.7);
+      } else {
+        const on = Math.floor(t * 10) % 2;
+        ctx.fillStyle = rgba(col, on ? 0.3 : 0.1); ctx.fill();
+        ctx.strokeStyle = rgba(col, on ? 0.9 : 0.4); ctx.lineWidth = 1.2; ctx.stroke();
+      }
+    }
     if (l.cause === 'train' && firing) {
       // the train itself, crossing while it lasts
       const k = 1 - l.t / l.fire, y = ty(s.maze.tunnel);
-      const x = ox - 6 * TS + k * (W + 6) * TS;
+      const x = ox - 6 * TS + k * (W + 6) * TS, w = 6 * TS;
       ctx.save();
       ctx.beginPath(); ctx.rect(ox, oy, W * TS, H * TS); ctx.clip();
-      glow('#ff9a3d', 20);
-      ctx.fillStyle = '#ff9a3d';
-      ctx.fillRect(x, y - 9, 6 * TS, 18);
-      ctx.fillStyle = '#fff';
-      ctx.fillRect(x + 6 * TS - 8, y - 5, 8, 10);
-      noGlow();
+      roundRect(ctx, x, y - 10, w, 20, 7);
+      const g = ctx.createLinearGradient(0, y - 10, 0, y + 10);
+      g.addColorStop(0, '#ffe2c2'); g.addColorStop(0.35, '#ff9a3d'); g.addColorStop(1, '#b3501a');
+      ctx.fillStyle = g; ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 1; ctx.stroke();
+      ctx.fillStyle = 'rgba(20,8,2,0.7)';
+      for (let i = 0; i < 6; i++) ctx.fillRect(x + 10 + i * 24, y - 4, 15, 6);
+      light(ctx, x + w, y, 30, '#ffe2c2', 0.9);
       ctx.restore();
     }
   }
   const w = s.wall;
   if (w) {
     const on = Math.floor(t * 8) % 2;
-    ctx.lineWidth = 2;
     if (w.shut >= 0) {
-      const c = xy(w.shut);
-      ctx.strokeStyle = rgba(C.amber, on ? 1 : 0.4);
-      ctx.strokeRect(tx(c.x) - TS / 2 + 2, ty(c.y) - TS / 2 + 2, TS - 4, TS - 4);
-      ctx.beginPath(); ctx.moveTo(tx(c.x) - 6, ty(c.y) - 6); ctx.lineTo(tx(c.x) + 6, ty(c.y) + 6); ctx.moveTo(tx(c.x) + 6, ty(c.y) - 6); ctx.lineTo(tx(c.x) - 6, ty(c.y) + 6); ctx.stroke();
+      const c = xy(w.shut), x = tx(c.x), y = ty(c.y);
+      roundRect(ctx, x - TS / 2 + 2, y - TS / 2 + 2, TS - 4, TS - 4, 4);
+      ctx.fillStyle = rgba(C.amber, on ? 0.2 : 0.06); ctx.fill();
+      tube(ctx, C.amber, 1.6, on ? 1 : 0.45);
+      ctx.beginPath(); ctx.moveTo(x - 6, y - 6); ctx.lineTo(x + 6, y + 6); ctx.moveTo(x + 6, y - 6); ctx.lineTo(x - 6, y + 6);
+      tube(ctx, C.amber, 1.6, on ? 1 : 0.45);
     }
     if (w.open >= 0) {
       const c = xy(w.open);
       ctx.setLineDash([4, 4]);
-      ctx.strokeStyle = rgba(C.green, on ? 1 : 0.4);
-      ctx.strokeRect(tx(c.x) - TS / 2 + 2, ty(c.y) - TS / 2 + 2, TS - 4, TS - 4);
+      roundRect(ctx, tx(c.x) - TS / 2 + 2, ty(c.y) - TS / 2 + 2, TS - 4, TS - 4, 4);
+      ctx.strokeStyle = rgba(C.green, on ? 1 : 0.4); ctx.lineWidth = 2; ctx.stroke();
       ctx.setLineDash([]);
     }
   }
 }
 
-// The four: blocks of static, each in its own colour, with a bright edge on the side it is heading.
+// The four: panes of live static, each in its own colour, with a visor of white on the side it is heading.
 function drawChasers(s, t, alpha) {
+  const f = Math.floor(t * 16);
   for (const c of s.chasers) {
     const def = CHASERS[c.k], p = pos(c);
     let x = tx(p.x), y = ty(p.y);
@@ -726,31 +921,50 @@ function drawChasers(s, t, alpha) {
     ctx.globalAlpha = alpha;
     if (c.state === 'home') {
       // caught: a spark on its way back to the box
-      ctx.fillStyle = def.color; glow(def.color, 10);
-      ctx.fillRect(x - 3, y - 3, 3, 3); ctx.fillRect(x + 1, y, 3, 3);
-      noGlow(); ctx.restore();
+      light(ctx, x, y, 12, def.color, 0.9);
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(x - 2.5, y - 1, 1.6, 0, TAU); ctx.arc(x + 2.5, y + 1, 1.6, 0, TAU); ctx.fill();
+      ctx.restore();
       continue;
     }
     const running = c.fright > 0;
     const ending = running && c.fright < 1.6 && Math.floor(t * 9) % 2;
-    const col = running ? (ending ? '#ffffff' : '#5c6aa8') : def.color;
-    const n = 4, z = 20 / n, jit = running && fxFull() ? (Math.random() - 0.5) * 2 : 0;
-    if (!running) glow(col, 12);
-    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
-      const v = (Math.sin(c.k * 31.7 + i * 7.1 + j * 3.3 + Math.floor(t * 16) * 1.7) + 1) / 2;
-      ctx.fillStyle = rgba(col, 0.3 + v * 0.7);
-      ctx.fillRect(x - 10 + i * z + jit, y - 10 + j * z, z - 0.5, z - 0.5);
+    const col = running ? (ending ? '#ffffff' : '#7f8fd8') : def.color;
+    const z = 21, jit = running && fxFull() ? (Math.random() - 0.5) * 2 : 0;
+    x += jit;
+    if (!running) light(ctx, x, y, 25, col, 0.55);
+    roundRect(ctx, x - z / 2, y - z / 2, z, z, 6);
+    ctx.fillStyle = rgba(col, running ? 0.12 : 0.24); ctx.fill();
+    // the snow inside it
+    ctx.save(); ctx.clip();
+    for (let j = 0; j < 7; j++) {
+      const v = (Math.sin(c.k * 31.7 + j * 7.1 + f * 1.7) + 1) / 2, u = (Math.sin(c.k * 9.3 + j * 4.7 + f * 2.9) + 1) / 2;
+      ctx.fillStyle = rgba(v > 0.82 ? '#ffffff' : col, 0.2 + v * 0.7);
+      ctx.fillRect(x - z / 2 + u * z * 0.7 - 2, y - z / 2 + j * 3 + 0.8, z * (0.15 + v * 0.55), 1.7);
     }
-    noGlow();
-    if (c.dir >= 0 && !running) {
-      const d = DIRS[c.dir];
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(x + d.x * 9 - (d.x ? 1.5 : 8), y + d.y * 9 - (d.y ? 1.5 : 8), d.x ? 3 : 16, d.y ? 3 : 16);
+    ctx.restore();
+    roundRect(ctx, x - z / 2, y - z / 2, z, z, 6);
+    if (running) { ctx.setLineDash([3, 3]); ctx.strokeStyle = rgba(col, 0.9); ctx.lineWidth = 1.5; ctx.stroke(); ctx.setLineDash([]); }
+    else {
+      tube(ctx, col, 1.7, 1);
+      // a slice of it out of place, now and then
+      if (fxFull() && (f + c.k * 5) % 13 === 0) {
+        const sy = y - 6 + ((f * 7 + c.k * 3) % 12);
+        ctx.fillStyle = rgba(C.cyan, 0.8); ctx.fillRect(x - z / 2 - 5, sy, z, 1.6);
+        ctx.fillStyle = rgba(C.pink, 0.8); ctx.fillRect(x - z / 2 + 5, sy + 2.4, z, 1.6);
+      }
+      if (c.dir >= 0) {
+        const d = DIRS[c.dir], vx = x + d.x * 6.5, vy = y + d.y * 6.5;
+        ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(vx - d.y * 5, vy - d.x * 5); ctx.lineTo(vx + d.y * 5, vy + d.x * 5); ctx.stroke();
+        ctx.lineCap = 'butt';
+        light(ctx, vx, vy, 9, '#ffffff', 0.7);
+      }
     }
     // it misjudged the junction, the way a person does
     if (c.lapse > 0 && !running) {
-      ctx.font = '16px VT323, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-      ctx.fillStyle = def.color; ctx.fillText('?', x, y - 11);
+      ctx.font = '700 11px Orbitron, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+      ctx.fillStyle = def.color; ctx.fillText('?', x, y - 12);
     }
     ctx.restore();
   }
@@ -759,12 +973,14 @@ function drawChasers(s, t, alpha) {
 function drawEcho(s, t) {
   const x = tx(s.echo.x), y = ty(s.echo.y);
   ctx.save();
-  ctx.globalAlpha = 0.5 + 0.25 * Math.sin(t * 10);
-  ctx.strokeStyle = Look.hex; ctx.lineWidth = 2; ctx.setLineDash([3, 3]);
-  ctx.beginPath(); ctx.arc(x, y, 8, 0, Math.PI * 2); ctx.stroke();
+  ctx.globalAlpha = 0.55 + 0.25 * Math.sin(t * 10);
+  light(ctx, x, y, 20, Look.hex, 0.4);
+  ctx.fillStyle = rgba(Look.hex, 0.2);
+  ctx.beginPath(); ctx.arc(x, y, 8, 0, TAU); ctx.fill();
+  ctx.setLineDash([3, 3]);
+  ctx.strokeStyle = Look.hex; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(x, y, 8, 0, TAU); ctx.stroke();
   ctx.setLineDash([]);
-  ctx.fillStyle = rgba(Look.hex, 0.25);
-  ctx.beginPath(); ctx.arc(x, y, 8, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
 }
 
@@ -781,47 +997,37 @@ function drawBall(s, t) {
     rgb: Look.rgb, hex: Look.hex, t, heat: s.heat / 100, quality: glowK < 0.5 ? 0.5 : 1,
     vx: d.x * v / 60, vy: d.y * v / 60, r: R, charge: 2, speed: v / 60, rally: s.chain
   };
+  const dashing = s.dash > 0;
   ctx.save();
   if (trailSkin !== 'default') { ctx.globalAlpha = dim; Look.draw.trail(ctx, fx.trail, look); }
-  else for (let i = fx.trail.length - 1; i > 0; i--) {
-    const q = fx.trail[i], a = 1 - i / fx.trail.length;
-    ctx.globalAlpha = a * (s.dash > 0 ? 0.7 : b.showoff ? 0.55 : 0.3) * dim;
-    ctx.fillStyle = s.dash > 0 ? C.amber : Look.hex;
-    const z = R * 2 * a;
-    ctx.fillRect(q.x - z / 2, q.y - z / 2, z, z);
-  }
+  else comet(ctx, fx.trail, R * (dashing ? 1.15 : 0.95), dashing ? C.amber : Look.hex, (dashing ? 1 : b.showoff ? 0.9 : 0.65) * dim);
   ctx.globalAlpha = dim;
   if (ballSkin !== 'default') Look.draw.ball(ctx, x, y, R + 1, look);
   else {
-    glow(Look.hex, b.showoff || s.dash > 0 ? 28 : 16);
-    ctx.fillStyle = Look.hex;
-    ctx.beginPath(); ctx.arc(x, y, R, 0, Math.PI * 2); ctx.fill();
-    noGlow();
-    ctx.fillStyle = '#fff';
-    ctx.beginPath(); ctx.arc(x - 2, y - 2, R * 0.4, 0, Math.PI * 2); ctx.fill();
+    light(ctx, x, y, R * (b.showoff || dashing ? 5 : 3.6), dashing ? C.amber : Look.hex, 0.8);
+    const g = ctx.createRadialGradient(x - 2, y - 2, 0, x, y, R);
+    g.addColorStop(0, '#ffffff'); g.addColorStop(0.45, Look.hex); g.addColorStop(1, rgba(Look.hex, 0.8));
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(x, y, R, 0, TAU); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 1; ctx.stroke();
   }
   ctx.restore();
-  // what the ball has to say
-  if (fx.bubble && view === run) {
-    ctx.font = '15px "Share Tech Mono", monospace';
-    ctx.textAlign = x > cx ? 'right' : 'left'; ctx.textBaseline = 'middle';
-    ctx.globalAlpha = Math.min(1, fx.bubble.t * 2);
-    const bx = x + (x > cx ? -16 : 16), by = y - 20;
-    const tw = ctx.measureText(fx.bubble.text).width;
-    ctx.fillStyle = 'rgba(3,4,10,0.8)';
-    ctx.fillRect(x > cx ? bx - tw - 5 : bx - 5, by - 10, tw + 10, 20);
-    ctx.fillStyle = Look.hex;
-    ctx.fillText(fx.bubble.text, bx, by);
-    ctx.globalAlpha = 1;
-  }
 }
 
-function drawParts() {
-  for (const p of fx.parts) {
-    ctx.globalAlpha = Math.max(0, p.life / p.max);
-    ctx.fillStyle = p.color;
-    ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
-  }
+// what the ball has to say
+function drawBubble(s) {
+  if (!fx.bubble || view !== run || s.phase === 'over' || s.phase === 'reset') return;
+  const p = pos(s.ball), x = tx(p.x), y = ty(p.y);
+  ctx.font = '15px "Share Tech Mono", monospace';
+  ctx.textAlign = x > cx ? 'right' : 'left'; ctx.textBaseline = 'middle';
+  ctx.globalAlpha = Math.min(1, fx.bubble.t * 2);
+  const bx = x + (x > cx ? -16 : 16), by = y - 20;
+  const tw = ctx.measureText(fx.bubble.text).width;
+  roundRect(ctx, x > cx ? bx - tw - 7 : bx - 7, by - 11, tw + 14, 22, 4);
+  ctx.fillStyle = 'rgba(3,4,10,0.82)'; ctx.fill();
+  ctx.strokeStyle = rgba(Look.hex, 0.5); ctx.lineWidth = 1; ctx.stroke();
+  ctx.fillStyle = Look.hex;
+  ctx.fillText(fx.bubble.text, bx, by);
   ctx.globalAlpha = 1;
 }
 
@@ -832,18 +1038,17 @@ function drawDark(s) {
   dctx.setTransform(1, 0, 0, 1, 0, 0);
   dctx.globalCompositeOperation = 'source-over';
   dctx.clearRect(0, 0, dark.width, dark.height);
-  dctx.fillStyle = `rgba(1,1,6,${0.92 * (1 - lit * 0.85)})`;
-  dctx.fillRect(ox * k, oy * k, W * TS * k, H * TS * k);
+  dctx.fillStyle = `rgba(1,1,6,${0.94 * (1 - lit * 0.85)})`;
+  dctx.fillRect((ox - 6) * k, (oy - 6) * k, (W * TS + 12) * k, (H * TS + 12) * k);
   dctx.globalCompositeOperation = 'destination-out';
   const x = tx(p.x) * k, y = ty(p.y) * k, R = TS * 4.6 * k;
   const g = dctx.createRadialGradient(x, y, R * 0.3, x, y, R);
   g.addColorStop(0, 'rgba(0,0,0,1)'); g.addColorStop(1, 'rgba(0,0,0,0)');
   dctx.fillStyle = g;
-  dctx.beginPath(); dctx.arc(x, y, R, 0, Math.PI * 2); dctx.fill();
+  dctx.beginPath(); dctx.arc(x, y, R, 0, TAU); dctx.fill();
   ctx.drawImage(dark, 0, 0, LW, LH);
   // the overrides still glint in the dark
-  ctx.fillStyle = rgba(C.amber, 0.5);
-  for (const i of s.maze.overrides) { const c = xy(i); ctx.fillRect(tx(c.x) - 2, ty(c.y) - 2, 4, 4); }
+  for (const i of s.maze.overrides) { const c = xy(i); light(ctx, tx(c.x), ty(c.y), 9, C.amber, 0.6); }
 }
 
 // THE EYE, over the pen, looking toward the ball
@@ -853,9 +1058,13 @@ function drawEye(s, t) {
   const S = 190 + Math.sin(t * 2) * 4, x = tx(10), y = ty(10);
   ctx.save();
   ctx.globalAlpha = s.line && s.line.cause === 'gaze' && s.line.state === 'warn' && Math.floor(t * 12) % 2 ? 0.75 : 0.95;
-  if (ready(im)) { glow(C.purple, 26); ctx.drawImage(im, x - S / 2, y - S / 2, S, S); }
-  else { ctx.strokeStyle = C.purple; ctx.lineWidth = 3; glow(C.purple, 20); ctx.beginPath(); ctx.ellipse(x, y, 44, 20, 0, 0, Math.PI * 2); ctx.stroke(); ctx.fillStyle = C.pink; ctx.beginPath(); ctx.arc(x + side * 14, y, 8, 0, Math.PI * 2); ctx.fill(); }
-  noGlow();
+  light(ctx, x, y, S * 0.75, C.purple, 0.5);
+  if (ready(im)) ctx.drawImage(im, x - S / 2, y - S / 2, S, S);
+  else {
+    ctx.beginPath(); ctx.ellipse(x, y, 44, 20, 0, 0, TAU);
+    tube(ctx, C.purple, 3, 1);
+    ctx.fillStyle = C.pink; ctx.beginPath(); ctx.arc(x + side * 14, y, 8, 0, TAU); ctx.fill();
+  }
   ctx.restore();
 }
 
@@ -863,9 +1072,12 @@ function drawFloats() {
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   for (const f of fx.floats) {
     ctx.globalAlpha = Math.min(1, f.life * 2.2);
-    ctx.font = `${f.size}px VT323, monospace`;
-    ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillText(f.text, f.x + 1, f.y + 1);
+    ctx.font = `700 ${Math.round(f.size * 0.62)}px Orbitron, sans-serif`;
+    ctx.fillStyle = 'rgba(0,0,0,0.65)'; ctx.fillText(f.text, f.x + 1, f.y + 1.5);
+    glow(f.color, 10);
     ctx.fillStyle = f.color; ctx.fillText(f.text, f.x, f.y);
+    noGlow();
+    ctx.fillStyle = 'rgba(255,255,255,0.45)'; ctx.fillText(f.text, f.x, f.y);      // a hot core, so it reads over the glow
   }
   ctx.globalAlpha = 1;
 }
@@ -882,12 +1094,15 @@ function drawBanner(s, t) {
   if (bn && (view === run || s.phase !== 'play')) {
     const a = Math.min(1, bn.t * 3, (bn.dur - bn.t) * 5);
     ctx.globalAlpha = Math.max(0, a);
-    const y = cy - 200, tall = bn.legend ? 196 : 92;
-    ctx.fillStyle = 'rgba(3,4,10,0.86)';
-    ctx.fillRect(cx - 262, y - 30, 524, tall);
+    const y = cy - 200, tall = bn.legend ? 198 : 96, tint = WALLS[s.maze.rule] || C.cyan;
+    // a pane of dark glass, framed the way the menus are
+    roundRect(ctx, cx - 262, y - 32, 524, tall, 6);
+    ctx.fillStyle = 'rgba(4,5,14,0.9)'; ctx.fill();
+    ctx.strokeStyle = rgba(tint, 0.55); ctx.lineWidth = 1; ctx.stroke();
+    brackets(ctx, cx - 268, y - 38, 536, tall + 12, tint, 14, 0.9);
     ctx.font = '900 30px Orbitron, "Arial Black", sans-serif';
     chroma(bn.title, cx, y - 6, 2.5, C.text);
-    ctx.font = '28px VT323, monospace';
+    ctx.font = '700 15px Orbitron, sans-serif';
     ctx.fillStyle = C.amber; ctx.fillText(bn.sub, cx, y + 24);
     ctx.font = '13px "Share Tech Mono", monospace';
     ctx.fillStyle = 'rgba(238,247,255,0.8)'; ctx.fillText(bn.line, cx, y + 47);
@@ -896,7 +1111,8 @@ function drawBanner(s, t) {
       CHASERS.forEach((c, i) => {
         const ly = y + 78 + i * 22;
         ctx.textAlign = 'left';
-        ctx.fillStyle = c.color; ctx.fillRect(cx - 232, ly - 7, 14, 14);
+        glass(ctx, cx - 225, ly, 14, 14, c.color, { r: 4, fill: 0.35 });
+        ctx.fillStyle = c.color;
         ctx.font = '700 12px Orbitron, sans-serif'; ctx.fillText(c.name, cx - 210, ly);
         ctx.font = '13px "Share Tech Mono", monospace';
         ctx.fillStyle = 'rgba(238,247,255,0.85)'; ctx.fillText(c.how, cx - 140, ly);
@@ -908,7 +1124,7 @@ function drawBanner(s, t) {
   // 3 · 2 · 1 over the pen
   if (view === run && s.phase === 'intro' && s.phaseT <= 2.4 && noSignal.t <= 0) {
     const n = Math.ceil(s.phaseT / 0.8), k = (s.phaseT % 0.8) / 0.8;
-    ctx.font = `${Math.round(110 + k * 50)}px VT323, monospace`;
+    ctx.font = `900 ${Math.round(70 + k * 36)}px Orbitron, "Arial Black", sans-serif`;
     ctx.globalAlpha = 0.35 + k * 0.65;
     chroma(String(n), cx, ty(13) + 4, 4, '#fff');
     ctx.globalAlpha = 1;
@@ -1110,11 +1326,21 @@ function wantFps() {
   const m = mode === 'play' ? 'active' : mode === 'menu' ? 'calm' : 'idle';
   return Power.fpsFor({ touch: IS_TOUCH, saving: Power.saving, mode: m });
 }
+// A machine that cannot keep up loses the bloom, not the frame rate: if the
+// picture stays under about forty frames a second while it is asking for
+// sixty, the bloom pass is dropped until the page is opened again.
+let bloomOff = false, slowT = 0;
+function watchSpeed(dt) {
+  if (bloomOff || !fxFull() || Power.saving || (mode !== 'play' && mode !== 'menu') || wantFps() < 50) { slowT = 0; return; }
+  slowT = dt > 1 / 42 ? slowT + dt : Math.max(0, slowT - dt * 2);
+  if (slowT > 2.5) bloomOff = true;
+}
 function frame(now) {
   requestAnimationFrame(frame);
   if (!pacer.due(now, wantFps())) return;
   const dt = Math.min(0.05, Math.max(0, (now - last) / 1000));
   last = now;
+  watchSpeed(dt);
   update(dt);
   draw();
 }
@@ -1134,5 +1360,6 @@ requestAnimationFrame(frame);
 // for the console and the tests that drive the page
 window.Signal = {
   get run() { return run; }, get mode() { return mode; }, get view() { return view; }, get fx() { return fx; },
+  get bloomOff() { return bloomOff; }, set bloomOff(v) { bloomOff = !!v; slowT = 0; },
   Static, save, startRun, endRun, pause, resume, toMenu, startNoSignal, won, input
 };

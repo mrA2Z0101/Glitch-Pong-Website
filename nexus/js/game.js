@@ -12,6 +12,7 @@ import {
 import { NULL_LINES, BALL_LINES, EXIT_FLICKER, AWAY_TITLE, pick } from './voice.js';
 import { Wallet, Save, Cabinet, Look, otherCabinets } from './wallet.js';
 import { createAudio } from './audio.js';
+import { roundRect, light, tube, glass, comet, sparks, brackets, createBloom, seeded } from './neon.js';
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('game');
@@ -179,6 +180,8 @@ function burst(x, y, color, n, speed = 140, life = 0.6) {
     const a = Math.random() * TAU, v = speed * (0.3 + Math.random() * 0.7);
     fx.parts.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: life * (0.5 + Math.random() * 0.5), max: life, color, size: 2 + Math.random() * 3 });
   }
+  // anything big enough goes off with a ring of light
+  if (n >= 10) fx.parts.push({ x, y, vx: 0, vy: 0, life: life * 0.7, max: life * 0.7, color, size: 0, ring: 12 + speed * 0.16 });
 }
 function float(x, y, text, color, size = 18) { fx.floats.push({ x, y, text, color, size, life: 0.9 }); }
 function banner(title, sub, line, dur) { fx.banner = { title, sub, line, t: dur, dur }; }
@@ -554,12 +557,62 @@ window.addEventListener('storage', (e) => { if (!e.key || e.key === Wallet.KEY) 
 // ═══════════════════════════════════════════════════════════════════════════
 // DRAWING
 // ═══════════════════════════════════════════════════════════════════════════
+// The picture is built the way Glitch Pong and Breakpoint build theirs: a
+// painted backdrop kept on its own sheet, glass and neon over it, and a bloom
+// pass that lets the bright things spill light. The rules are not touched.
+const still = document.createElement('canvas');
+const bloom = createBloom();
+let stillFor = '';
+const TINT = { standard: C.purple, leak: C.amber, panic: C.red, lag: C.cyan, shift: C.pink, overclock: '#ff9a3d', eye: C.pink };
+
+// deep space behind the well: painted once for each sector and each window size
+function paintBackdrop(s) {
+  const q = Power.saving ? 1 : Math.min(1.5, Math.max(1, ratio));
+  const key = `${LW}x${LH}:${q}:${s.rule.id}`;
+  if (key === stillFor) return;
+  stillFor = key;
+  still.width = Math.round(LW * q); still.height = Math.round(LH * q);
+  const c = still.getContext('2d');
+  c.setTransform(q, 0, 0, q, 0, 0);
+  const tint = TINT[s.rule.id] || C.purple, rnd = seeded(97 + s.rule.id.length * 131 + s.rule.id.charCodeAt(0));
+  c.fillStyle = C.void; c.fillRect(0, 0, LW, LH);
+  const neb = (x, y, R, col, a) => {
+    const g = c.createRadialGradient(x, y, 0, x, y, R);
+    g.addColorStop(0, rgba(col, a)); g.addColorStop(0.5, rgba(col, a * 0.35)); g.addColorStop(1, rgba(col, 0));
+    c.fillStyle = g; c.fillRect(0, 0, LW, LH);
+  };
+  neb(cx, cy, 620, '#3a1a8c', 0.5);
+  neb(LW * 0.08, LH * 0.16, 400, tint, 0.16);
+  neb(LW * 0.94, LH * 0.84, 440, C.pink, 0.12);
+  neb(LW * 0.9, LH * 0.08, 320, C.cyan, 0.08);
+  neb(LW * 0.1, LH * 0.92, 300, '#4d7cff', 0.1);
+  // stars, a few of them bright enough to bloom
+  for (let i = 0; i < 260; i++) {
+    const x = rnd() * LW, y = rnd() * LH, z = rnd();
+    c.fillStyle = `rgba(${200 + z * 55 | 0},${205 + z * 50 | 0},255,${0.1 + z * z * 0.7})`;
+    c.beginPath(); c.arc(x, y, 0.35 + z * 1.05, 0, TAU); c.fill();
+    if (z > 0.965) light(c, x, y, 7, '#cfd8ff', 0.5);
+  }
+  // the grid the other cabinets sit on, falling away from the middle
+  c.strokeStyle = rgba(tint, 0.05); c.lineWidth = 1;
+  c.beginPath();
+  for (let x = cx % 48; x <= LW; x += 48) { c.moveTo(x, 0); c.lineTo(x, LH); }
+  for (let y = cy % 48; y <= LH; y += 48) { c.moveTo(0, y); c.lineTo(LW, y); }
+  c.stroke();
+  // the corners fall off into the dark
+  const v = c.createRadialGradient(cx, cy, TUNE.R_OUT * 0.9, cx, cy, Math.hypot(LW, LH) * 0.62);
+  v.addColorStop(0, 'rgba(1,1,6,0)'); v.addColorStop(1, 'rgba(1,1,6,0.78)');
+  c.fillStyle = v; c.fillRect(0, 0, LW, LH);
+  brackets(c, 12, 12, LW - 24, LH - 24, tint, 26, 0.4);
+}
+
 function draw() {
-  const s = view, b = s.ball, t = clock;
+  const s = view, t = clock;
+  const rich = fxFull() && !Power.saving && !bloomOff;
   ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
   ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; noGlow();
-  ctx.fillStyle = C.void;
-  ctx.fillRect(0, 0, LW, LH);
+  paintBackdrop(s);
+  ctx.drawImage(still, 0, 0, LW, LH);
   ctx.save();
   if (fx.shake > 0 && fxFull()) ctx.translate((Math.random() - 0.5) * fx.shake * 14, (Math.random() - 0.5) * fx.shake * 14);
 
@@ -569,8 +622,11 @@ function draw() {
   drawObjects(s, t);
   drawWarnings(s, t);
   drawBall(s, t);
-  drawParts();
+  sparks(ctx, fx.parts);
+  // everything bright spills a little light, as it does in the other two cabinets
+  if (rich) bloom.apply(ctx, canvas, LW, LH, IS_TOUCH ? 0.8 : 1);
   if (s.rule.id === 'panic' && s.phase === 'play') drawDark(s);
+  drawBubble(s);
   drawFloats();
   ctx.restore();
   drawBanner(s, t);
@@ -590,91 +646,134 @@ function draw() {
 }
 
 function drawWell(s, t) {
-  // the screen behind the round window: the same grid the other cabinets sit on
-  ctx.strokeStyle = 'rgba(154,93,255,0.07)';
-  ctx.lineWidth = 1;
+  const tint = TINT[s.rule.id] || C.purple, R = TUNE.R_OUT, hot = s.critical && Math.floor(t * 8) % 2;
+  // Glitch Pong's spiral of wire, turning behind everything
+  ctx.strokeStyle = rgba(C.purple, 0.2); ctx.lineWidth = 1.2;
   ctx.beginPath();
-  for (let x = cx % 32; x <= LW; x += 32) { ctx.moveTo(x, 0); ctx.lineTo(x, LH); }
-  for (let y = cy % 32; y <= LH; y += 32) { ctx.moveTo(0, y); ctx.lineTo(LW, y); }
-  ctx.stroke();
-  // the well
-  const g = ctx.createRadialGradient(cx, cy, TUNE.R_HOLE, cx, cy, TUNE.R_OUT);
-  g.addColorStop(0, '#120836'); g.addColorStop(0.5, '#080920'); g.addColorStop(1, '#04050e');
-  ctx.fillStyle = g;
-  ctx.beginPath(); ctx.arc(cx, cy, TUNE.R_OUT + 3, 0, TAU); ctx.fill();
-  // rings and spokes, turning slowly
-  ctx.lineWidth = 1;
-  ctx.strokeStyle = 'rgba(113,239,255,0.06)';
-  for (const r of [88, 170, 250]) { ctx.beginPath(); ctx.arc(cx, cy, r, 0, TAU); ctx.stroke(); }
-  ctx.strokeStyle = 'rgba(154,93,255,0.09)';
-  ctx.beginPath();
-  for (let i = 0; i < 12; i++) {
-    const a = t * 0.03 + (i / 12) * TAU;
-    ctx.moveTo(px(a, s.holeR + 10), py(a, s.holeR + 10)); ctx.lineTo(px(a, TUNE.R_OUT), py(a, TUNE.R_OUT));
+  for (let k = 0; k < 13; k++) {
+    const r0 = 150 + k * 58, ph = t * 0.035 + k * 0.7;
+    for (let i = 0; i <= 40; i++) {
+      const a = (i / 40) * TAU, r = r0 * (1 + 0.045 * Math.sin(a * 2 + ph) + 0.02 * Math.sin(a * 5 - ph * 2));
+      const x = cx + Math.cos(a + ph * 0.3) * r + Math.cos(ph) * 14, y = cy + Math.sin(a + ph * 0.3) * r + Math.sin(ph) * 14;
+      if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+    }
   }
   ctx.stroke();
-  // the two lines inside which a kill is worth more
-  ctx.setLineDash([3, 9]);
-  ctx.font = '15px VT323, monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-  for (const [r, col, label] of [[TUNE.BAND_MID, C.cyan, 'x2'], [TUNE.BAND_IN, C.pink, 'x3']]) {
-    ctx.strokeStyle = rgba(col, 0.22);
+  // outside the glass is not the game: it sits a little further back
+  ctx.fillStyle = 'rgba(2,2,9,0.42)';
+  ctx.beginPath(); ctx.rect(0, 0, LW, LH); ctx.arc(cx, cy, R + 3, 0, TAU, true); ctx.fill();
+  // the well itself: space pulled tight toward the middle
+  const g = ctx.createRadialGradient(cx, cy, s.holeR, cx, cy, R);
+  g.addColorStop(0, 'rgba(58,22,128,0.5)'); g.addColorStop(0.45, 'rgba(20,12,60,0.3)'); g.addColorStop(1, 'rgba(6,8,24,0.12)');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.arc(cx, cy, R + 3, 0, TAU); ctx.fill();
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx, cy, R + 2, 0, TAU); ctx.clip();
+  // rings that crowd together as they fall in
+  const flow = (t * 0.05 * (1 + s.heat / 80)) % 1;
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 9; i++) {
+    const k = ((i + 1 - flow) / 9), r = s.holeR + (R - s.holeR) * Math.pow(k, 1.7);
+    ctx.strokeStyle = rgba(C.cyan, 0.035 + 0.1 * (1 - k));
     ctx.beginPath(); ctx.arc(cx, cy, r, 0, TAU); ctx.stroke();
-    ctx.fillStyle = rgba(col, 0.55);
+  }
+  // spokes, twisted the way the hole twists everything
+  ctx.strokeStyle = rgba(C.purple, 0.16);
+  ctx.beginPath();
+  for (let i = 0; i < 18; i++) {
+    const a0 = t * 0.03 + (i / 18) * TAU;
+    for (let j = 0; j <= 14; j++) {
+      const k = j / 14, r = R - (R - s.holeR - 8) * k, a = a0 + 1.5 * k * k;
+      if (j) ctx.lineTo(px(a, r), py(a, r)); else ctx.moveTo(px(a, r), py(a, r));
+    }
+  }
+  ctx.stroke();
+  // dust falling in, each grain a short streak
+  ctx.strokeStyle = 'rgba(210,200,255,0.3)'; ctx.lineWidth = 1; ctx.lineCap = 'round';
+  ctx.beginPath();
+  for (const d of dust) {
+    if (d.r >= R) continue;
+    const l = 1.5 + d.sp * 0.22 + (R - d.r) * 0.012;
+    ctx.moveTo(px(d.th, d.r), py(d.th, d.r)); ctx.lineTo(px(d.th - 0.012, d.r + l), py(d.th - 0.012, d.r + l));
+  }
+  ctx.stroke(); ctx.lineCap = 'butt';
+  ctx.restore();
+  // the two lines inside which a kill is worth more
+  ctx.setLineDash([2, 10]);
+  ctx.font = '700 10px Orbitron, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  for (const [r, col, label] of [[TUNE.BAND_MID, C.cyan, 'x2'], [TUNE.BAND_IN, C.pink, 'x3']]) {
+    ctx.strokeStyle = rgba(col, 0.3); ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, TAU); ctx.stroke();
+    ctx.fillStyle = rgba(col, 0.7);
     ctx.fillText(label, px(-0.5, r - 16), py(-0.5, r - 16));
   }
   ctx.setLineDash([]);
-  // dust falling in
-  ctx.fillStyle = 'rgba(200,190,255,0.35)';
-  for (const d of dust) { if (d.r < TUNE.R_OUT) ctx.fillRect(px(d.th, d.r), py(d.th, d.r), 1.5, 1.5); }
-  // the glass
-  const hot = s.critical && Math.floor(t * 8) % 2;
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = rgba(hot ? C.pink : C.cyan, 0.6);
-  glow(hot ? C.pink : C.cyan, 12);
-  ctx.beginPath(); ctx.arc(cx, cy, TUNE.R_OUT + 3, 0, TAU); ctx.stroke();
-  noGlow();
-  ctx.lineWidth = 1;
-  ctx.strokeStyle = 'rgba(113,239,255,0.14)';
-  ctx.beginPath(); ctx.arc(cx, cy, TUNE.R_OUT + 10, 0, TAU); ctx.stroke();
+  // the glass: a tube of light, and the bezel of an instrument round it
+  const edge = hot ? C.pink : tint === C.purple ? C.cyan : tint;
+  ctx.beginPath(); ctx.arc(cx, cy, R + 3, 0, TAU);
+  tube(ctx, edge, 2.4, 0.95);
+  ctx.strokeStyle = rgba(edge, 0.3); ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let i = 0; i < 72; i++) {
+    const a = (i / 72) * TAU, l = i % 6 ? 4 : 9;
+    ctx.moveTo(px(a, R + 10), py(a, R + 10)); ctx.lineTo(px(a, R + 10 + l), py(a, R + 10 + l));
+  }
+  ctx.stroke();
+  ctx.strokeStyle = rgba(edge, 0.55); ctx.lineWidth = 2; ctx.lineCap = 'round';
+  for (let i = 0; i < 3; i++) {
+    const a = -t * 0.12 + (i / 3) * TAU;
+    ctx.beginPath(); ctx.arc(cx, cy, R + 23, a, a + 0.5); ctx.stroke();
+  }
+  ctx.lineCap = 'butt';
 }
 
 function drawHole(s, t) {
-  const R = s.holeR;
-  const surge = s.surge.state;
-  // the light it bends round itself
-  const g = ctx.createRadialGradient(cx, cy, R * 0.7, cx, cy, R * 2.5);
-  g.addColorStop(0, 'rgba(0,0,0,1)'); g.addColorStop(0.16, 'rgba(0,0,0,1)');
-  g.addColorStop(0.24, 'rgba(154,93,255,0.6)'); g.addColorStop(0.4, 'rgba(255,88,217,0.2)'); g.addColorStop(1, 'rgba(154,93,255,0)');
+  const R = s.holeR, surge = s.surge.state, leak = s.leak > 0;
+  const col = leak ? C.amber : surge === 'on' ? C.pink : '#b45cff';
+  ctx.save();
+  // the ring of light it bends round itself: Glitch Pong's
+  ctx.globalCompositeOperation = 'lighter';
+  const g = ctx.createRadialGradient(cx, cy, R * 0.9, cx, cy, R * 3);
+  g.addColorStop(0, rgba(col, 0)); g.addColorStop(0.06, rgba(col, 0.62)); g.addColorStop(0.2, rgba(col, 0.3));
+  g.addColorStop(0.45, rgba(C.pink, 0.08)); g.addColorStop(1, rgba(C.purple, 0));
   ctx.fillStyle = g;
-  ctx.beginPath(); ctx.arc(cx, cy, R * 2.5, 0, TAU); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx, cy, R * 3, 0, TAU); ctx.fill();
   // what it is eating, going round
   ctx.lineCap = 'round';
-  for (let i = 0; i < 6; i++) {
-    const r = R + 4 + i * 3.4, a = t * (1.9 - i * 0.22) + i * 1.3;
-    ctx.strokeStyle = rgba(i % 2 ? C.pink : C.cyan, 0.5 - i * 0.06);
-    ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(cx, cy, r, a, a + 1.1 + i * 0.25); ctx.stroke();
+  for (let i = 0; i < 8; i++) {
+    const r = R + 5 + i * 4.2, a = t * (2.1 - i * 0.2) + i * 1.3;
+    ctx.strokeStyle = rgba(i % 2 ? C.pink : C.cyan, 0.45 - i * 0.045);
+    ctx.lineWidth = 2.6 - i * 0.2;
+    ctx.beginPath(); ctx.arc(cx, cy, r, a, a + 0.9 + i * 0.28); ctx.stroke();
   }
-  ctx.lineCap = 'butt';
   // breathing in
   if (surge !== 'idle') {
     const on = surge === 'on';
     for (let i = 0; i < 3; i++) {
       const k = ((t * (on ? 1.4 : 0.8) + i / 3) % 1);
-      ctx.strokeStyle = rgba(C.pink, (on ? 0.5 : 0.28) * k);
+      ctx.strokeStyle = rgba(C.pink, (on ? 0.6 : 0.32) * k);
       ctx.lineWidth = on ? 3 : 1.5;
       ctx.beginPath(); ctx.arc(cx, cy, R + (1 - k) * (on ? 190 : 120), 0, TAU); ctx.stroke();
     }
   }
+  ctx.restore();
   ctx.fillStyle = '#000';
   ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.fill();
+  // inside it: the spokes of Glitch Pong's nexus, barely there
+  if (!s.eye) {
+    ctx.strokeStyle = rgba(col, 0.22); ctx.lineWidth = 1.5; ctx.lineCap = 'round';
+    ctx.beginPath();
+    for (let i = 0; i < 11; i++) {
+      const a = -t * 0.25 + (i / 11) * TAU + Math.sin(i * 3.7) * 0.2;
+      ctx.moveTo(px(a, R * 0.3), py(a, R * 0.3)); ctx.lineTo(px(a + 0.25, R * 0.92), py(a + 0.25, R * 0.92));
+    }
+    ctx.stroke(); ctx.lineCap = 'butt';
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(cx, cy, R * 0.62, 0, TAU); ctx.stroke();
+  }
   // the horizon: past this line the ball is NULL's
-  const leak = s.leak > 0;
-  ctx.strokeStyle = leak ? C.amber : surge === 'on' ? C.pink : '#f3e9ff';
-  glow(leak ? C.amber : C.purple, 16);
-  ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.stroke();
-  noGlow();
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU);
+  tube(ctx, col, 2, 1);
 }
 
 function drawEye(s, t) {
@@ -682,29 +781,28 @@ function drawEye(s, t) {
   const looking = e.lid !== 'shut';
   // its gaze: a bar of light with a gap in it
   for (let i = 0; i < e.beams; i++) {
-    const gap = gapRadius(e, i);
+    const gap = gapRadius(e, i), H = TUNE.BEAM_HALF;
     ctx.save();
     ctx.translate(cx, cy); ctx.rotate(e.gazeTh + i * Math.PI);
     const a = s.holeR + 6, g0 = gap - e.gapHalf, g1 = gap + e.gapHalf, z = TUNE.R_OUT;
     if (looking) {
       const flick = e.lid === 'warn' ? (Math.floor(t * 16) % 2 ? 0.35 : 0.8) : 1;
       ctx.globalAlpha = flick;
-      glow(C.pink, 22);
-      ctx.fillStyle = rgba(C.pink, 0.75);
-      if (g0 > a) ctx.fillRect(a, -TUNE.BEAM_HALF, g0 - a, TUNE.BEAM_HALF * 2);
-      if (z > g1) ctx.fillRect(g1, -TUNE.BEAM_HALF, z - g1, TUNE.BEAM_HALF * 2);
-      noGlow();
-      ctx.fillStyle = '#fff';
-      if (g0 > a) ctx.fillRect(a, -2, g0 - a, 4);
-      if (z > g1) ctx.fillRect(g1, -2, z - g1, 4);
+      const beam = ctx.createLinearGradient(0, -H, 0, H);
+      beam.addColorStop(0, rgba(C.pink, 0.3)); beam.addColorStop(0.5, rgba(C.pink, 0.85)); beam.addColorStop(1, rgba(C.pink, 0.3));
+      for (const [x0, x1] of [[a, g0], [g1, z]]) {
+        if (x1 <= x0) continue;
+        ctx.fillStyle = beam; ctx.fillRect(x0, -H, x1 - x0, H * 2);
+        ctx.fillStyle = rgba(C.pink, 0.95); ctx.fillRect(x0, -H, x1 - x0, 1.2); ctx.fillRect(x0, H - 1.2, x1 - x0, 1.2);
+        ctx.fillStyle = '#fff'; ctx.fillRect(x0, -1.8, x1 - x0, 3.6);
+      }
       // the gap, marked so it can be read at a glance
-      ctx.strokeStyle = C.cyan; ctx.lineWidth = 2;
       ctx.beginPath();
       for (const x of [g0, g1]) { ctx.moveTo(x, -17); ctx.lineTo(x, 17); }
-      ctx.stroke();
+      tube(ctx, C.cyan, 2, 1);
     } else {
       ctx.setLineDash([4, 10]);
-      ctx.strokeStyle = rgba(C.pink, 0.22); ctx.lineWidth = 1.5;
+      ctx.strokeStyle = rgba(C.pink, 0.26); ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.moveTo(a, 0); ctx.lineTo(g0, 0); ctx.moveTo(g1, 0); ctx.lineTo(z, 0); ctx.stroke();
       ctx.setLineDash([]);
     }
@@ -715,18 +813,17 @@ function drawEye(s, t) {
   const im = e.lid === 'shut' ? eyeImg.blink : side < -0.35 ? eyeImg.left : side > 0.35 ? eyeImg.right : eyeImg.neutral;
   const S = 226 + Math.sin(t * 2) * 4;
   ctx.save();
+  light(ctx, cx, cy, S * 0.8, C.purple, 0.45);
   if (ready(im)) {
     if (fx.eyeFlash > 0 && fxFull()) { ctx.globalAlpha = 0.6; ctx.drawImage(im, cx - S / 2 - 8, cy - S / 2, S, S); ctx.drawImage(im, cx - S / 2 + 8, cy - S / 2, S, S); ctx.globalAlpha = 1; }
-    glow(C.purple, 26);
     ctx.drawImage(im, cx - S / 2, cy - S / 2, S, S);
   } else {
     // no sprite (opened without the arcade's assets): a drawn one
-    ctx.strokeStyle = C.purple; ctx.lineWidth = 3; glow(C.purple, 20);
-    ctx.beginPath(); ctx.ellipse(cx, cy, 66, e.lid === 'shut' ? 4 : 30, 0, 0, TAU); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(cx, cy, 66, e.lid === 'shut' ? 4 : 30, 0, 0, TAU);
+    tube(ctx, C.purple, 3, 1);
     if (e.lid !== 'shut') { ctx.fillStyle = C.pink; ctx.beginPath(); ctx.arc(cx + side * 18, cy, 12, 0, TAU); ctx.fill(); }
   }
   ctx.restore();
-  noGlow();
 }
 
 function drawObjects(s, t) {
@@ -735,44 +832,42 @@ function drawObjects(s, t) {
     ctx.save();
     ctx.translate(cx + o.x, cy + o.y);
     // still materialising: a flickering outline that can't be touched yet
-    ctx.globalAlpha = forming && o.warm > 0.3 ? 0.2 + 0.35 * (o.age / o.warm) * (Math.floor(t * 18) % 2 ? 1 : 0.5) : 1;
+    ctx.globalAlpha = forming && o.warm > 0.3 ? 0.25 + 0.4 * (o.age / o.warm) * (Math.floor(t * 18) % 2 ? 1 : 0.5) : 1;
     if (o.kind === 'power') {
       const L = POWER_LOOK[o.power];
       if (o.life < 3 && Math.floor(t * 10) % 2) ctx.globalAlpha = 0.35;      // about to go
-      glow(L.c, 16);
-      ctx.strokeStyle = L.c; ctx.lineWidth = 2;
+      light(ctx, 0, 0, 30, L.c, 0.55);
       ctx.beginPath();
       for (let i = 0; i < 6; i++) { const a = t + (i / 6) * TAU; ctx[i ? 'lineTo' : 'moveTo'](Math.cos(a) * 13, Math.sin(a) * 13); }
-      ctx.closePath(); ctx.stroke();
-      noGlow();
-      ctx.fillStyle = L.c; ctx.font = '700 13px Orbitron, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.closePath();
+      ctx.fillStyle = rgba(L.c, 0.2); ctx.fill();
+      tube(ctx, L.c, 1.8, 1);
+      ctx.strokeStyle = rgba(L.c, 0.6); ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.arc(0, 0, 18, -t * 2, -t * 2 + 1.6); ctx.stroke();
+      ctx.beginPath(); ctx.arc(0, 0, 18, -t * 2 + Math.PI, -t * 2 + Math.PI + 1.6); ctx.stroke();
+      ctx.fillStyle = '#fff'; ctx.font = '700 12px Orbitron, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(L.ch, 0, 1);
     } else drawDebris(o, t, forming);
     ctx.restore();
   }
-  // the ball's shots: a streak of its own colour
-  ctx.lineCap = 'round'; ctx.lineWidth = 3;
-  glow(Look.hex, 10);
-  ctx.strokeStyle = '#ffffff';
-  ctx.beginPath();
+  // the ball's shots: bolts of its own colour
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.lineCap = 'round'; ctx.lineWidth = 3.2;
   for (const sh of s.shots) {
-    const v = Math.hypot(sh.vx, sh.vy) || 1;
-    ctx.moveTo(cx + sh.x, cy + sh.y);
-    ctx.lineTo(cx + sh.x - (sh.vx / v) * 9, cy + sh.y - (sh.vy / v) * 9);
+    const v = Math.hypot(sh.vx, sh.vy) || 1, x = cx + sh.x, y = cy + sh.y, ex = x - (sh.vx / v) * 20, ey = y - (sh.vy / v) * 20;
+    const g = ctx.createLinearGradient(x, y, ex, ey);
+    g.addColorStop(0, '#ffffff'); g.addColorStop(0.35, Look.hex); g.addColorStop(1, rgba(Look.hex, 0));
+    ctx.strokeStyle = g;
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(ex, ey); ctx.stroke();
+    light(ctx, x, y, 10, Look.hex, 0.8);
   }
-  ctx.stroke();
-  noGlow(); ctx.lineCap = 'butt';
+  ctx.restore();
 }
 
+// one of Breakpoint's bricks: a pane of holographic glass
 function brick(x, y, w, h, col, lit) {
-  if (lit) glow(col, 9);
-  ctx.fillStyle = col;
-  ctx.fillRect(x - w / 2, y - h / 2, w, h);
-  noGlow();
-  ctx.fillStyle = 'rgba(0,0,0,0.35)';
-  ctx.fillRect(x - w / 2, y + h / 2 - 2.5, w, 2.5);
-  ctx.fillStyle = 'rgba(255,255,255,0.35)';
-  ctx.fillRect(x - w / 2, y - h / 2, w, 2);
+  glass(ctx, x, y, w, h, col, { fill: lit ? 0.3 : 0.1, edge: lit ? 1 : 0.55 });
 }
 
 // What the other cabinets threw away, drawn so you can tell where it came
@@ -782,6 +877,7 @@ function drawDebris(o, t, forming) {
   if (o.look !== 'glyph') ctx.rotate(o.rot);
   if (o.look === 'brick') {
     const a = BRICKS[o.tint % BRICKS.length], b = BRICKS[(o.tint + 1) % BRICKS.length];
+    if (lit) light(ctx, 0, 0, R * 2.1, a, 0.3);
     if (o.size === 3) {
       // a piece of Breakpoint's wall: three courses, staggered
       for (const [x, y, c] of [[-11, -15, a], [11, -15, b], [-22, 0, b], [0, 0, a], [22, 0, b], [-11, 15, a], [11, 15, b]]) brick(x, y, 20, 12, c, lit);
@@ -789,35 +885,51 @@ function drawDebris(o, t, forming) {
       brick(-5, -7, 22, 12, a, lit); brick(5, 7, 22, 12, b, lit);
     } else {
       brick(0, 0, 19, 11, a, lit);
-      ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.moveTo(-3, -5.5); ctx.lineTo(1, 0); ctx.lineTo(-1, 5.5); ctx.stroke();
+      // cracked through
+      ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(-3, -5.5); ctx.lineTo(1, -0.5); ctx.lineTo(-1.5, 1.5); ctx.lineTo(0.5, 5.5); ctx.stroke();
     }
   } else if (o.look === 'paddle') {
-    // one of Glitch Pong's paddles, then half of one, then a splinter
+    // one of Glitch Pong's paddles — a bar of solid light — then half of one, then a splinter
     const col = PADDLES[o.tint % 2], w = o.size === 3 ? 58 : o.size === 2 ? 34 : 19, h = o.size === 3 ? 13 : o.size === 2 ? 11 : 8;
-    if (lit) glow(col, 12);
-    ctx.fillStyle = col;
-    ctx.fillRect(-w / 2, -h / 2, w, h);
-    noGlow();
-    ctx.fillStyle = 'rgba(255,255,255,0.5)';
-    ctx.fillRect(-w / 2 + 2, -h / 2 + 2, w - 4, 2);
-    if (o.size < 3) { ctx.fillStyle = C.void; ctx.beginPath(); ctx.moveTo(w / 2, -h / 2); ctx.lineTo(w / 2 - 6, 0); ctx.lineTo(w / 2, h / 2); ctx.fill(); }
+    if (lit) light(ctx, 0, 0, w * 0.85, col, 0.5);
+    ctx.beginPath();
+    ctx.moveTo(-w / 2 + 3, -h / 2); ctx.lineTo(w / 2 - (o.size < 3 ? 1 : 3), -h / 2);
+    if (o.size < 3) { ctx.lineTo(w / 2 - 6, -h / 6); ctx.lineTo(w / 2 - 1, h / 6); ctx.lineTo(w / 2 - 7, h / 2); }   // where it snapped
+    else { ctx.quadraticCurveTo(w / 2, -h / 2, w / 2, -h / 2 + 3); ctx.lineTo(w / 2, h / 2 - 3); ctx.quadraticCurveTo(w / 2, h / 2, w / 2 - 3, h / 2); }
+    ctx.lineTo(-w / 2 + 3, h / 2); ctx.quadraticCurveTo(-w / 2, h / 2, -w / 2, h / 2 - 3);
+    ctx.lineTo(-w / 2, -h / 2 + 3); ctx.quadraticCurveTo(-w / 2, -h / 2, -w / 2 + 3, -h / 2);
+    ctx.closePath();
+    const g = ctx.createLinearGradient(0, -h / 2, 0, h / 2);
+    g.addColorStop(0, '#ffffff'); g.addColorStop(0.4, col); g.addColorStop(1, rgba(col, lit ? 0.7 : 0.3));
+    ctx.fillStyle = lit ? g : rgba(col, 0.25); ctx.fill();
+    ctx.strokeStyle = rgba('#ffffff', lit ? 0.8 : 0.4); ctx.lineWidth = 1; ctx.stroke();
   } else if (o.look === 'glyph') {
     // a digit that used to be in your score
+    if (lit) light(ctx, 0, 0, 30, C.red, 0.5);
     ctx.font = '34px VT323, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillStyle = C.cyan; ctx.fillText(o.ch, -2, 1);
     ctx.fillStyle = C.pink; ctx.fillText(o.ch, 2, 1);
-    if (lit) glow(C.red, 12);
     ctx.fillStyle = '#fff'; ctx.fillText(o.ch, 0, 1);
-    noGlow();
+    ctx.strokeStyle = rgba(C.red, 0.7); ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.arc(0, 0, R + 1, t * 2, t * 2 + 4.6); ctx.stroke();
   } else {
-    // static: a block of dead channel
-    const n = o.size + 2, z = (R * 1.6) / n;
-    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
-      const v = (Math.sin(o.id * 12.9 + i * 7.1 + j * 3.3 + Math.floor(t * 14) * 1.7) + 1) / 2;
-      ctx.fillStyle = `rgba(${200 + v * 55},${200 + v * 55},${220 + v * 35},${0.25 + v * 0.7})`;
-      ctx.fillRect(-R * 0.8 + i * z, -R * 0.8 + j * z, z - 0.5, z - 0.5);
+    // static: a pane of dead channel, snow sliding across it
+    const z = R * 1.62, f = Math.floor(t * 14);
+    if (lit) light(ctx, 0, 0, R * 2, '#cfd8ff', 0.28);
+    roundRect(ctx, -z / 2, -z / 2, z, z, 4);
+    ctx.fillStyle = 'rgba(200,215,255,0.1)'; ctx.fill();
+    ctx.save(); ctx.clip();
+    for (let j = 0, rows = Math.ceil(z / 3.2); j < rows; j++) {
+      const v = (Math.sin(o.id * 12.9 + j * 7.1 + f * 1.7) + 1) / 2, u = (Math.sin(o.id * 3.1 + j * 4.7 + f * 2.9) + 1) / 2;
+      ctx.fillStyle = `rgba(228,236,255,${0.1 + v * 0.62})`;
+      ctx.fillRect(-z / 2 + u * z * 0.7 - 2, -z / 2 + j * 3.2 + 0.6, z * (0.12 + v * 0.55), 1.7);
     }
+    ctx.restore();
+    roundRect(ctx, -z / 2, -z / 2, z, z, 4);
+    ctx.strokeStyle = `rgba(228,236,255,${lit ? 0.9 : 0.45})`; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(-z / 2 + 5, -z / 2 + 2); ctx.lineTo(z / 2 - 5, -z / 2 + 2); ctx.stroke();
   }
 }
 
@@ -858,84 +970,76 @@ function drawBall(s, t) {
   const b = s.ball;
   // MOURNING: the path the last ball took, fading
   if (fx.ghost && fx.ghost.pts.length > 1) {
-    ctx.strokeStyle = rgba(Look.hex, 0.35 * (fx.ghost.t / TUNE.MOURN));
+    ctx.strokeStyle = rgba(Look.hex, 0.4 * (fx.ghost.t / TUNE.MOURN));
     ctx.lineWidth = 2; ctx.setLineDash([2, 5]);
     ctx.beginPath();
     fx.ghost.pts.forEach((p, i) => ctx[i ? 'lineTo' : 'moveTo'](p.x, p.y));
     ctx.stroke(); ctx.setLineDash([]);
   }
   if (s.phase === 'over') return;
-  const x = cx + b.x, y = cy + b.y;
+  const x = cx + b.x, y = cy + b.y, R = TUNE.BALL_R;
   if (b.inv > 0 && s.phase === 'play' && Math.floor(t * 14) % 2) return;       // a new ball blinks
   const dim = b.mourn > 0 ? 0.5 + 0.5 * (1 - b.mourn / TUNE.MOURN) : 1;
   const trailSkin = Look.get('trail'), ballSkin = Look.get('ball');
   const look = (trailSkin !== 'default' || ballSkin !== 'default') && {
     rgb: Look.rgb, hex: Look.hex, t, heat: s.heat / 100, quality: glowK < 0.5 ? 0.5 : 1,
-    vx: b.vx / 60, vy: b.vy / 60, r: TUNE.BALL_R, charge: 2, speed: Math.hypot(b.vx, b.vy) / 60, rally: s.chain
+    vx: b.vx / 60, vy: b.vy / 60, r: R, charge: 2, speed: Math.hypot(b.vx, b.vy) / 60, rally: s.chain
   };
   const hx = Math.cos(b.a), hy = Math.sin(b.a);
   const thrusting = s.phase === 'play' && (view === run ? input.thrust : botHold.thrust);
   ctx.save();
   if (trailSkin !== 'default') { ctx.globalAlpha = dim; Look.draw.trail(ctx, fx.trail, look); }
-  else for (let i = fx.trail.length - 1; i > 0; i--) {
-    const p = fx.trail[i], a = 1 - i / fx.trail.length;
-    ctx.globalAlpha = a * (b.showoff ? 0.6 : 0.3) * dim;
-    ctx.fillStyle = Look.hex;
-    const z = TUNE.BALL_R * 2 * a;
-    ctx.fillRect(p.x - z / 2, p.y - z / 2, z, z);
-  }
+  else comet(ctx, fx.trail, R * 0.95, Look.hex, (b.showoff ? 1 : 0.7) * dim);
   ctx.globalAlpha = dim;
   // the thrust: a flame out of the back
   if (thrusting) {
-    const k = 11 + Math.random() * 8;
-    ctx.fillStyle = rgba(C.amber, 0.85);
-    ctx.beginPath();
-    ctx.moveTo(x - hx * 5 - hy * 4, y - hy * 5 + hx * 4); ctx.lineTo(x - hx * (6 + k), y - hy * (6 + k)); ctx.lineTo(x - hx * 5 + hy * 4, y - hy * 5 - hx * 4);
-    ctx.fill();
+    const k = 13 + Math.random() * 9, bx = x - hx * 5, by = y - hy * 5, ex = x - hx * (6 + k), ey = y - hy * (6 + k);
+    const g = ctx.createLinearGradient(bx, by, ex, ey);
+    g.addColorStop(0, '#ffffff'); g.addColorStop(0.3, C.amber); g.addColorStop(1, rgba(C.pink, 0));
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.moveTo(bx - hy * 4.5, by + hx * 4.5); ctx.lineTo(ex, ey); ctx.lineTo(bx + hy * 4.5, by - hx * 4.5); ctx.fill();
+    light(ctx, bx - hx * 4, by - hy * 4, 13, C.amber, 0.7);
+    ctx.restore();
   }
-  if (ballSkin !== 'default') Look.draw.ball(ctx, x, y, TUNE.BALL_R + 1, look);
+  if (ballSkin !== 'default') Look.draw.ball(ctx, x, y, R + 1, look);
   else {
-    glow(Look.hex, b.showoff ? 30 : 18);
-    ctx.fillStyle = Look.hex;
-    ctx.beginPath(); ctx.arc(x, y, TUNE.BALL_R, 0, TAU); ctx.fill();
-    noGlow();
-    ctx.fillStyle = '#fff';
-    ctx.beginPath(); ctx.arc(x - 2, y - 2, TUNE.BALL_R * 0.4, 0, TAU); ctx.fill();
+    light(ctx, x, y, R * (b.showoff ? 5.5 : 4), Look.hex, 0.8);
+    const g = ctx.createRadialGradient(x - 2, y - 2, 0, x, y, R);
+    g.addColorStop(0, '#ffffff'); g.addColorStop(0.45, Look.hex); g.addColorStop(1, rgba(Look.hex, 0.8));
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(x, y, R, 0, TAU); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 1; ctx.stroke();
   }
-  // which way it is facing: a white chevron ahead of it
-  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.lineJoin = 'round';
-  glow(Look.hex, 8);
+  // which way it is facing: a chevron ahead of it
   ctx.beginPath();
   ctx.moveTo(x + hx * 10 - hy * 5, y + hy * 10 + hx * 5); ctx.lineTo(x + hx * 17, y + hy * 17); ctx.lineTo(x + hx * 10 + hy * 5, y + hy * 10 - hx * 5);
-  ctx.stroke();
-  noGlow();
+  tube(ctx, Look.hex, 1.8, dim);
   ctx.globalAlpha = 1;
   if (s.shield) {
-    ctx.strokeStyle = C.cyan; ctx.lineWidth = 2; glow(C.cyan, 12);
-    ctx.beginPath(); ctx.arc(x, y, TUNE.BALL_R + 13 + Math.sin(t * 8), 0, TAU); ctx.stroke(); noGlow();
+    const r = R + 13 + Math.sin(t * 8);
+    ctx.beginPath(); ctx.arc(x, y, r, 0, TAU);
+    ctx.fillStyle = rgba(C.cyan, 0.07); ctx.fill();
+    tube(ctx, C.cyan, 1.8, 1);
   }
   ctx.restore();
-  // what the ball has to say
-  if (fx.bubble && view === run) {
-    ctx.font = '15px "Share Tech Mono", monospace';
-    ctx.textAlign = x > cx ? 'right' : 'left'; ctx.textBaseline = 'middle';
-    ctx.globalAlpha = Math.min(1, fx.bubble.t * 2);
-    const tx = x + (x > cx ? -20 : 20), ty = y - 24;
-    const tw = ctx.measureText(fx.bubble.text).width;
-    ctx.fillStyle = 'rgba(3,4,10,0.75)';
-    ctx.fillRect(x > cx ? tx - tw - 5 : tx - 5, ty - 10, tw + 10, 20);
-    ctx.fillStyle = Look.hex;
-    ctx.fillText(fx.bubble.text, tx, ty);
-    ctx.globalAlpha = 1;
-  }
 }
 
-function drawParts() {
-  for (const p of fx.parts) {
-    ctx.globalAlpha = Math.max(0, p.life / p.max);
-    ctx.fillStyle = p.color;
-    ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
-  }
+// what the ball has to say
+function drawBubble(s) {
+  if (!fx.bubble || view !== run || s.phase === 'over') return;
+  const x = cx + s.ball.x, y = cy + s.ball.y;
+  ctx.font = '15px "Share Tech Mono", monospace';
+  ctx.textAlign = x > cx ? 'right' : 'left'; ctx.textBaseline = 'middle';
+  ctx.globalAlpha = Math.min(1, fx.bubble.t * 2);
+  const tx = x + (x > cx ? -20 : 20), ty = y - 24;
+  const tw = ctx.measureText(fx.bubble.text).width;
+  roundRect(ctx, x > cx ? tx - tw - 7 : tx - 7, ty - 11, tw + 14, 22, 4);
+  ctx.fillStyle = 'rgba(3,4,10,0.78)'; ctx.fill();
+  ctx.strokeStyle = rgba(Look.hex, 0.5); ctx.lineWidth = 1; ctx.stroke();
+  ctx.fillStyle = Look.hex;
+  ctx.fillText(fx.bubble.text, tx, ty);
   ctx.globalAlpha = 1;
 }
 
@@ -946,7 +1050,7 @@ function drawDark(s) {
   dctx.setTransform(1, 0, 0, 1, 0, 0);
   dctx.globalCompositeOperation = 'source-over';
   dctx.clearRect(0, 0, dark.width, dark.height);
-  dctx.fillStyle = `rgba(1,1,6,${0.9 * (1 - lit * 0.85)})`;
+  dctx.fillStyle = `rgba(1,1,6,${0.93 * (1 - lit * 0.85)})`;
   dctx.fillRect(0, 0, dark.width, dark.height);
   dctx.globalCompositeOperation = 'destination-out';
   const hole = (x, y, R) => {
@@ -960,19 +1064,22 @@ function drawDark(s) {
   for (const sh of s.shots) hole((cx + sh.x) * k, (cy + sh.y) * k, 46 * k);
   ctx.drawImage(dark, 0, 0, LW, LH);
   // what still shows in the dark: the horizon and the edge of the screen
-  ctx.strokeStyle = 'rgba(243,233,255,0.5)'; ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.arc(cx, cy, s.holeR, 0, TAU); ctx.stroke();
-  ctx.strokeStyle = rgba(C.cyan, 0.35);
-  ctx.beginPath(); ctx.arc(cx, cy, TUNE.R_OUT + 3, 0, TAU); ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx, cy, s.holeR, 0, TAU);
+  tube(ctx, '#b45cff', 1.6, 0.6);
+  ctx.beginPath(); ctx.arc(cx, cy, TUNE.R_OUT + 3, 0, TAU);
+  tube(ctx, C.red, 1.6, 0.45);
 }
 
 function drawFloats() {
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   for (const f of fx.floats) {
     ctx.globalAlpha = Math.min(1, f.life * 2.2);
-    ctx.font = `${f.size}px VT323, monospace`;
-    ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillText(f.text, f.x + 1, f.y + 1);
+    ctx.font = `700 ${Math.round(f.size * 0.62)}px Orbitron, sans-serif`;
+    ctx.fillStyle = 'rgba(0,0,0,0.65)'; ctx.fillText(f.text, f.x + 1, f.y + 1.5);
+    glow(f.color, 10);
     ctx.fillStyle = f.color; ctx.fillText(f.text, f.x, f.y);
+    noGlow();
+    ctx.fillStyle = 'rgba(255,255,255,0.45)'; ctx.fillText(f.text, f.x, f.y);      // a hot core, so it reads over the glow
   }
   ctx.globalAlpha = 1;
 }
@@ -989,12 +1096,15 @@ function drawBanner(s, t) {
   if (bn && (view === run || s.phase !== 'play')) {
     const a = Math.min(1, bn.t * 3, (bn.dur - bn.t) * 5);
     ctx.globalAlpha = Math.max(0, a);
-    const y = cy - 200;
-    ctx.fillStyle = 'rgba(3,4,10,0.72)';
-    ctx.fillRect(cx - 250, y - 30, 500, 92);
+    const y = cy - 200, tint = TINT[s.rule.id] || C.purple;
+    // a pane of dark glass, framed the way the menus are
+    roundRect(ctx, cx - 250, y - 32, 500, 96, 6);
+    ctx.fillStyle = 'rgba(4,5,14,0.8)'; ctx.fill();
+    ctx.strokeStyle = rgba(tint, 0.55); ctx.lineWidth = 1; ctx.stroke();
+    brackets(ctx, cx - 256, y - 38, 512, 108, tint, 14, 0.9);
     ctx.font = '900 30px Orbitron, "Arial Black", sans-serif';
     chroma(bn.title, cx, y - 6, 2.5, C.text);
-    ctx.font = '28px VT323, monospace';
+    ctx.font = '700 15px Orbitron, sans-serif';
     ctx.fillStyle = C.amber; ctx.fillText(bn.sub, cx, y + 24);
     ctx.font = '13px "Share Tech Mono", monospace';
     ctx.fillStyle = 'rgba(238,247,255,0.8)'; ctx.fillText(bn.line, cx, y + 47);
@@ -1003,7 +1113,7 @@ function drawBanner(s, t) {
   // 3 · 2 · 1 over the hole
   if (view === run && s.phase === 'intro' && s.phaseT <= 2.4 && crash.t <= 0) {
     const n = Math.ceil(s.phaseT / 0.8), k = (s.phaseT % 0.8) / 0.8;
-    ctx.font = `${Math.round(120 + k * 60)}px VT323, monospace`;
+    ctx.font = `900 ${Math.round(74 + k * 40)}px Orbitron, "Arial Black", sans-serif`;
     ctx.globalAlpha = 0.35 + k * 0.65;
     chroma(String(n), cx, cy + 4, 4, '#fff');
     ctx.globalAlpha = 1;
@@ -1180,11 +1290,21 @@ function wantFps() {
   const m = mode === 'play' ? 'active' : mode === 'menu' ? 'calm' : 'idle';
   return Power.fpsFor({ touch: IS_TOUCH, saving: Power.saving, mode: m });
 }
+// A machine that cannot keep up loses the bloom, not the frame rate: if the
+// picture stays under about forty frames a second while it is asking for
+// sixty, the bloom pass is dropped until the page is opened again.
+let bloomOff = false, slowT = 0;
+function watchSpeed(dt) {
+  if (bloomOff || !fxFull() || Power.saving || (mode !== 'play' && mode !== 'menu') || wantFps() < 50) { slowT = 0; return; }
+  slowT = dt > 1 / 42 ? slowT + dt : Math.max(0, slowT - dt * 2);
+  if (slowT > 2.5) bloomOff = true;
+}
 function frame(now) {
   requestAnimationFrame(frame);
   if (!pacer.due(now, wantFps())) return;
   const dt = Math.min(0.05, Math.max(0, (now - last) / 1000));
   last = now;
+  watchSpeed(dt);
   update(dt);
   draw();
 }
@@ -1204,5 +1324,6 @@ requestAnimationFrame(frame);
 // for the console and the tests that drive the page
 window.Nexus = {
   get run() { return run; }, get mode() { return mode; }, get view() { return view; }, get fx() { return fx; },
+  get bloomOff() { return bloomOff; }, set bloomOff(v) { bloomOff = !!v; slowT = 0; },
   Null, save, startRun, endRun, pause, resume, toMenu, startCrash, input
 };

@@ -591,6 +591,17 @@ test('the page loads the arcade\'s shared files at the arcade\'s versions, and i
   for (const f of files) assert.ok(existsSync(new URL('../' + f, import.meta.url)), `${f} exists`);
 });
 
+test('both cabinets draw with the same neon.js', () => {
+  // the look is shared: one file, copied, and the copies must not drift apart
+  assert.equal(src('signal/js/neon.js'), src('nexus/js/neon.js'));
+  for (const page of ['signal/js/game.js', 'nexus/js/game.js']) {
+    const game = src(page);
+    assert.match(game, /from '\.\/neon\.js'/, `${page} uses it`);
+    assert.match(game, /bloom\.apply\(/, `${page} blooms`);
+    assert.match(game, /fxFull\(\) && !Power\.saving && !bloomOff/, `${page}: reduced FX, the battery saver and a slow machine all turn the bloom off`);
+  }
+});
+
 test('the arcade knows cabinet 04', () => {
   const arcade = src('glitchcade.js'), floor = src('glitchcade-floor.js'), site = src('glitchpong-site.js'), admin = src('glitchpong-admin.js');
   assert.match(arcade, /SIGNAL_URL = 'signal\/index\.html\?cabinet'/);
