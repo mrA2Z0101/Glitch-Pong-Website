@@ -501,7 +501,7 @@ function update(dt) {
 // ═══════════════════════════════════════════════════════════════════════════
 const cache = {};
 function set(id, text) { if (cache[id] !== text) { cache[id] = text; $(id).textContent = text; } }
-const NOISE = '▓▒░#%&@';
+const NOISE = '#%&@$?';             // the same width as a digit, so the readout does not jump about
 function hud() {
   const s = view, m = s.maze, mine = view === run;
   set('vScore', String(Math.floor(s.score)).padStart(6, '0'));
