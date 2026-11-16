@@ -30,6 +30,7 @@ then open `http://localhost:5180/signal/`. It needs a server (the game is ES mod
 - **From Glitch Pong:** Heat, which multiplies your score up to x3; THE EYE arriving when Heat is full; the dash; and ten mazes that are Glitch Pong's arenas, each with that arena's one rule and its music.
 - **An ending.** Clear the tenth maze, THE EYE'S LAIR, and the signal is restored. After that the ten come round again, faster, for as long as you last.
 - **It can be beaten, and the tests check it.** Every packet can always be reached, there are no dead ends, the static is never as fast as you, and a wall never moves without a warning or in a way that would trap you.
+- **The look of the other cabinets:** glass walls edged in neon, a painted backdrop for each maze, and light that blooms.
 - **The sentient ball**, with LOYAL, GRUDGE, SHOW-OFF and MOURNING. It talks.
 - **The static**, which talks more. It reads your save, the clock, and what you did in the other cabinets.
 - **Glitchcade coins**: 2 a maze, 10 for the tenth, into the same wallet as the other games.

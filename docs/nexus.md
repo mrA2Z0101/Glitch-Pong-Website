@@ -35,6 +35,7 @@ Two characters talk, and both know they are in a game:
 | `js/game.js` | Drawing, sound triggers, controls, menus, and the things NULL does to the page |
 | `js/audio.js` | Streamed music and synthesized sound effects |
 | `js/wallet.js` | What is shared with the other cabinets: coins, the cabinet bridge, ball colour, skin and trail |
+| `js/neon.js` | The drawing helpers behind the look: glass panes, neon tubes, soft lights, comet trails, sparks, the bloom pass. The same file is in both `nexus/` and `signal/`; a test keeps the two copies equal. |
 
 `js/rules.js` and `js/voice.js` run under Node:
 
@@ -44,6 +45,18 @@ node scripts/nexus-sim.mjs         # plays 12 runs with the bot and prints what 
 ```
 
 The game is ES modules, so it has to be served (`python -m http.server` from the repo root, then `/nexus/`); it does not open from a file.
+
+## How it is drawn
+
+The picture is built the way Glitch Pong and Breakpoint build theirs, so the three cabinets look like one machine.
+
+- **A painted backdrop.** Deep space behind the well (nebula, stars, the arcade's grid, corner brackets) is painted once for each sector onto its own sheet and copied to the screen each frame. Each sector rule tints it its own colour. Over it turn the rings of wire from Glitch Pong's Black Hole Nexus arena.
+- **The well.** Rings that crowd together toward the hole and spokes that twist as they fall in. The glass edge is a tube of neon with an instrument's tick marks round it. The hole has Glitch Pong's ring of violet light and, when THE EYE is not in it, its spokes.
+- **Glass.** Breakpoint's bricks are panes of holographic glass: a see-through body, a sheen across the top, a crisp edge. Glitch Pong's paddles are bars of solid light. Static is a pane with snow sliding across it.
+- **Light.** The ball, its shots, the thrust and every spark add light to what is under them. A hit goes off with a ring.
+- **Bloom.** After everything is drawn, the picture is shrunk to a ninth of its size and smaller, and added back over itself, so anything bright spills light. *Screen FX: Reduced* and the battery saver both turn it off. If the page stays under about forty frames a second while asking for sixty, the bloom is dropped until the page is opened again (`watchSpeed` in `js/game.js`).
+
+None of this is in `js/rules.js`: the look can change without the game changing.
 
 ## Controls
 
@@ -254,6 +267,8 @@ Three things were changed because of what the bot did:
 | What NULL or the ball says | `js/voice.js` |
 | What NULL does to the page | `onEvent`, `hud` and `startCrash` in `js/game.js` |
 | How the debris is drawn | `drawDebris` in `js/game.js` |
+| The backdrop, the well, the hole | `paintBackdrop`, `drawWell`, `drawHole` in `js/game.js` |
+| Glass, tubes, lights, the bloom | `js/neon.js` (change it in `nexus/` and copy it to `signal/`) |
 | The music | `MUSIC` in `js/audio.js` |
 | The cabinet in the arcade | `makeNexusMarquee`, `makeNexusSideArt`, `createNexusScreen`, `buildNexusCabinet` in `glitchcade.js` |
 

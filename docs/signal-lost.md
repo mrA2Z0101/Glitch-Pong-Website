@@ -37,6 +37,7 @@ Two characters talk, and both know they are in a game:
 | `js/game.js` | Drawing, sound triggers, controls, menus, and the things the static does to the page |
 | `js/audio.js` | Streamed music and synthesized sound effects |
 | `js/wallet.js` | What is shared with the other cabinets: coins, the cabinet bridge, ball colour, skin and trail |
+| `js/neon.js` | The drawing helpers behind the look: glass panes, neon tubes, soft lights, comet trails, sparks, the bloom pass. The same file is in both `nexus/` and `signal/`; a test keeps the two copies equal. |
 
 `js/rules.js` and `js/voice.js` run under Node:
 
@@ -46,6 +47,19 @@ node scripts/signal-sim.mjs        # plays 12 runs with the bot and prints what 
 ```
 
 The game is ES modules, so it has to be served (`python -m http.server` from the repo root, then `/signal/`); it does not open from a file.
+
+## How it is drawn
+
+The picture is built the way Glitch Pong and Breakpoint build theirs, so the cabinets look like one machine.
+
+- **A painted backdrop.** The wall behind the maze (nebula, stars, the arcade's grid, light coming up off the floor, corner brackets) is painted once for each maze onto its own sheet. Each of the ten mazes takes its arena's colour and leaves something of that arena on the wall: the court's centre line, a stack of hex digits, frost, the train's rails.
+- **The walls.** Panes of glass with scan lines across them and a tube of neon round every edge. The tube is walked corner by corner, so every turn is a curve. They are drawn once for each maze, and again when a wall moves.
+- **Packets** are points of light. **Overrides** are turning panes of amber glass.
+- **The static.** Each of the four is a pane of live static in its own colour, with a white visor on the side it is heading and, now and then, a slice of itself out of place. Running, they lose their colour and their edge goes to dashes.
+- **Light.** The ball, its comet trail and every spark add light to what is under them. A catch goes off with a ring.
+- **Bloom.** After everything is drawn, the picture is shrunk to a ninth of its size and smaller, and added back over itself, so anything bright spills light. *Screen FX: Reduced* and the battery saver both turn it off. If the page stays under about forty frames a second while asking for sixty, the bloom is dropped until the page is opened again (`watchSpeed` in `js/game.js`).
+
+None of this is in `js/rules.js`: the look can change without the game changing.
 
 ## Controls
 
@@ -264,6 +278,8 @@ And one thing was learned about the game from the bot's first version, which did
 | What the static or the ball says | `js/voice.js` |
 | What the static does to the page | `onEvent`, `hud` and `startNoSignal` in `js/game.js` |
 | How the maze and the static are drawn | `drawWalls`, `drawChasers` in `js/game.js` |
+| The wall behind a maze | `paintBackdrop` and `ACCENT` in `js/game.js` |
+| Glass, tubes, lights, the bloom | `js/neon.js` (change it in `nexus/` and copy it to `signal/`) |
 | The music | `MUSIC` in `js/audio.js` |
 | The cabinet in the arcade | `makeSignalMarquee`, `makeSignalSideArt`, `createSignalScreen`, `buildSignalCabinet` in `glitchcade.js` |
 
