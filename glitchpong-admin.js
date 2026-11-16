@@ -34,11 +34,12 @@ const GlitchAdmin = (function () {
     rally: "glitchPong_bestRally_v1",
     breakpoint: "glitchcade_breakpoint_v1",
     nexus: "glitchcade_nexus_v1",
+    signal: "glitchcade_signal_v1",
     floor: "glitchcade_floor_v1"
   };
   const MAX_LEVEL = 50;
   const BIG_COINS = 10000;
-  const FLOOR_STATE_URL = "./glitchcade-state.js?v=floor-2";
+  const FLOOR_STATE_URL = "./glitchcade-state.js?v=floor-3";
 
   // ─── Small helpers ────────────────────────────────────────────────────────
   const hasWindow = typeof window !== "undefined";
@@ -296,7 +297,7 @@ const GlitchAdmin = (function () {
     // Settings, key bindings and admin mode itself are kept.
     resetProgress() {
       lib("progression").reset();
-      [KEYS.wallet, KEYS.achievements, KEYS.cosmetics, KEYS.rally, KEYS.breakpoint, KEYS.nexus, KEYS.floor].forEach((k) => store.remove(k));
+      [KEYS.wallet, KEYS.achievements, KEYS.cosmetics, KEYS.rally, KEYS.breakpoint, KEYS.nexus, KEYS.signal, KEYS.floor].forEach((k) => store.remove(k));
       try { lib("achievements").reload(); } catch (e) {}
       try { lib("cosmetics").load(); } catch (e) {}
       emit("glitchcade:wallet", { coins: 0, earned: 0, wins: 0, prizes: [] });

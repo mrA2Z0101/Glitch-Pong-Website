@@ -149,8 +149,8 @@ test('Unlock Everything also repairs the arcade floor', async () => {
   const r = await A.actions.unlockEverything();
   assert.deepEqual(plain(r.skipped), [], 'the floor state module loaded');
   const floor = JSON.parse(store.glitchcade_floor_v1);
-  // cabinets 04–10: 01, 02 and 03 are finished games and never needed a repair
-  assert.deepEqual(plain(floor.repaired).sort((a, b) => a - b), [4, 5, 6, 7, 8, 9, 10]);
+  // cabinets 05–10: 01 to 04 are finished games and never needed a repair
+  assert.deepEqual(plain(floor.repaired).sort((a, b) => a - b), [5, 6, 7, 8, 9, 10]);
   assert.ok(floor.toys.length > 0 && floor.packs.length > 0);
 });
 
@@ -200,14 +200,14 @@ test('set level, add coins and the single unlocks work on their own', async () =
 });
 
 test('Reset Progress clears progress but keeps settings and admin mode', async () => {
-  const { A, store, sandbox } = load({ store: { glitchPong_keyBindings_v1: '{"p1Up":"KeyI"}', glitchcade_nexus_v1: '{"best":900,"runs":4}' } });
+  const { A, store, sandbox } = load({ store: { glitchPong_keyBindings_v1: '{"p1Up":"KeyI"}', glitchcade_nexus_v1: '{"best":900,"runs":4}', glitchcade_signal_v1: '{"best":70,"runs":2}' } });
   await A.enable(PASSPHRASE);
   await A.actions.unlockEverything();
   A.actions.resetProgress();
   assert.equal(sandbox.GlitchProgression.level, 1);
   assert.equal(sandbox.GlitchcadeWallet.get().coins, 0);
   assert.equal(sandbox.GlitchAchievements.unlockedCount, 0);
-  ['glitchcade_wallet_v1', 'glitchPong_achievements_v1', 'glitchPong_cosmetics_v1', 'glitchcade_floor_v1', 'glitchcade_nexus_v1'].forEach((k) => {
+  ['glitchcade_wallet_v1', 'glitchPong_achievements_v1', 'glitchPong_cosmetics_v1', 'glitchcade_floor_v1', 'glitchcade_nexus_v1', 'glitchcade_signal_v1'].forEach((k) => {
     assert.equal(k in store, false, `${k} removed`);
   });
   assert.equal(store.glitchPong_keyBindings_v1, '{"p1Up":"KeyI"}', 'key bindings kept');

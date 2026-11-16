@@ -7,21 +7,22 @@ import {
   rollDay, onlineCount, createFloorStore, todayStr
 } from '../glitchcade-state.js';
 
-test('cabinets 04–10 each have a ROM fragment', () => {
-  assert.deepEqual(REPAIRABLE_SLOTS, [4, 5, 6, 7, 8, 9, 10]);
+test('cabinets 05–10 each have a ROM fragment', () => {
+  assert.deepEqual(REPAIRABLE_SLOTS, [5, 6, 7, 8, 9, 10]);
   const idsSeen = new Set(Object.values(FRAGMENTS).map((f) => f.id));
-  assert.equal(idsSeen.size, 7, 'fragment ids are unique');
-  // cabinet 03 is a whole game now; SIGNAL LOST moved to the cabinet its fragment left
+  assert.equal(idsSeen.size, 6, 'fragment ids are unique');
+  // cabinets 03 and 04 are whole games now; FIREWALL has the cabinet SIGNAL LOST's fragment left
   assert.equal(FRAGMENTS[3], undefined);
-  assert.equal(FRAGMENTS[6].id, 'signal-lost');
-  assert.ok(!idsSeen.has('black-hole-nexus'));
+  assert.equal(FRAGMENTS[4], undefined);
+  assert.equal(FRAGMENTS[6].id, 'firewall');
+  assert.ok(!idsSeen.has('black-hole-nexus') && !idsSeen.has('signal-lost'));
   for (const f of Object.values(FRAGMENTS)) assert.match(f.id, /^[a-z0-9_-]{1,40}$/, 'ids survive the save filter');
 });
 
 test('repairs get dearer and stay bounded', () => {
   assert.equal(repairCost(0), 15);
-  assert.equal(repairCost(6), 45);
-  assert.equal(repairCost(99), 45);
+  assert.equal(repairCost(5), 40);
+  assert.equal(repairCost(99), 40);
   assert.equal(repairCost(-3), 15);
 });
 
@@ -95,7 +96,7 @@ test('daily progress counts from the day\'s baseline and caps at the goal', () =
 
 test('Breakpoint coins are the wallet earnings nothing else explains', () => {
   const s = statSnapshot({ earned: 100, wins: 4 }, { wins: 6, matchesPlayed: 9, bossSurvivals: 2 }, { floorEarned: 25, hockey: { wins: 3 }, fragmentsPlayed: 7 });
-  assert.deepEqual(s, { gpWins: 6, gpMatches: 9, gpBoss: 2, bpCoins: 35, nxCoins: 0, hockeyWins: 3, fragments: 7 });
+  assert.deepEqual(s, { gpWins: 6, gpMatches: 9, gpBoss: 2, bpCoins: 35, nxCoins: 0, sgCoins: 0, hockeyWins: 3, fragments: 7 });
   assert.equal(statSnapshot({ earned: 5, wins: 4 }, {}, {}).bpCoins, 0, 'never negative');
 });
 
@@ -105,6 +106,11 @@ test('coins Black-Hole Nexus paid are counted apart from Breakpoint\'s', () => {
   assert.equal(s.bpCoins, 21);
   assert.equal(statSnapshot({ earned: 100, wins: 4 }, {}, {}, { coins: 'lots' }).nxCoins, 0);
   assert.ok(DAILY_POOL.some((c) => c.parts.some((part) => part.stat === 'nxCoins')), 'a daily challenge sends you to cabinet 03');
+  // and Signal Lost's, the same way
+  const both = statSnapshot({ earned: 100, wins: 4 }, {}, { floorEarned: 25 }, { coins: 14 }, { coins: 6 });
+  assert.equal(both.sgCoins, 6);
+  assert.equal(both.bpCoins, 15);
+  assert.ok(DAILY_POOL.some((c) => c.parts.some((part) => part.stat === 'sgCoins')), 'a daily challenge sends you to cabinet 04');
   // every stat a challenge asks about is one the snapshot provides
   for (const c of DAILY_POOL) for (const part of c.parts) assert.ok(part.stat in s, `${c.id}: ${part.stat}`);
 });
@@ -126,8 +132,8 @@ test('the capsule is fixed for a date and never repeats an owned toy', () => {
 test('sanitizeFloor drops junk and keeps good values', () => {
   const dirty = {
     initials: 'x<y',
-    v: 2,
-    repaired: [3, 5, 5, 99, '4', 'nope'],
+    v: 3,
+    repaired: [3, 5, 5, 99, '4', '7', 'nope'],
     chipUsed: 1,
     scores: { 'signal-lost': [{ n: 'me!', s: 12.9 }, { n: 'bad', s: -4 }, 'junk'], '<script>': [{ n: 'aaa', s: 1 }] },
     frag: { date: '2026-11-10', paid: { 'signal-lost': 4, 'bad key!': 9 } },
@@ -140,7 +146,7 @@ test('sanitizeFloor drops junk and keeps good values', () => {
   };
   const clean = sanitizeFloor(dirty);
   assert.equal(clean.initials, 'XYA');
-  assert.deepEqual(clean.repaired, [5, 4], 'cabinet 03 is not one you repair any more');
+  assert.deepEqual(clean.repaired, [5, 7], 'cabinets 03 and 04 are not ones you repair any more');
   assert.equal(clean.chipUsed, true);
   assert.deepEqual(clean.scores, { 'signal-lost': [{ n: 'MEA', s: 12 }] });
   assert.deepEqual(clean.frag, { date: '2026-11-10', paid: { 'signal-lost': 4 } });
@@ -155,21 +161,26 @@ test('sanitizeFloor drops junk and keeps good values', () => {
   assert.deepEqual(sanitizeFloor('garbage'), defaultFloor());
 });
 
-test('an older record keeps its SIGNAL LOST repair when that cabinet moves from 03 to 06', () => {
-  // saved before cabinet 03 became Black-Hole Nexus: no version, or version 1
-  assert.deepEqual(sanitizeFloor({ repaired: [3, 4] }).repaired, [6, 4]);
-  assert.deepEqual(sanitizeFloor({ v: 1, repaired: [3, 6, 9] }).repaired, [6, 9], 'both repaired: one cabinet, not two');
+test('an older record follows the fragments as their cabinets become whole games', () => {
+  // Saved before cabinet 03 became Black-Hole Nexus (no version, or version 1):
+  // 03 was SIGNAL LOST, 04 FIREWALL, 06 the BLACK-HOLE NEXUS fragment.
+  // Saved before cabinet 04 became Signal Lost (version 2): 04 FIREWALL, 06 SIGNAL LOST.
+  // Now: 06 is FIREWALL, and neither of the other two fragments has a cabinet.
+  assert.deepEqual(sanitizeFloor({ repaired: [3, 4] }).repaired, [6], 'FIREWALL moves to 06; SIGNAL LOST is a whole game now');
+  assert.deepEqual(sanitizeFloor({ v: 1, repaired: [3, 6, 9] }).repaired, [9]);
   assert.deepEqual(sanitizeFloor({ v: 1, repaired: [5] }).repaired, [5]);
-  const moved = sanitizeFloor({ v: 1, repaired: [3], scores: { 'signal-lost': [{ n: 'AAA', s: 9 }] } });
-  assert.equal(moved.v, 2);
-  assert.deepEqual(moved.scores['signal-lost'], [{ n: 'AAA', s: 9 }], 'its high scores go with it');
+  assert.deepEqual(sanitizeFloor({ v: 2, repaired: [4, 6, 7] }).repaired, [6, 7], 'FIREWALL to 06, the SIGNAL LOST fragment gone');
+  assert.deepEqual(sanitizeFloor({ v: 2, repaired: [6] }).repaired, []);
+  const moved = sanitizeFloor({ v: 2, repaired: [4], scores: { firewall: [{ n: 'AAA', s: 9 }] } });
+  assert.equal(moved.v, 3);
+  assert.deepEqual(moved.scores.firewall, [{ n: 'AAA', s: 9 }], 'its high scores go with it');
   assert.deepEqual(sanitizeFloor(moved).repaired, [6], 'and it only moves once');
-  assert.equal(onlineCount(moved), 4, 'Glitch Pong, Breakpoint, Black-Hole Nexus and the one repair');
+  assert.equal(onlineCount(moved), 5, 'the four finished games and the one repair');
 });
 
 test('a new day clears the daily parts and leaves the rest', () => {
   const f = defaultFloor();
-  f.repaired = [4];
+  f.repaired = [5];
   f.frag = { date: '2026-01-01', paid: { firewall: 6 } };
   f.daily = { date: '2026-01-01', base: { gpWins: 1 }, claimed: true };
   f.capsule = { date: '2026-01-01', bought: true };
@@ -180,8 +191,8 @@ test('a new day clears the daily parts and leaves the rest', () => {
   assert.equal(f.capsule.bought, false);
   assert.equal(f.hockey.paid, 0);
   assert.equal(f.hockey.wins, 8, 'lifetime wins survive');
-  assert.deepEqual(f.repaired, [4]);
-  assert.equal(onlineCount(f), 4);
+  assert.deepEqual(f.repaired, [5]);
+  assert.equal(onlineCount(f), 5);
 });
 
 test('the store round-trips through storage and survives a corrupt record', () => {

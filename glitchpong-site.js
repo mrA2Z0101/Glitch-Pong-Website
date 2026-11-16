@@ -637,6 +637,18 @@ const GlitchSave = (function() {
   const KEYCODE_RE = /^[A-Za-z0-9]{1,32}$/;
   const num = (v, lo = 0, hi = 1e9) => { const n = Number(v); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : null; };
 
+  // A cabinet's own record: a flat object of numbers and switches.
+  const cabinetRecord = (v) => {
+    if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+    const out = {};
+    Object.keys(v).slice(0, 30).forEach((k) => {
+      if (!ID_RE.test(k)) return;
+      if (typeof v[k] === "boolean") out[k] = v[k];
+      else { const n = num(v[k]); if (n !== null) out[k] = Math.floor(n); }
+    });
+    return out;
+  };
+
   // localStorage key → how to clean an imported value (null drops it).
   const ENTRIES = {
     glitchPong_progression_v1: (v) => {
@@ -697,18 +709,11 @@ const GlitchSave = (function() {
       return GlitchCosmetics.sanitize(v);
     },
     glitchcade_breakpoint_v1: (v) => (v && typeof v === "object" ? { sectors: Math.floor(num(v.sectors) || 0) } : null),
-    // Black-Hole Nexus (cabinet 03): counts and switches only. nexus/js/rules.js
-    // cleans it properly when that page loads it.
-    glitchcade_nexus_v1: (v) => {
-      if (!v || typeof v !== "object" || Array.isArray(v)) return null;
-      const out = {};
-      Object.keys(v).slice(0, 30).forEach((k) => {
-        if (!ID_RE.test(k)) return;
-        if (typeof v[k] === "boolean") out[k] = v[k];
-        else { const n = num(v[k]); if (n !== null) out[k] = Math.floor(n); }
-      });
-      return out;
-    },
+    // Black-Hole Nexus (cabinet 03) and Signal Lost (cabinet 04): counts and
+    // switches only. Each game's js/rules.js cleans its record properly when
+    // its page loads it.
+    glitchcade_nexus_v1: (v) => cabinetRecord(v),
+    glitchcade_signal_v1: (v) => cabinetRecord(v),
     // Breakpoint-only prizes bought at the counter; glitchcade-breakpoint-prizes.js owns the shape.
     glitchcade_breakpoint_prizes_v1: (v) => {
       if (!v || typeof v !== "object" || typeof GlitchBreakpointPrizes === "undefined") return null;

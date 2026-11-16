@@ -1,6 +1,6 @@
 # The arcade floor
 
-Everything in the Glitchcade that isn't one of the three finished games (Glitch Pong, Breakpoint, and Black-Hole Nexus, which has [its own page](nexus.md)): repairing cabinets, the Eye's events, the daily challenge, the air hockey table, and so on. This page says what each thing does and where to change it.
+Everything in the Glitchcade that isn't one of the four finished games (Glitch Pong, Breakpoint, [Black-Hole Nexus](nexus.md) and [Signal Lost](signal-lost.md)): repairing cabinets, the Eye's events, the daily challenge, the air hockey table, and so on. This page says what each thing does and where to change it.
 
 | File | What's in it |
 |---|---|
@@ -12,9 +12,9 @@ The floor's progress is stored in the browser under `glitchcade_floor_v1` and tr
 
 ## Repairing cabinets
 
-Cabinets 04–10 start dead. Walk up to one and press E:
+Cabinets 05–10 start dead. Walk up to one and press E:
 
-- The first repair costs 15 coins and each one after costs 5 more (`repairCost`), up to 45 for the seventh.
+- The first repair costs 15 coins and each one after costs 5 more (`repairCost`), up to 40 for the sixth.
 - Owning the **Overclock Chip** prize makes one repair free. The chip stays in your collection.
 - The badge in the corner, the title menu and the info board count cabinets online.
 
@@ -22,15 +22,19 @@ A repaired cabinet runs a **ROM fragment**: a 30-second microgame named after th
 
 | Cabinet | Fragment | The idea | Full payout at |
 |---|---|---|---|
-| 04 | FIREWALL | Block red packets, let green ones through | 18 |
 | 05 | DEFRAG | Steer each fragment into the bin of its colour | 22 |
-| 06 | SIGNAL LOST | Collect signal packets while static chases you | 14 |
+| 06 | FIREWALL | Block red packets, let green ones through | 18 |
 | 07 | STACK OVERFLOW | Press when the pointer is on the glowing frame | 18 |
 | 08 | PACKET HOP | Cross the lanes to the top, again and again | 7 |
 | 09 | SWARM PROTOCOL | Your gun fires itself; keep it under the swarm | 24 |
 | 10 | MISSILE DEFENSE.EXE | Burst threats before they reach the servers | 16 |
 
-Cabinet 03 used to be SIGNAL LOST's, and cabinet 06 ran a 30-second BLACK-HOLE NEXUS. That fragment is now a whole game on cabinet 03, next to Breakpoint, and SIGNAL LOST moved to the cabinet it left. A save from before the move that had cabinet 03 repaired has cabinet 06 repaired instead (`sanitizeFloor`), and SIGNAL LOST's high scores go with it. A player who had repaired both ends up with one repair fewer and is not refunded.
+Two fragments have become whole games, and each time the cabinets were shuffled so the finished games stand in a row by the door:
+
+- **BLACK-HOLE NEXUS** ran on cabinet 06. It is now a whole game on cabinet 03, and SIGNAL LOST's fragment, which had 03, moved to 06.
+- **SIGNAL LOST** is now a whole game on cabinet 04, and FIREWALL's fragment, which had 04, moved to 06.
+
+An older save follows the moves (`sanitizeFloor`): a repaired FIREWALL cabinet is still repaired, at 06, with its high scores. A repair that was paid for the BLACK-HOLE NEXUS or SIGNAL LOST fragment is not refunded; that cabinet is a finished game now and needs no repair.
 
 A run pays 0–3 coins: one coin per third of the target score. Each cabinet pays at most 6 coins a day (`FRAGMENT_DAILY_CAP`); after that it still plays, for score only. A top-five score asks for three initials.
 
@@ -48,7 +52,7 @@ Every minute or two of walking around inside, every ceiling TV cuts to the Eye. 
 |---|---|
 | KERNEL PANIC | The lights go out for about ten seconds. Neon and screens stay lit. |
 | LAG SPIKE | Every second or so you snap back to where you were 0.6 s ago. With reduced motion on, you're slowed instead. |
-| QUANTUM SHIFT | Two of cabinets 04–10 trade places. They stay swapped until you reload. |
+| QUANTUM SHIFT | Two of cabinets 05–10 trade places. They stay swapped until you reload. |
 
 The three come up in a shuffled order so you see each before any repeats. Timing and durations are in `EYE_EVENTS` and `updateEye()` in `glitchcade-floor.js`.
 
@@ -56,7 +60,7 @@ The three come up in a shuffled order so you see each before any repeats. Timing
 
 The board on the front wall, left of the door, shows one challenge per calendar day, picked from `DAILY_POOL` by the date. Most span both games, for example "win a Glitch Pong match and earn 4 coins in Breakpoint". Finish it, then press E at the board to claim the reward (10–15 coins).
 
-Progress is measured as the change in a few numbers since your first visit that day (`statSnapshot`): Glitch Pong wins, matches and Eye survivals, coins earned in Breakpoint, coins earned in Black-Hole Nexus, air hockey wins and fragments played. Black-Hole Nexus counts the coins it pays in its own save, which is how the board tells them from Breakpoint's. To add a challenge, add an entry to `DAILY_POOL` using those stats.
+Progress is measured as the change in a few numbers since your first visit that day (`statSnapshot`): Glitch Pong wins, matches and Eye survivals, coins earned in Breakpoint, in Black-Hole Nexus and in Signal Lost, air hockey wins and fragments played. Black-Hole Nexus and Signal Lost each count the coins they pay in their own save, which is how the board tells them from Breakpoint's. To add a challenge, add an entry to `DAILY_POOL` using those stats.
 
 ## Prizes that do something
 
@@ -69,7 +73,7 @@ Progress is measured as the change in a few numbers since your first visit that 
 
 Two channels were added to the rotation:
 
-- **High scores**: a page per cabinet. Glitch Pong's is your longest rally, Breakpoint's and Black-Hole Nexus's are your best run scores, each repaired cabinet has its fragment table, and the last page is your air hockey record. The machines have entries of their own (EYE, P80, GLT...) so there is always something to beat.
+- **High scores**: a page per cabinet. Glitch Pong's is your longest rally, Breakpoint's, Black-Hole Nexus's and Signal Lost's are your best run scores, each repaired cabinet has its fragment table, and the last page is your air hockey record. The machines have entries of their own (EYE, P80, GLT...) so there is always something to beat.
 - **Rally replay**: Glitch Pong records where the ball met each paddle during your longest rally (`GlitchRallyTape` in `glitchpong-site.js`, stored under `glitchPong_bestRally_v1`). The channel replays it. The paddle contacts are real; the path between them is drawn in.
 
 ## PRIZETRON-80
@@ -109,4 +113,4 @@ Press P (or the PHOTO button on a phone). Aim with the mouse, zoom with W/S, cli
 
 ## Performance note
 
-Cabinets 04–10 are batched one cabinet at a time instead of into the building-wide batches, because a Quantum Shift has to move them. From the front door that is roughly 100 more draw calls than before (about 215 to 325); frame CPU time measured the same. For frame rate, battery saver and phone heat see `power.md`.
+Cabinets 05–10 are batched one cabinet at a time instead of into the building-wide batches, because a Quantum Shift has to move them. From the front door that is roughly 100 more draw calls than before (about 215 to 325); frame CPU time measured the same. For frame rate, battery saver and phone heat see `power.md`.

@@ -9,7 +9,7 @@ import { UnrealBloomPass } from './vendor/three-addons/postprocessing/UnrealBloo
 import { OutputPass } from './vendor/three-addons/postprocessing/OutputPass.js';
 import { mergeGeometries } from './vendor/three-addons/utils/BufferGeometryUtils.js';
 import { createArcadeAudio } from './glitchcade-audio.js?v=glitchcade-10';
-import { installFloor } from './glitchcade-floor.js?v=floor-5';
+import { installFloor } from './glitchcade-floor.js?v=floor-6';
 
 // Power policy (glitchcade-power.js, a plain script loaded ahead of this module).
 // A stub keeps the arcade running if that script is missing.
@@ -32,15 +32,16 @@ const C = {
   paddleRed: '#ff3b5c'
 };
 
-// The games planned for cabinets 04–10, glitched takes on arcade classics.
+// The games planned for cabinets 05–10, glitched takes on arcade classics.
 // Still compiling: their marquees, side art and prompts carry the names.
-// Cabinet 03 is Black-Hole Nexus, finished: its classic is the spin-and-thrust
-// rock shooter. Its old 30-second fragment ran on cabinet 06, which SIGNAL
-// LOST now has. Every cabinet is a take on one classic, in this look.
+// Every cabinet is a take on one classic, in this look. The finished ones:
+// 01 Glitch Pong (bat and ball), 02 Breakpoint (brick breaker), 03 Black-Hole
+// Nexus (spin-and-thrust rock shooter), 04 Signal Lost (maze chase). Signal
+// Lost and Black-Hole Nexus each began as a 30-second fragment on another
+// cabinet; FIREWALL now has the cabinet Signal Lost's fragment left.
 const COMING_SOON_GAMES = {
-  4: 'FIREWALL',             // invaders
   5: 'DEFRAG',               // falling blocks
-  6: 'SIGNAL LOST',          // maze chase
+  6: 'FIREWALL',             // invaders
   7: 'STACK OVERFLOW',       // girder climb
   8: 'PACKET HOP',           // lane crossing
   9: 'SWARM PROTOCOL',       // formation shooter
@@ -1407,6 +1408,227 @@ function createNexusScreen(opts = {}) {
   return { tex, draw, burst: () => { s.burst = 0.7; } };
 }
 
+// ── Signal Lost (cabinet 04): marquee, side art and an attract-mode screen ──
+// A glitched maze chase. The four chasers are pieces of static.
+const SG_STATIC = ['#ff4d6d', '#ff58d9', '#ffd27a', '#9a5dff'];
+function drawStaticBlock(ctx, x, y, size, color, rand) {
+  const n = 4, z = size / n;
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    ctx.fillStyle = hexToRgba(color, 0.3 + rand() * 0.7);
+    ctx.fillRect(x - size / 2 + i * z, y - size / 2 + j * z, z - 0.5, z - 0.5);
+  }
+}
+
+function makeSignalMarquee() {
+  const W = 512, H = 160;
+  const cv = makeCanvas(W, H);
+  const ctx = cv.getContext('2d');
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#04081a');
+  g.addColorStop(0.5, '#0a1a3a');
+  g.addColorStop(1, '#04081a');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+  // a corridor of packets along the bottom, with the ball in it and the static behind
+  ctx.strokeStyle = hexToRgba(C.cyan, 0.8);
+  ctx.lineWidth = 2;
+  ctx.strokeRect(14, 118, W - 28, 28);
+  ctx.fillStyle = '#eaffff';
+  for (let x = 250; x < W - 30; x += 20) ctx.fillRect(x, 130, 4, 4);
+  const rand = seeded(404);
+  SG_STATIC.forEach((c, i) => drawStaticBlock(ctx, 44 + i * 34, 132, 20, c, rand));
+  ctx.fillStyle = '#fff';
+  ctx.shadowColor = C.cyan;
+  ctx.shadowBlur = 12;
+  ctx.beginPath(); ctx.arc(214, 132, 8, 0, Math.PI * 2); ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.font = '900 56px Orbitron, "Arial Black", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  chromaText(ctx, 'SIGNAL LOST', W / 2, 52, 3, '#eaffff', C.cyan);
+  ctx.font = '16px "Share Tech Mono", monospace';
+  ctx.fillStyle = C.amber;
+  ctx.fillText('// CABINET 04 — THERE ARE FOUR OF US //', W / 2, 96);
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = C.cyan;
+  ctx.strokeRect(3, 3, W - 6, H - 6);
+  scanlines(ctx, W, H, 0.14, 4);
+  sliceGlitch(ctx, W, H, seeded(47), 3, 14);
+  return canvasTexture(cv);
+}
+
+// Mirrored like the other side art: canvas left = back of the cabinet.
+function makeSignalSideArt() {
+  const W = 256, H = 512;
+  const cv = makeCanvas(W, H);
+  const ctx = cv.getContext('2d');
+  ctx.translate(W, 0);
+  ctx.scale(-1, 1);
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#03102a');
+  g.addColorStop(1, '#02040e');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+  // maze walls
+  ctx.strokeStyle = hexToRgba(C.cyan, 0.75);
+  ctx.lineWidth = 3;
+  ctx.shadowColor = C.cyan;
+  ctx.shadowBlur = 8;
+  for (const [x, y, w, h] of [[24, 50, 90, 26], [142, 50, 90, 26], [24, 108, 26, 110], [82, 108, 92, 26], [206, 108, 26, 110], [82, 166, 26, 52], [148, 166, 26, 52], [24, 250, 208, 26], [24, 308, 60, 60], [116, 308, 116, 26], [116, 366, 116, 26]]) ctx.strokeRect(x, y, w, h);
+  ctx.shadowBlur = 0;
+  // packets down the corridors
+  ctx.fillStyle = '#eaffff';
+  for (let y = 40; y < 420; y += 22) { ctx.fillRect(126, y, 4, 4); if (y > 230) ctx.fillRect(98, y, 4, 4); }
+  for (let x = 20; x < 240; x += 22) { ctx.fillRect(x, 92, 4, 4); ctx.fillRect(x, 234, 4, 4); ctx.fillRect(x, 292, 4, 4); }
+  // the four, and the ball they are after
+  const rand = seeded(808);
+  drawStaticBlock(ctx, 66, 150, 30, SG_STATIC[0], rand);
+  drawStaticBlock(ctx, 190, 150, 30, SG_STATIC[1], rand);
+  drawStaticBlock(ctx, 60, 404, 30, SG_STATIC[2], rand);
+  drawStaticBlock(ctx, 196, 300, 30, SG_STATIC[3], rand);
+  ctx.save();
+  ctx.fillStyle = '#fff';
+  ctx.shadowColor = C.cyan;
+  ctx.shadowBlur = 18;
+  ctx.beginPath(); ctx.arc(128, 236, 13, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+  ctx.save();
+  ctx.translate(30, 494);
+  ctx.rotate(-Math.PI / 2);
+  ctx.font = '900 30px Orbitron, "Arial Black", sans-serif';
+  ctx.textBaseline = 'middle';
+  chromaText(ctx, 'SIGNAL LOST', 0, 0, 3, '#eaffff');
+  ctx.restore();
+  scanlines(ctx, W, H, 0.14, 4);
+  sliceGlitch(ctx, W, H, seeded(15), 4, 16);
+  return canvasTexture(cv);
+}
+
+// Signal Lost attract mode: the ball going round a block of corridor taking
+// packets, the four behind it, and the static talking to whoever is at the cabinet.
+const SIGNAL_ATTRACT_LINES = [
+  'THERE ARE FOUR OF US.',
+  'WE CAN SEE YOU STANDING THERE.',
+  'YOU ARE FASTER THAN WE ARE. FOR NOW.',
+  'COME IN. BRING THE BALL.',
+  'THIS IS NOT A REPEAT. WE ARE LIVE.'
+];
+function createSignalScreen(opts = {}) {
+  const W = 384, H = 288;
+  const cv = makeCanvas(W, H);
+  const ctx = cv.getContext('2d');
+  const tex = canvasTexture(cv);
+  const promptText = isTouch ? 'TAP  USE  TO  PLAY' : 'PRESS  E  TO  PLAY';
+  // the loop it runs: a rectangle with a bar across the middle, as a list of corners
+  const L = 60, R = W - 60, T = 66, B = H - 60, M = (T + B) / 2;
+  const path = [[L, T], [R, T], [R, M], [L, M], [L, B], [R, B], [R, M], [L, M]];
+  const legs = path.map((p, i) => { const q = path[(i + 1) % path.length]; return Math.hypot(q[0] - p[0], q[1] - p[1]); });
+  const total = legs.reduce((a, b) => a + b, 0);
+  const at = (d) => {
+    d = ((d % total) + total) % total;
+    for (let i = 0; i < path.length; i++) {
+      if (d <= legs[i]) { const p = path[i], q = path[(i + 1) % path.length], k = d / legs[i]; return [p[0] + (q[0] - p[0]) * k, p[1] + (q[1] - p[1]) * k]; }
+      d -= legs[i];
+    }
+    return path[0];
+  };
+  const s = { t: opts.t0 || 0, d: 0, score: 0, burst: 0, glitchFor: 0, eaten: new Map(), fright: 0 };
+  const dots = [];
+  for (let d = 0; d < total; d += 16) dots.push(d);
+
+  function draw(dt) {
+    s.t += dt;
+    s.burst = Math.max(0, s.burst - dt);
+    s.glitchFor = Math.max(0, s.glitchFor - dt);
+    const titleCard = s.t % 14 > 10.5;
+    if (!titleCard) {
+      s.d += 92 * Math.min(dt, 1 / 20);
+      s.fright = Math.max(0, s.fright - dt);
+      for (const d of dots) {
+        const gap = ((s.d - d) % total + total) % total;
+        if (gap < 6 && !(s.eaten.get(d) > s.t)) { s.eaten.set(d, s.t + 9); s.score += 10; if (d === 0) s.fright = 3; }
+      }
+    }
+    ctx.fillStyle = '#03050f';
+    ctx.fillRect(0, 0, W, H);
+    if (titleCard) {
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = '900 44px Orbitron, "Arial Black", sans-serif';
+      chromaText(ctx, 'SIGNAL', W / 2, H / 2 - 44, 4, '#eaffff');
+      chromaText(ctx, 'LOST', W / 2, H / 2 + 6, 4, '#eaffff');
+      const rand = seeded(Math.floor(s.t * 12));
+      SG_STATIC.forEach((c, i) => drawStaticBlock(ctx, W / 2 - 54 + i * 36, H / 2 + 62, 22, c, rand));
+    } else {
+      // the corridors
+      ctx.strokeStyle = hexToRgba(C.cyan, 0.8);
+      ctx.lineWidth = 2;
+      ctx.strokeRect(L - 14, T - 14, R - L + 28, B - T + 28);
+      ctx.strokeRect(L + 14, T + 14, R - L - 28, M - T - 28);
+      ctx.strokeRect(L + 14, M + 14, R - L - 28, B - M - 28);
+      for (const d of dots) {
+        if (s.eaten.get(d) > s.t) continue;
+        const [x, y] = at(d);
+        if (d === 0) { ctx.fillStyle = C.amber; ctx.fillRect(x - 5, y - 5, 10, 10); } else { ctx.fillStyle = '#eaffff'; ctx.fillRect(x - 2, y - 2, 4, 4); }
+      }
+      const rand = seeded(Math.floor(s.t * 14));
+      SG_STATIC.forEach((c, i) => {
+        // behind the ball; while the override lasts they fall back and go grey
+        const [x, y] = at(s.d - 60 - i * 34 - (s.fright > 0 ? 40 : 0));
+        drawStaticBlock(ctx, x, y, 18, s.fright > 0 ? '#5c6aa8' : c, rand);
+      });
+      const [bx, by] = at(s.d);
+      ctx.save();
+      ctx.shadowColor = C.cyan;
+      ctx.shadowBlur = 14;
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath(); ctx.arc(bx, by, 7, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+      ctx.font = '26px VT323, monospace';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillStyle = 'rgba(113,239,255,0.85)';
+      ctx.fillText(String(s.score).padStart(6, '0'), 10, 6);
+    }
+    // the static has something to say to whoever is in front of the cabinet
+    const line = SIGNAL_ATTRACT_LINES[Math.floor(s.t / 14) % SIGNAL_ATTRACT_LINES.length];
+    const typed = line.slice(0, Math.max(0, Math.floor(((s.t % 14) - 1) * 14)));
+    if (typed) {
+      ctx.font = '20px VT323, monospace';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = 'rgba(4,3,12,0.8)';
+      ctx.fillRect(0, H - 30, W, 30);
+      ctx.fillStyle = C.pink;
+      ctx.fillText('STATIC>', 10, H - 15);
+      ctx.fillStyle = '#d9c8ff';
+      ctx.fillText(typed, 78, H - 15);
+    }
+    if (opts.prompt !== false && Math.floor(s.t * 1.6) % 2 === 0) {
+      ctx.font = '700 15px Orbitron, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillRect(W / 2 - 110, 22, 220, 26);
+      ctx.fillStyle = C.amber;
+      ctx.fillText(promptText, W / 2, 35);
+    }
+    if (s.glitchFor > 0 || s.burst > 0 || Math.random() < 0.04) {
+      sliceGlitch(ctx, W, H, Math.random, s.burst > 0 ? 10 : 4, s.burst > 0 ? 60 : 24);
+    }
+    scanlines(ctx, W, H, 0.22, 3);
+    const v = ctx.createRadialGradient(W / 2, H / 2, H * 0.3, W / 2, H / 2, W * 0.7);
+    v.addColorStop(0, 'rgba(0,0,0,0)');
+    v.addColorStop(1, 'rgba(0,0,0,0.55)');
+    ctx.fillStyle = v;
+    ctx.fillRect(0, 0, W, H);
+    tex.needsUpdate = true;
+  }
+
+  draw(0);
+  return { tex, draw, burst: () => { s.burst = 0.7; } };
+}
+
 function createInfoBoard() {
   const W = 1024, H = 512;
   const cv = makeCanvas(W, H);
@@ -1429,11 +1651,12 @@ function createInfoBoard() {
       ['> CABINET 01 .......... GLITCH PONG', C.green],
       ['> CABINET 02 .......... BREAKPOINT', C.green],
       ['> CABINET 03 .......... BLACK-HOLE NEXUS', C.green],
-      ['> CABINETS 04–10 ...... COMPILING', C.amber],
+      ['> CABINET 04 .......... SIGNAL LOST', C.green],
+      ['> CABINETS 05–10 ...... COMPILING', C.amber],
       ['> PRIZE COUNTER ....... COINS FOR WINS', C.cyan],
       ['> THE EYE ............. WATCHING', C.pink]
     ];
-    const gap = lines.length > 5 ? 42 : 50;      // six lines still fit the board
+    const gap = lines.length > 6 ? 37 : lines.length > 5 ? 42 : 50;      // seven lines still fit the board
     lines.forEach(([txt, col], i) => {
       ctx.fillStyle = col;
       ctx.fillText(txt, 64, 236 + i * gap);
@@ -1463,6 +1686,7 @@ let glowTex;
 let pongScreen;
 let bpScreen;
 let nxScreen;
+let sgScreen;
 let soonScreen;
 let neonSigns = [];
 let infoBoard;
@@ -2162,6 +2386,7 @@ function buildCabinets() {
   pongScreen = createGlitchPongScreen((event) => audio.attract(event));
   bpScreen = createBreakPointScreen();
   nxScreen = createNexusScreen();
+  sgScreen = createSignalScreen();
   soonScreen = createComingSoonScreen();
 
   // ── Glitch Pong: its own stage in the back-left corner, angled at the entrance ──
@@ -2212,8 +2437,8 @@ function buildCabinets() {
   addFloorGlow(scene, new THREE.Color(C.pink), 2.6, 2.0, cabSpot.x + gpEntry.forward.x * 1.6, cabSpot.z + gpEntry.forward.z * 1.6, 0.22);
   buildBossEye(gpEntry);
 
-  // ── The wall cabinets: Breakpoint and Black-Hole Nexus side by side as you
-  // walk in, then seven that are still compiling ──
+  // ── The wall cabinets: Breakpoint, Black-Hole Nexus and Signal Lost in a row
+  // as you walk in, then six that are still compiling ──
   const hx = ROOM_W / 2;
   const slots = [
     ...[-5, -8.6, -12.2, -15.8, -19.4].map((z) => ({ x: -hx + 0.62, z, rotY: Math.PI / 2 })),
@@ -2222,6 +2447,7 @@ function buildCabinets() {
   slots.forEach((slot, i) => {
     if (i === 0) { buildBreakPointCabinet(slot); return; }
     if (i === 1) { buildNexusCabinet(slot); return; }
+    if (i === 2) { buildSignalCabinet(slot); return; }
     const accent = COMING_SOON_ACCENTS[i];
     const mat = new THREE.MeshBasicMaterial({ map: soonScreen.tex, color: new THREE.Color(accent).lerp(new THREE.Color('#ffffff'), 0.55), toneMapped: false });
     const cab = buildCabinet({
@@ -2289,9 +2515,31 @@ function buildNexusCabinet(slot) {
   return entry;
 }
 
+// ── Signal Lost: cabinet 04, next to Black-Hole Nexus ──
+function buildSignalCabinet(slot) {
+  const cab = buildCabinet({
+    width: 0.98,
+    bodyColor: 0x06112a,
+    trimLeft: C.cyan,
+    trimRight: C.amber,
+    sideArt: makeSignalSideArt(),
+    marqueeTex: makeSignalMarquee(),
+    screenMat: new THREE.MeshBasicMaterial({ map: sgScreen.tex, toneMapped: false }),
+    coinTex: makeCoinDoor('INSERT COIN', C.amber),
+    accent: C.cyan,
+    accent2: C.amber
+  });
+  const entry = registerCabinet(cab, slot.x, slot.z, slot.rotY, {
+    id: 'signal', title: 'SIGNAL LOST', slot: 4, playable: true, accent: C.cyan
+  });
+  addFloorGlow(scene, new THREE.Color(C.cyan), 1.6, 1.4,
+    slot.x + entry.forward.x * 1.1, slot.z + entry.forward.z * 1.1, 0.2);
+  return entry;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // CEILING TVs — old CRT sets hung over the aisle, tilted down at the floor,
-// flicking between Glitch Pong, Breakpoint and Black-Hole Nexus gameplay
+// flicking between Glitch Pong, Breakpoint, Black-Hole Nexus and Signal Lost gameplay
 // ═══════════════════════════════════════════════════════════════════════════
 const TV_PAIRS_Z = [-7.5, -15, -22.5];   // back-to-back pairs on drop poles down the centre aisle
 const TV_Y = 4.25;                        // screen centre height (ceiling at ROOM_H)
@@ -2430,7 +2678,8 @@ function buildTvs() {
     createGlitchPongScreen(() => {}, { prompt: false, t0: 8 }),
     createBreakPointScreen({ prompt: false, t0: 0 }),
     createBreakPointScreen({ prompt: false, t0: 6 }),
-    createNexusScreen({ prompt: false, t0: 3 })
+    createNexusScreen({ prompt: false, t0: 3 }),
+    createSignalScreen({ prompt: false, t0: 5 })
   ];
   tvStatic = createTvStatic();
   const pole = new THREE.MeshStandardMaterial({ color: 0x2a2633, roughness: 0.4, metalness: 0.7 });
@@ -3191,7 +3440,7 @@ function greetingLine() {
   if (w.prizes.length >= PRIZES.length) return 'YOU OWN EVERY PRIZE IN THE GLITCHCADE. MY CIRCUITS ARE... PROUD.';
   const affordable = PRIZES.filter((p) => !w.prizes.includes(p.id) && p.cost <= w.coins);
   if (w.coins === 0 && w.prizes.length === 0) {
-    return `GREETINGS, HUMAN. I AM ${ROBOT_NAME}. BEAT THE AI AT GLITCH PONG FOR 10 COINS, PURGE SECTORS IN BREAKPOINT, OR SALVAGE THEM IN BLACK-HOLE NEXUS. COINS BUY PRIZES.`;
+    return `GREETINGS, HUMAN. I AM ${ROBOT_NAME}. BEAT THE AI AT GLITCH PONG FOR 10 COINS, PURGE SECTORS IN BREAKPOINT, SALVAGE THEM IN BLACK-HOLE NEXUS, OR CLEAR MAZES IN SIGNAL LOST. COINS BUY PRIZES.`;
   }
   if (affordable.length) {
     return `WELCOME BACK. YOU HAVE ${w.coins} COINS — ENOUGH FOR ${affordable.length} PRIZE${affordable.length > 1 ? 'S' : ''}. AIM AT ONE ON MY SHELVES AND PRESS ${isTouch ? 'USE' : 'E'}.`;
@@ -3208,6 +3457,7 @@ function robotChat() {
     `EVERY MATCH YOU WIN AGAINST THE AI EARNS 10 COINS. YOU HAVE WON ${w.wins} SO FAR.`,
     'BREAKPOINT PAYS 2 COINS PER SECTOR PURGED. TAKE DOWN A BOSS AND I PAY 10. CABINET 02, BY THE DOOR.',
     'BLACK-HOLE NEXUS PAYS 2 COINS PER SECTOR SALVAGED, 10 FOR THE EYE. CABINET 03. IT ASKED ME WHAT A COIN IS. I DID NOT LIKE HOW IT ASKED.',
+    'SIGNAL LOST PAYS 2 COINS A MAZE AND 10 FOR THE TENTH. CABINET 04. THERE ARE FOUR OF THEM IN THERE AND THEY ALL TALK AT ONCE.',
     `YOUR COLLECTION: ${w.prizes.length} OF ${PRIZES.length}. IT IS ON DISPLAY IN THE CASE TO MY LEFT.`,
     'TIP: LONG RALLIES BUILD HEAT. AT MAX HEAT THE EYE ARRIVES. SURVIVE IT.',
     ...(floor ? floor.robotLines(w) : [])
@@ -3534,7 +3784,7 @@ function buildPrizeCounter() {
   chromaText(fctx, 'PRIZE COUNTER', 512, 50, 3, C.text, C.purple);
   fctx.font = '20px "Share Tech Mono", monospace';
   fctx.fillStyle = C.amber;
-  fctx.fillText('◎ GLITCH PONG WIN = 10   ◎   BREAKPOINT · NEXUS SECTOR = 2 · BOSS = 10   ◎', 512, 98);
+  fctx.fillText('◎ GLITCH PONG WIN = 10   ◎   BREAKPOINT · NEXUS · SIGNAL: SECTOR = 2 · BOSS = 10   ◎', 512, 98);
   scanlines(fctx, 1024, 128, 0.14, 4);
   const banner = new THREE.Mesh(new THREE.PlaneGeometry(cw - 0.3, 0.72), new THREE.MeshBasicMaterial({ map: canvasTexture(fcv), color: 0xcccccc, toneMapped: false }));
   banner.position.set(0, 0.55, COUNTER.front + 0.004);
@@ -4072,6 +4322,9 @@ function updateFocus() {
   } else if (focused.id === 'nexus') {
     promptEl.className = 'show';
     promptEl.innerHTML = `<span class="key">${key}</span>PLAY BLACK-HOLE NEXUS<small>CABINET 03 // ONLINE // IT KNOWS</small>`;
+  } else if (focused.id === 'signal') {
+    promptEl.className = 'show';
+    promptEl.innerHTML = `<span class="key">${key}</span>PLAY SIGNAL LOST<small>CABINET 04 // ONLINE // FOUR OF THEM</small>`;
   } else if (focused.playable) {
     promptEl.className = 'show';
     promptEl.innerHTML = `<span class="key">${key}</span>PLAY GLITCH PONG<small>CABINET 01 // ONLINE</small>`;
@@ -4122,7 +4375,7 @@ function interact() {
     focused = null;            // refresh the prompt with the new title
     return;
   }
-  if (focused.id === 'breakpoint' || focused.id === 'nexus') {
+  if (FRAME_GAMES[focused.id]) {
     launchBreakPoint(focused);
     return;
   }
@@ -4168,6 +4421,7 @@ function worldGlitch(small = false) {
   if (pongScreen) pongScreen.burst();
   if (bpScreen) bpScreen.burst();
   if (nxScreen) nxScreen.burst();
+  if (sgScreen) sgScreen.burst();
   setTimeout(() => {
     neonSigns.forEach((sg) => sg.draw(false));
     if (infoBoard) infoBoard.draw(false);
@@ -4199,16 +4453,18 @@ function cabinetShot(cam, label, cab, side) {
 function buildTour() {
   const bp = cabinets.find((c) => c.id === 'breakpoint');
   const nx = cabinets.find((c) => c.id === 'nexus');
+  const sg = cabinets.find((c) => c.id === 'signal');
   const gp = cabinets.find((c) => c.id === 'glitch-pong');
   tourShots = [
     { cam: 'CAM 01', label: 'STREET // FRONT ENTRANCE', from: V(1.6, 1.8, 14), to: V(0.2, 1.7, 6.5), look: V(0, 4.2, 0), lookTo: V(0, 2.6, -4) },
     { cam: 'CAM 02', label: 'MAIN FLOOR', from: V(0, 2.5, -1.2), to: V(0, 2.1, -9.5), look: V(0, 1.6, -20), lookTo: V(0, 1.7, -28) },
     cabinetShot('CAM 03', 'CABINET 02 // BREAKPOINT', bp, 1),
     cabinetShot('CAM 04', 'CABINET 03 // BLACK-HOLE NEXUS', nx, -1),
-    { cam: 'CAM 05', label: 'GLITCHVISION // CEILING FEEDS', from: V(1.9, 2.3, -11.4), to: V(-1.5, 2.6, -12.3), look: V(0, TV_Y - 0.1, -15), lookTo: V(0, TV_Y - 0.1, -15) },
-    cabinetShot('CAM 06', 'CABINET 01 // GLITCH PONG', gp, -1),
-    { cam: 'CAM 07', label: 'PRIZE COUNTER // PRIZETRON-80', from: V(2.8, 1.8, -24.2), to: V(-2.4, 1.7, -25.6), look: V(0, 1.7, -30.4), lookTo: V(0, 1.6, -30.4) },
-    { cam: 'CAM 08', label: 'CABINETS 04–10 // COMPILING', from: V(5.6, 2.0, -2.5), to: V(5.8, 1.7, -14), look: V(9.4, 1.3, -6), lookTo: V(9.4, 1.3, -17) }
+    cabinetShot('CAM 05', 'CABINET 04 // SIGNAL LOST', sg, 1),
+    { cam: 'CAM 06', label: 'GLITCHVISION // CEILING FEEDS', from: V(1.9, 2.3, -11.4), to: V(-1.5, 2.6, -12.3), look: V(0, TV_Y - 0.1, -15), lookTo: V(0, TV_Y - 0.1, -15) },
+    cabinetShot('CAM 07', 'CABINET 01 // GLITCH PONG', gp, -1),
+    { cam: 'CAM 08', label: 'PRIZE COUNTER // PRIZETRON-80', from: V(2.8, 1.8, -24.2), to: V(-2.4, 1.7, -25.6), look: V(0, 1.7, -30.4), lookTo: V(0, 1.6, -30.4) },
+    { cam: 'CAM 09', label: 'CABINETS 05–10 // COMPILING', from: V(5.6, 2.0, -2.5), to: V(5.8, 1.7, -14), look: V(9.4, 1.3, -6), lookTo: V(9.4, 1.3, -17) }
   ];
 }
 
@@ -4267,7 +4523,7 @@ function launchGlitchPong(cab) {
   beginLaunch(cab);
 }
 
-// Breakpoint and Black-Hole Nexus: both run as their own page in a frame.
+// Breakpoint, Black-Hole Nexus and Signal Lost: each runs as its own page in a frame.
 function launchBreakPoint(cab) {
   beginLaunch(cab);
 }
@@ -4315,7 +4571,7 @@ function updateLaunch(dt) {
   }
   // a cabinet can stand in for one of the games (the Eye gauntlet does)
   const framed = FRAME_GAMES[launch.cab.game || launch.cab.id];
-  const inFrame = !!framed;                      // Breakpoint or Black-Hole Nexus
+  const inFrame = !!framed;                      // Breakpoint, Black-Hole Nexus or Signal Lost
   if (k >= 1 && !launch.started) {
     launch.started = true;
     if (launch.onArrive) {
@@ -4352,15 +4608,17 @@ function updateLaunch(dt) {
   }
 }
 
-// ── Break Point and Black-Hole Nexus each run as their own page in a full-screen
-// frame over the arcade ── They're served from ./breakpoint/ and ./nexus/ (same
+// ── Break Point, Black-Hole Nexus and Signal Lost each run as their own page in a
+// full-screen frame over the arcade ── They're served from their own folders (same
 // origin, so they share the coin wallet) and post {type: 'glitchcade:exit'} when
 // the player picks EXIT TO ARCADE. One frame at a time; both use the same element.
 const BREAKPOINT_URL = 'breakpoint/index.html?cabinet';
 const NEXUS_URL = 'nexus/index.html?cabinet';
+const SIGNAL_URL = 'signal/index.html?cabinet';
 const FRAME_GAMES = {
   breakpoint: { url: BREAKPOINT_URL, title: 'Breakpoint', name: 'BREAKPOINT', screen: () => bpScreen },
-  nexus: { url: NEXUS_URL, title: 'Black-Hole Nexus', name: 'BLACK-HOLE NEXUS', screen: () => nxScreen }
+  nexus: { url: NEXUS_URL, title: 'Black-Hole Nexus', name: 'BLACK-HOLE NEXUS', screen: () => nxScreen },
+  signal: { url: SIGNAL_URL, title: 'Signal Lost', name: 'SIGNAL LOST', screen: () => sgScreen }
 };
 let bpFrame = null;
 
@@ -4398,6 +4656,7 @@ window.addEventListener('message', (e) => {
   // run results, for the high-score board and the Eye gauntlet
   if (e.data && e.data.type === 'glitchcade:breakpoint' && floor) { floor.onBreakpointReport(e.data, launch && launch.cab); return; }
   if (e.data && e.data.type === 'glitchcade:nexus' && floor) { floor.onNexusReport(e.data); return; }
+  if (e.data && e.data.type === 'glitchcade:signal' && floor) { floor.onSignalReport(e.data); return; }
   if (!e.data || e.data.type !== 'glitchcade:exit') return;
   if (gameState !== 'playing' && gameState !== 'launching') return;
   closeBreakPoint();
@@ -4438,6 +4697,8 @@ function onGameExit() {
     if (robot && !cab.fragment) {
       robot.pending = (cab.game || cab.id) === 'breakpoint'
         ? `SECTORS PURGED. +${gained} COINS. YOU NOW HAVE ${wallet.coins}. COME SEE WHAT THEY BUY.`
+        : cab.id === 'signal'
+        ? `MAZES CLEARED. +${gained} COINS. YOU NOW HAVE ${wallet.coins}. I COULD HEAR THEM FROM HERE. COME SEE WHAT THEY BUY.`
         : cab.id === 'nexus'
         ? `SECTORS SALVAGED. +${gained} COINS. YOU NOW HAVE ${wallet.coins}. WHATEVER IT SAID TO YOU IN THERE, COME SEE WHAT THEY BUY.`
         : `VICTORY DETECTED. +${gained} COINS. YOU NOW HAVE ${wallet.coins}. COME SEE WHAT THEY BUY.`;
@@ -4449,7 +4710,7 @@ function onGameExit() {
     gameState = 'explore';
     setExploring(true);
   } else {
-    const name = cab.fragment || cab.game ? cab.title : cab.id === 'breakpoint' ? 'Breakpoint' : cab.id === 'nexus' ? 'Black-Hole Nexus' : 'Glitch Pong';
+    const name = cab.fragment || cab.game ? cab.title : cab.id === 'breakpoint' ? 'Breakpoint' : cab.id === 'nexus' ? 'Black-Hole Nexus' : cab.id === 'signal' ? 'Signal Lost' : 'Glitch Pong';
     showPauseCard('Welcome back', 'GLITCHCADE', `${name} is waiting whenever you are.`, 'Continue');
     gameState = 'paused';
     setExploring(false);
@@ -4665,6 +4926,7 @@ function launchFromMenu(id) {
 $('gcMenuGP').addEventListener('click', () => launchFromMenu('glitch-pong'));
 $('gcMenuBP').addEventListener('click', () => launchFromMenu('breakpoint'));
 $('gcMenuNX').addEventListener('click', () => launchFromMenu('nexus'));
+$('gcMenuSG').addEventListener('click', () => launchFromMenu('signal'));
 $('gcMenuControls').addEventListener('click', () => showMenuScreen('gcMenuHelp'));
 $('gcMenuBack').addEventListener('click', () => showMenuScreen('gcMenu'));
 window.addEventListener('keydown', (e) => {
@@ -4789,6 +5051,8 @@ const gpScreenNormal = new THREE.Vector3();
 const bpScreenNormal = new THREE.Vector3();
 const nxScreenPos = new THREE.Vector3();
 const nxScreenNormal = new THREE.Vector3();
+const sgScreenPos = new THREE.Vector3();
+const sgScreenNormal = new THREE.Vector3();
 let audioMode = null;
 
 // 0 outside → 1 inside, blended across the doorway
@@ -4922,6 +5186,7 @@ function frame(now) {
     if (inside && canSee(gpScreenPos, 0.7, gpScreenNormal, 18)) pongScreen.draw(screenTimer);
     if (inside && canSee(bpScreenPos, 0.6, bpScreenNormal, 14)) bpScreen.draw(screenTimer);
     if (inside && canSee(nxScreenPos, 0.6, nxScreenNormal, 14)) nxScreen.draw(screenTimer);
+    if (inside && canSee(sgScreenPos, 0.6, sgScreenNormal, 14)) sgScreen.draw(screenTimer);
     screenTimer = 0;
   }
   soonTimer += dt;
@@ -5045,6 +5310,9 @@ function floorContext() {
   const nxCabinet = cabinets.find((c) => c.id === 'nexus');
   nxScreenPos.copy(nxCabinet.screenCenter);
   nxScreenNormal.copy(nxCabinet.screenNormal);
+  const sgCabinet = cabinets.find((c) => c.id === 'signal');
+  sgScreenPos.copy(sgCabinet.screenCenter);
+  sgScreenNormal.copy(sgCabinet.screenNormal);
   gpScreenNormal.copy(gpCabinet.screenNormal);
   bpScreenNormal.copy(bpCabinet.screenNormal);
   const batched = bakeScene();
@@ -5085,7 +5353,7 @@ function floorContext() {
   enterBtn.disabled = false;
   menuEnter.disabled = false;
   menuEnter.textContent = 'Enter';
-  $('gcMenuGP').disabled = $('gcMenuBP').disabled = $('gcMenuNX').disabled = false;
+  $('gcMenuGP').disabled = $('gcMenuBP').disabled = $('gcMenuNX').disabled = $('gcMenuSG').disabled = false;
   menuEnter.focus({ preventScroll: true });
 
   // Hooks for automated testing / debugging from the console.
