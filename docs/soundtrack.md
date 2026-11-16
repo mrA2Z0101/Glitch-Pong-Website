@@ -100,6 +100,27 @@ the hole breathes in or time is frozen, and runs a little fast at Critical
 Heat. The countdown voice is Glitch Pong's (`sounds/sfx/{3,2,1,GO}.mp3`). Sound
 effects are synthesized.
 
+## Signal Lost (cabinet 04)
+
+Signal Lost has no recordings of its own either. Each of its ten mazes is one
+of Glitch Pong's arenas, and plays that arena's music from `sounds/music`:
+
+| Maze | Plays |
+| --- | --- |
+| GLITCH ARENA, STACK OVERFLOW, and the menu | `in_game_music{1..4}.mp3` |
+| KERNEL PANIC | `panic_music1.mp3` |
+| COOLANT LEAK | `coolant_music1.mp3` |
+| QUANTUM SHIFT | `construct_music{1,2}.mp3` (it has no track of its own) |
+| MEMORY LEAK | `leak_music1.mp3` |
+| ECHO | `echo_music1.mp3` |
+| DEFRAG | `matrix_music{1,2}.mp3` (it has no track of its own) |
+| LAST TRAIN | `train_music1.mp3` |
+| THE EYE'S LAIR | `lair_music1.mp3` |
+| While THE EYE is looking, in any maze | `breakpoint/sounds/music/do-not-blink-{1,2}.mp3` |
+
+The list is `MUSIC` in `signal/js/audio.js`. The countdown voice is Glitch
+Pong's. Sound effects are synthesized.
+
 ## Glitch Pong arena tracks
 
 Glitch Arena plays the four `in_game_music` tracks. Matrix Mainframe, The

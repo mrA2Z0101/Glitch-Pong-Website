@@ -1,7 +1,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // GLITCHCADE FLOOR — everything on the arcade floor that isn't a finished game
 //
-//   · repairing cabinets 04–10 and their 30-second ROM fragments
+//   · repairing cabinets 05–10 and their 30-second ROM fragments
 //   · THE EYE taking over the ceiling TVs, with building-wide glitch events
 //   · prizes that do something (the ball, the heat gauge, the golden marquee)
 //   · the daily challenge board, high scores and rally replays on the TVs
@@ -19,8 +19,8 @@ import {
   GAUNTLET_REWARD,
   createFloorStore, repairCost, fragmentPayout, cappedPayout, insertScore, scoreBoard, onlineCount,
   dailyChallenge, dailyProgress, statSnapshot, capsuleOfDay, todayStr, hashStr, mulberry32, cleanInitials
-} from './glitchcade-state.js?v=floor-2';
-import { createFragmentPlayer } from './glitchcade-microgames.js?v=floor-2';
+} from './glitchcade-state.js?v=floor-3';
+import { createFragmentPlayer } from './glitchcade-microgames.js?v=floor-3';
 
 export function installFloor(ctx) {
   const {
@@ -42,11 +42,10 @@ export function installFloor(ctx) {
     try { if (typeof GlitchProgression !== 'undefined' && GlitchProgression.data) return GlitchProgression.data; } catch (e) {}
     try { return JSON.parse(localStorage.getItem('glitchPong_progression_v1')) || {}; } catch (e) { return {}; }
   }
-  // Black-Hole Nexus's record (cabinet 03 keeps its own, see nexus/js/rules.js).
-  function nexusData() {
-    try { return JSON.parse(localStorage.getItem('glitchcade_nexus_v1')) || {}; } catch (e) { return {}; }
-  }
-  const stats = () => statSnapshot(Wallet.get(), gpData(), F(), nexusData());
+  // Black-Hole Nexus's and Signal Lost's records (cabinets 03 and 04 keep their
+  // own, see nexus/js/rules.js and signal/js/rules.js).
+  const cabinetData = (key) => { try { return JSON.parse(localStorage.getItem(key)) || {}; } catch (e) { return {}; } };
+  const stats = () => statSnapshot(Wallet.get(), gpData(), F(), cabinetData('glitchcade_nexus_v1'), cabinetData('glitchcade_signal_v1'));
   const owns = (prizeId) => Wallet.get().prizes.includes(prizeId);
   const playerName = () => F().initials || 'YOU';
 
@@ -354,7 +353,8 @@ export function installFloor(ctx) {
       ['> CABINET 01 .......... GLITCH PONG', C.green],
       ['> CABINET 02 .......... BREAKPOINT', C.green],
       ['> CABINET 03 .......... BLACK-HOLE NEXUS', C.green],
-      [`> CABINETS 04–10 ...... ${n ? `${n} OF ${REPAIRABLE_SLOTS.length} REPAIRED` : 'OFFLINE — REPAIR THEM'}`, n === REPAIRABLE_SLOTS.length ? C.green : C.amber],
+      ['> CABINET 04 .......... SIGNAL LOST', C.green],
+      [`> CABINETS 05–10 ...... ${n ? `${n} OF ${REPAIRABLE_SLOTS.length} REPAIRED` : 'OFFLINE — REPAIR THEM'}`, n === REPAIRABLE_SLOTS.length ? C.green : C.amber],
       [`> DAILY GLITCH ........ ${f.daily.claimed ? 'CLAIMED' : prog.done ? 'CLAIM AT THE DOOR' : 'BOARD BY THE DOOR'}`, C.cyan],
       ['> THE EYE ............. WATCHING', C.pink]
     ];
@@ -455,7 +455,7 @@ export function installFloor(ctx) {
   // ───────────────────────────────────────────────────────────────────────
   // CEILING TV CHANNELS — high scores and the longest-rally replay
   // ───────────────────────────────────────────────────────────────────────
-  const SCORE_TARGETS = { 'glitch-pong': 30, breakpoint: 8000, nexus: 12000 };
+  const SCORE_TARGETS = { 'glitch-pong': 30, breakpoint: 8000, nexus: 30000, signal: 40000 };
 
   function recordScore(id, score) {
     const f = F();
@@ -471,7 +471,8 @@ export function installFloor(ctx) {
     const pages = [
       { head: 'CABINET 01 // GLITCH PONG', sub: 'LONGEST RALLY', rows: scoreBoard(f.scores['glitch-pong'], SCORE_TARGETS['glitch-pong']) },
       { head: 'CABINET 02 // BREAKPOINT', sub: 'HIGH SCORE', rows: scoreBoard(f.scores.breakpoint, SCORE_TARGETS.breakpoint) },
-      { head: 'CABINET 03 // BLACK-HOLE NEXUS', sub: 'HIGH SCORE', rows: scoreBoard(f.scores.nexus, SCORE_TARGETS.nexus) }
+      { head: 'CABINET 03 // BLACK-HOLE NEXUS', sub: 'HIGH SCORE', rows: scoreBoard(f.scores.nexus, SCORE_TARGETS.nexus) },
+      { head: 'CABINET 04 // SIGNAL LOST', sub: 'HIGH SCORE', rows: scoreBoard(f.scores.signal, SCORE_TARGETS.signal) }
     ];
     deadCabs.filter(isRepaired).sort((a, b) => a.slot - b.slot).forEach((cab) => {
       const fr = FRAGMENTS[cab.slot];
@@ -2107,6 +2108,12 @@ export function installFloor(ctx) {
     onNexusReport(data) {
       if (data.event === 'run' && Number(data.score) > 0 && recordScore('nexus', Math.floor(Number(data.score)))) {
         ctx.toast(`NEW BLACK-HOLE NEXUS HIGH SCORE ON THE BOARD: ${Math.floor(Number(data.score))}`);
+      }
+    },
+    // Signal Lost (in its frame) reporting a finished run, or the tenth maze cleared.
+    onSignalReport(data) {
+      if (data.event === 'run' && Number(data.score) > 0 && recordScore('signal', Math.floor(Number(data.score)))) {
+        ctx.toast(`NEW SIGNAL LOST HIGH SCORE ON THE BOARD: ${Math.floor(Number(data.score))}`);
       }
     },
     // for tests and the console

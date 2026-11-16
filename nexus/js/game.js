@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════════════════
-// BLACK-HOLE NEXUS — the page: drawing, sound, menus, and the two voices.
+// BLACK-HOLE NEXUS — the page: drawing, sound, controls, menus, and the two voices.
 //
 // js/rules.js decides everything that happens in a run and hands back a list
 // of events; this file turns the run into a picture and the events into
@@ -7,7 +7,7 @@
 // rules, so what the tests measure is what you play.
 // ═══════════════════════════════════════════════════════════════════════════
 import {
-  TUNE, TAU, createRun, step, botInput, omega, heatMultiplier, gapRadius, lagTarget, runRecap, recordRun
+  TUNE, TAU, createRun, step, botInput, heatMultiplier, gapRadius, lagTarget, shiftLands, runRecap, recordRun
 } from './rules.js';
 import { NULL_LINES, BALL_LINES, EXIT_FLICKER, AWAY_TITLE, pick } from './voice.js';
 import { Wallet, Save, Cabinet, Look, otherCabinets } from './wallet.js';
@@ -37,7 +37,7 @@ const C = { cyan: '#71efff', pink: '#ff58d9', purple: '#9a5dff', amber: '#ffd27a
 // the bricks are Breakpoint's, the paddles are Glitch Pong's
 const BRICKS = ['#ff4d6d', '#ff9a00', '#ffd27a', '#50fa7b', '#71efff', '#4d7cff', '#9a5dff', '#ff58d9'];
 const PADDLES = ['#1fd0ff', '#ff3b5c'];
-const POWER_LOOK = { shield: { c: C.cyan, ch: 'F', name: 'FIREWALL' }, magnet: { c: C.pink, ch: 'M', name: 'MAGNET' }, freeze: { c: '#cfe8ff', ch: 'T', name: 'TIME FREEZE' } };
+const POWER_LOOK = { shield: { c: C.cyan, ch: 'F', name: 'FIREWALL' }, spread: { c: C.pink, ch: 'S', name: 'SPREAD SHOT' }, freeze: { c: '#cfe8ff', ch: 'T', name: 'TIME FREEZE' } };
 
 // ── the Eye's sprites: Glitch Pong's, and Breakpoint's blink ──
 const eyeImg = {};
@@ -93,8 +93,8 @@ let mode = 'menu';                 // menu | play | pause | over
 let run = null;                    // your run
 let attract = createRun();         // the bot's, behind the menu
 let view = attract;                // the one being drawn
-const input = { thrust: false, kind: IS_TOUCH ? 'touch' : 'key' };
-let botHold = { thrust: false }, botTick = 0;
+const input = { left: false, right: false, thrust: false, fire: false, kind: IS_TOUCH ? 'touch' : 'key' };
+let botHold = { left: false, right: false, thrust: false, fire: false }, botTick = 0;
 let acc = 0, last = performance.now(), clock = 0;
 let crashedThisRun = false, pausedAt = 0, pauseNagged = false, awayAt = 0, autoPaused = false, menuT = 0, menuSaid = 0;
 let settingsFrom = 'scrMenu';
@@ -102,7 +102,7 @@ let settingsFrom = 'scrMenu';
 function newFx() {
   return {
     parts: [], floats: [], trail: [], ghost: null, shake: 0, glitch: 0, flash: 0, panic: 0,
-    banner: null, stolen: 0, mine: 0, bubble: null, count: 0, eyeFlash: 0, hot: 0
+    banner: null, stolen: 0, mine: 0, bubble: null, count: 0, eyeFlash: 0, deflect: 0
   };
 }
 let fx = newFx();
@@ -189,7 +189,7 @@ function handle(s, live) {
 }
 
 function onEvent(s, e, live) {
-  const x = e.th !== undefined ? px(e.th, e.r) : cx, y = e.th !== undefined ? py(e.th, e.r) : cy;
+  const x = e.x !== undefined ? cx + e.x : cx, y = e.y !== undefined ? cy + e.y : cy;
   const snd = (name, ...a) => { if (live) audio.sfx(name, ...a); };
   switch (e.type) {
     case 'sector': {
@@ -204,14 +204,17 @@ function onEvent(s, e, live) {
       break;
     }
     case 'go': if (live) audio.countdown('GO'); break;
-    case 'bit':
-      snd(e.core ? 'core' : 'bit', e.band, e.chain);
-      burst(x, y, e.core ? C.amber : C.cyan, e.core ? 16 : 8, 120, 0.45);
-      float(x, y - 10, '+' + e.pts, e.core ? C.amber : e.band === 3 ? C.pink : C.text, e.band === 3 ? 22 : 17);
+    case 'shot': snd('shot'); break;
+    case 'break': {
+      snd('break', e.size, e.chain);
+      burst(x, y, e.glyph ? C.red : e.size === 1 ? C.cyan : C.text, e.size === 3 ? 18 : e.size === 2 ? 12 : 8, 80 + e.size * 40, 0.45);
+      float(x, y - 10, '+' + e.pts, e.band === 3 ? C.pink : e.band === 2 ? C.cyan : C.text, e.band === 3 ? 22 : 17);
       fx.panic = 0.4;
-      if (live && e.chain === 10) Null.say('rally');
+      if (e.size === 3) fx.shake = Math.max(fx.shake, 0.12);
+      if (live && e.chain === 12) Null.say('rally');
       if (live && e.chain === 6) ballSay('showoff', 0.6);
       break;
+    }
     case 'graze':
       snd('graze');
       burst(x, y, C.amber, 5, 90, 0.3);
@@ -225,7 +228,7 @@ function onEvent(s, e, live) {
       break;
     case 'shieldBreak':
       snd('shield');
-      burst(px(s.ball.th, s.ball.r), py(s.ball.th, s.ball.r), C.cyan, 24, 200);
+      burst(cx + s.ball.x, cy + s.ball.y, C.cyan, 24, 200);
       fx.flash = 0.25; fx.shake = 0.3;
       if (live) Null.say('shieldBreak', null, { chance: 0.4 });
       break;
@@ -252,9 +255,12 @@ function onEvent(s, e, live) {
       fx.shake = 0.3;
       if (live) { ballSay('loyal'); Null.say('loyal', null, { force: true }); }
       break;
-    case 'edgeHide':
-      if (live) { Null.say('edgeHide'); ballSay('edgeHide', 0.6); }
+    case 'wrap':
+      // off one side, back on the other: the trail must not be drawn across the screen
+      fx.trail = [];
+      if (live && e.first) { Null.say('wrap', null, { chance: 0.7 }); ballSay('wrap', 0.5); }
       break;
+    case 'idle': if (live) Null.say('idle'); break;
     case 'heatCritical':
       float(cx, cy - 120, 'CRITICAL HEAT', C.pink, 34);
       fx.glitch = 0.4;
@@ -271,25 +277,34 @@ function onEvent(s, e, live) {
       break;
     case 'surge': snd('surge'); fx.shake = 0.25; break;
     case 'lagWarn': case 'shiftWarn': snd('warn'); break;
-    case 'lagSnap': case 'shiftJump':
+    case 'lagSnap':
       snd('snap'); fx.glitch = 0.35; fx.trail = [];
-      if (live) ballSay(e.type === 'lagSnap' ? 'lag' : 'shift', 0.35);
+      if (live) ballSay('lag', 0.35);
       break;
-    case 'bitEaten':
-      for (let i = 0; i < 4; i++) fx.parts.push({ x: px(e.th, s.holeR + 6), y: py(e.th, s.holeR + 6), vx: 0, vy: 0, life: 0.5, max: 0.5, color: C.purple, size: 3, suck: true });
+    case 'shiftJump':
+      snd('snap'); fx.glitch = 0.3;
+      if (live) ballSay('shift', 0.35);
+      break;
+    case 'debrisEaten':
+      for (let i = 0; i < 5; i++) fx.parts.push({ x: x + (Math.random() - 0.5) * 12, y: y + (Math.random() - 0.5) * 12, vx: 0, vy: 0, life: 0.5, max: 0.5, color: C.purple, size: 3, suck: true });
       break;
     case 'eyeBlinkWarn': case 'eyeShut': snd('blink'); break;
-    case 'eyeHit':
-      snd('eyeHit');
-      burst(cx, cy, C.pink, 40, 300, 0.8);
-      fx.shake = 0.5; fx.eyeFlash = 0.5; fx.glitch = 0.3;
-      float(cx, cy - 70, 'HIT', C.pink, 30);
-      if (live) { Null.say('eyeHit', null, { chance: 0.6 }); ballSay('eyeHit', 0.6); }
+    case 'eyeHit': {
+      // every shot that lands is a tick; every twelfth is a blow
+      burst(cx, cy, C.pink, 5, 220, 0.4);
+      fx.eyeFlash = Math.max(fx.eyeFlash, 0.12);
+      if (e.hp > 0 && e.hp % 12 === 0) {
+        snd('eyeHit');
+        burst(cx, cy, C.pink, 30, 300, 0.8);
+        fx.shake = 0.45; fx.eyeFlash = 0.5; fx.glitch = 0.25;
+        float(cx, cy - 76, 'IT FELT THAT', C.pink, 26);
+        if (live) { Null.say('eyeHit', null, { chance: 0.7 }); ballSay('eyeHit', 0.6); }
+      } else snd('eyeTick');
       break;
+    }
     case 'eyeDeflect':
       snd('deflect');
-      float(x, y - 12, 'BLINKED', C.amber, 18);
-      if (live) Null.say('eyeDeflect', null, { chance: 0.5 });
+      if (fx.deflect <= 0) { fx.deflect = 1.4; float(cx, cy - 76, 'SHUT', C.amber, 22); if (live) Null.say('eyeDeflect', null, { chance: 0.3 }); }
       break;
     case 'eyeDefeated':
       burst(cx, cy, C.pink, 70, 380, 1.2); burst(cx, cy, C.cyan, 50, 300, 1.2);
@@ -346,6 +361,7 @@ function show(id) {
   document.querySelectorAll('.screen').forEach((el) => el.classList.toggle('on', el.id === id));
   document.body.classList.toggle('attract', view === attract);
   $('btnPauseHud').classList.toggle('on', mode === 'play');
+  document.body.classList.toggle('playing', mode === 'play');     // the touch buttons
 }
 
 // `opts` is for the console: Nexus.startRun({ sector: 5, seed: 1 }) starts at THE EYE
@@ -353,7 +369,7 @@ function startRun(opts = {}) {
   audio.init();
   save.runs++; Save.write();
   run = createRun(Object.assign({ moods: save.moods }, opts));
-  view = run; fx = newFx(); acc = 0; crashedThisRun = false; input.thrust = false;
+  view = run; fx = newFx(); acc = 0; crashedThisRun = false; release();
   mode = 'play';
   show(null);
   handle(run, true);
@@ -372,7 +388,7 @@ function endRun() {
   $('oTitle').textContent = fresh.best && r.score > 0 ? 'NEW HIGH SCORE' : 'GAME OVER';
   $('oScore').textContent = r.score.toLocaleString('en-US');
   const chips = [
-    ['Sectors', r.sectors], ['Best rally', r.bestChain], ['Close calls', r.grazes], ['Time', `${Math.floor(r.time / 60)}:${String(r.time % 60).padStart(2, '0')}`],
+    ['Sectors', r.sectors], ['Pieces broken', r.broken], ['Best rally', r.bestChain], ['Close calls', r.grazes], ['Time', `${Math.floor(r.time / 60)}:${String(r.time % 60).padStart(2, '0')}`],
     ['Coins', '◎ ' + r.coins, true]
   ];
   $('oStats').innerHTML = chips.map(([k, v, hl]) => `<div class="sc${hl ? ' hl' : ''}"><i>${k}</i><b>${v}</b></div>`).join('');
@@ -396,7 +412,7 @@ function toMenu() {
 
 function pause(auto = false) {
   if (mode !== 'play' || crash.t > 0) return;
-  mode = 'pause'; input.thrust = false;
+  mode = 'pause'; release();
   pausedAt = performance.now(); pauseNagged = false; autoPaused = auto;
   $('pSector').textContent = String(run.sector).padStart(2, '0');
   audio.bend(1, 900);
@@ -456,7 +472,7 @@ function update(dt) {
   const s = view;
   if (moving && s.phase !== 'over' && crash.t <= 0) {
     const b = s.ball;
-    fx.trail.unshift({ x: px(b.th, b.r), y: py(b.th, b.r) });
+    fx.trail.unshift({ x: cx + b.x, y: cy + b.y });
     const len = b.showoff ? 28 : 16;
     if (fx.trail.length > len) fx.trail.length = len;
   }
@@ -476,10 +492,10 @@ function update(dt) {
     }
     for (const d of dust) {
       d.r -= d.sp * dt * (1 + s.heat / 50);
-      d.th += omega(d.r) * 0.2 * dt;
+      d.th += (30 / Math.max(40, d.r)) * dt;      // it swirls as it falls
       if (d.r < s.holeR) { d.r = TUNE.R_OUT + Math.random() * 30; d.th = Math.random() * TAU; }
     }
-    for (const k of ['shake', 'glitch', 'flash', 'panic', 'stolen', 'mine', 'eyeFlash']) fx[k] = Math.max(0, fx[k] - dt);
+    for (const k of ['shake', 'glitch', 'flash', 'panic', 'stolen', 'mine', 'eyeFlash', 'deflect']) fx[k] = Math.max(0, fx[k] - dt);
     if (fx.banner) { fx.banner.t -= dt; if (fx.banner.t <= 0) fx.banner = null; }
     if (fx.ghost) { fx.ghost.t -= dt; if (fx.ghost.t <= 0) fx.ghost = null; }
     if (fx.bubble) { fx.bubble.t -= dt; if (fx.bubble.t <= 0) fx.bubble = null; }
@@ -514,12 +530,12 @@ function hud() {
   if (cache.heat !== heat) { cache.heat = heat; $('heatFill').style.width = heat + '%'; $('heatLab').classList.toggle('hot', heat >= TUNE.CRITICAL); }
   const prog = s.eye ? Math.round(100 * (1 - Math.max(0, s.eye.hp) / s.eye.maxHp)) : Math.round(100 * Math.min(1, s.bits / s.quota));
   if (cache.prog !== prog) { cache.prog = prog; $('bitsFill').style.width = prog + '%'; }
-  const tags = (s.shield ? 'F|' : '') + (s.magnet > 0 ? 'M' + Math.ceil(s.magnet) + '|' : '') + (s.freeze > 0 ? 'T' + Math.ceil(s.freeze) : '');
+  const tags = (s.shield ? 'F|' : '') + (s.spread > 0 ? 'S' + Math.ceil(s.spread) + '|' : '') + (s.freeze > 0 ? 'T' + Math.ceil(s.freeze) : '');
   if (cache.tags !== tags) {
     cache.tags = tags;
     $('puList').innerHTML =
       (s.shield ? `<span class="puTag" style="color:${C.cyan}">FIREWALL</span>` : '') +
-      (s.magnet > 0 ? `<span class="puTag" style="color:${C.pink}">MAGNET ${Math.ceil(s.magnet)}</span>` : '') +
+      (s.spread > 0 ? `<span class="puTag" style="color:${C.pink}">SPREAD ${Math.ceil(s.spread)}</span>` : '') +
       (s.freeze > 0 ? `<span class="puTag" style="color:#cfe8ff">FREEZE ${Math.ceil(s.freeze)}</span>` : '');
   }
   const boss = !!s.eye && view === run && s.phase !== 'clear';
@@ -597,7 +613,7 @@ function drawWell(s, t) {
     ctx.moveTo(px(a, s.holeR + 10), py(a, s.holeR + 10)); ctx.lineTo(px(a, TUNE.R_OUT), py(a, TUNE.R_OUT));
   }
   ctx.stroke();
-  // the two lines where a bit becomes worth more
+  // the two lines inside which a kill is worth more
   ctx.setLineDash([3, 9]);
   ctx.font = '15px VT323, monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
   for (const [r, col, label] of [[TUNE.BAND_MID, C.cyan, 'x2'], [TUNE.BAND_IN, C.pink, 'x3']]) {
@@ -663,7 +679,7 @@ function drawHole(s, t) {
 
 function drawEye(s, t) {
   const e = s.eye, b = s.ball;
-  const looking = e.lid !== 'shut' && e.stun <= 0;
+  const looking = e.lid !== 'shut';
   // its gaze: a bar of light with a gap in it
   for (let i = 0; i < e.beams; i++) {
     const gap = gapRadius(e, i);
@@ -695,11 +711,10 @@ function drawEye(s, t) {
     ctx.restore();
   }
   // the Eye itself, looking out of the hole toward the ball
-  const side = Math.cos(b.th);
+  const side = b.x / (Math.hypot(b.x, b.y) || 1);
   const im = e.lid === 'shut' ? eyeImg.blink : side < -0.35 ? eyeImg.left : side > 0.35 ? eyeImg.right : eyeImg.neutral;
   const S = 226 + Math.sin(t * 2) * 4;
   ctx.save();
-  if (e.stun > 0 && Math.floor(t * 20) % 2) ctx.globalAlpha = 0.5;
   if (ready(im)) {
     if (fx.eyeFlash > 0 && fxFull()) { ctx.globalAlpha = 0.6; ctx.drawImage(im, cx - S / 2 - 8, cy - S / 2, S, S); ctx.drawImage(im, cx - S / 2 + 8, cy - S / 2, S, S); ctx.globalAlpha = 1; }
     glow(C.purple, 26);
@@ -716,30 +731,14 @@ function drawEye(s, t) {
 
 function drawObjects(s, t) {
   for (const o of s.objs) {
-    const x = px(o.th, o.r), y = py(o.th, o.r);
     const forming = o.age < o.warm;
     ctx.save();
-    ctx.translate(x, y);
+    ctx.translate(cx + o.x, cy + o.y);
     // still materialising: a flickering outline that can't be touched yet
-    ctx.globalAlpha = forming ? 0.2 + 0.35 * (o.age / o.warm) * (Math.floor(t * 18) % 2 ? 1 : 0.5) : 1;
-    if (o.kind === 'bit') {
-      ctx.rotate(t * 2 + o.id);
-      const z = 6 + Math.sin(t * 6 + o.id) * 1;
-      glow(C.cyan, 14);
-      ctx.fillStyle = '#eaffff';
-      ctx.fillRect(-z / 2, -z / 2, z, z);
-      noGlow();
-      ctx.strokeStyle = rgba(C.cyan, 0.5); ctx.lineWidth = 1;
-      ctx.strokeRect(-z / 2 - 3, -z / 2 - 3, z + 6, z + 6);
-    } else if (o.kind === 'core') {
-      ctx.rotate(Math.PI / 4 + Math.sin(t * 3 + o.id) * 0.3);
-      glow(C.amber, 20);
-      ctx.fillStyle = C.amber;
-      ctx.fillRect(-7, -7, 14, 14);
-      noGlow();
-      ctx.fillStyle = '#fff'; ctx.fillRect(-3, -3, 6, 6);
-    } else if (o.kind === 'power') {
+    ctx.globalAlpha = forming && o.warm > 0.3 ? 0.2 + 0.35 * (o.age / o.warm) * (Math.floor(t * 18) % 2 ? 1 : 0.5) : 1;
+    if (o.kind === 'power') {
       const L = POWER_LOOK[o.power];
+      if (o.life < 3 && Math.floor(t * 10) % 2) ctx.globalAlpha = 0.35;      // about to go
       glow(L.c, 16);
       ctx.strokeStyle = L.c; ctx.lineWidth = 2;
       ctx.beginPath();
@@ -748,61 +747,76 @@ function drawObjects(s, t) {
       noGlow();
       ctx.fillStyle = L.c; ctx.font = '700 13px Orbitron, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(L.ch, 0, 1);
-    } else if (o.kind === 'charge') {
-      const k = 1 + Math.sin(t * 9) * 0.18;
-      const fading = o.life < 3 && Math.floor(t * 10) % 2;
-      glow(C.pink, 22);
-      ctx.strokeStyle = fading ? rgba(C.pink, 0.4) : C.pink; ctx.lineWidth = 2.5;
-      ctx.beginPath(); ctx.arc(0, 0, 10 * k, 0, TAU); ctx.stroke();
-      ctx.fillStyle = '#fff';
-      ctx.beginPath(); ctx.arc(0, 0, 4, 0, TAU); ctx.fill();
-      noGlow();
-    } else {
-      drawDebris(o, t, forming);
-    }
+    } else drawDebris(o, t, forming);
     ctx.restore();
   }
+  // the ball's shots: a streak of its own colour
+  ctx.lineCap = 'round'; ctx.lineWidth = 3;
+  glow(Look.hex, 10);
+  ctx.strokeStyle = '#ffffff';
+  ctx.beginPath();
+  for (const sh of s.shots) {
+    const v = Math.hypot(sh.vx, sh.vy) || 1;
+    ctx.moveTo(cx + sh.x, cy + sh.y);
+    ctx.lineTo(cx + sh.x - (sh.vx / v) * 9, cy + sh.y - (sh.vy / v) * 9);
+  }
+  ctx.stroke();
+  noGlow(); ctx.lineCap = 'butt';
 }
 
-// what the other cabinets threw away, drawn so you can tell where it came from
+function brick(x, y, w, h, col, lit) {
+  if (lit) glow(col, 9);
+  ctx.fillStyle = col;
+  ctx.fillRect(x - w / 2, y - h / 2, w, h);
+  noGlow();
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  ctx.fillRect(x - w / 2, y + h / 2 - 2.5, w, 2.5);
+  ctx.fillStyle = 'rgba(255,255,255,0.35)';
+  ctx.fillRect(x - w / 2, y - h / 2, w, 2);
+}
+
+// What the other cabinets threw away, drawn so you can tell where it came
+// from. Three sizes: a chunk of wall, a couple of bricks, one brick.
 function drawDebris(o, t, forming) {
-  const R = o.rad;
-  ctx.rotate(o.th + Math.PI / 2 + (o.look === 'glyph' ? -o.th - Math.PI / 2 : Math.sin(o.id) * 0.5));
+  const R = o.rad, lit = !forming;
+  if (o.look !== 'glyph') ctx.rotate(o.rot);
   if (o.look === 'brick') {
-    const col = BRICKS[o.tint % BRICKS.length], w = R * 2.2, h = R * 1.15;
-    if (!forming) glow(col, 10);
+    const a = BRICKS[o.tint % BRICKS.length], b = BRICKS[(o.tint + 1) % BRICKS.length];
+    if (o.size === 3) {
+      // a piece of Breakpoint's wall: three courses, staggered
+      for (const [x, y, c] of [[-11, -15, a], [11, -15, b], [-22, 0, b], [0, 0, a], [22, 0, b], [-11, 15, a], [11, 15, b]]) brick(x, y, 20, 12, c, lit);
+    } else if (o.size === 2) {
+      brick(-5, -7, 22, 12, a, lit); brick(5, 7, 22, 12, b, lit);
+    } else {
+      brick(0, 0, 19, 11, a, lit);
+      ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(-3, -5.5); ctx.lineTo(1, 0); ctx.lineTo(-1, 5.5); ctx.stroke();
+    }
+  } else if (o.look === 'paddle') {
+    // one of Glitch Pong's paddles, then half of one, then a splinter
+    const col = PADDLES[o.tint % 2], w = o.size === 3 ? 58 : o.size === 2 ? 34 : 19, h = o.size === 3 ? 13 : o.size === 2 ? 11 : 8;
+    if (lit) glow(col, 12);
     ctx.fillStyle = col;
     ctx.fillRect(-w / 2, -h / 2, w, h);
     noGlow();
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.fillRect(-w / 2, h / 2 - 3, w, 3);
-    ctx.fillStyle = 'rgba(255,255,255,0.35)';
-    ctx.fillRect(-w / 2, -h / 2, w, 2);
-    // the crack your ball put in it
-    ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.moveTo(-w * 0.15, -h / 2); ctx.lineTo(0, 0); ctx.lineTo(-w * 0.05, h / 2); ctx.stroke();
-  } else if (o.look === 'paddle') {
-    const col = PADDLES[o.tint % 2], w = R * 2.6, h = 7;
-    if (!forming) glow(col, 12);
-    ctx.fillStyle = col;
-    ctx.fillRect(-w / 2, -h / 2, w * 0.56, h);
-    ctx.save(); ctx.rotate(0.35); ctx.fillRect(w * 0.1, -h / 2 + 2, w * 0.4, h); ctx.restore();
-    noGlow();
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.fillRect(-w / 2 + 2, -h / 2 + 2, w - 4, 2);
+    if (o.size < 3) { ctx.fillStyle = C.void; ctx.beginPath(); ctx.moveTo(w / 2, -h / 2); ctx.lineTo(w / 2 - 6, 0); ctx.lineTo(w / 2, h / 2); ctx.fill(); }
   } else if (o.look === 'glyph') {
     // a digit that used to be in your score
     ctx.font = '34px VT323, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillStyle = C.cyan; ctx.fillText(o.ch, -2, 1);
     ctx.fillStyle = C.pink; ctx.fillText(o.ch, 2, 1);
-    if (!forming) glow(C.red, 12);
+    if (lit) glow(C.red, 12);
     ctx.fillStyle = '#fff'; ctx.fillText(o.ch, 0, 1);
     noGlow();
   } else {
     // static: a block of dead channel
-    const n = 4, z = (R * 1.7) / n;
+    const n = o.size + 2, z = (R * 1.6) / n;
     for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
       const v = (Math.sin(o.id * 12.9 + i * 7.1 + j * 3.3 + Math.floor(t * 14) * 1.7) + 1) / 2;
       ctx.fillStyle = `rgba(${200 + v * 55},${200 + v * 55},${220 + v * 35},${0.25 + v * 0.7})`;
-      ctx.fillRect(-R * 0.85 + i * z, -R * 0.85 + j * z, z - 0.5, z - 0.5);
+      ctx.fillRect(-R * 0.8 + i * z, -R * 0.8 + j * z, z - 0.5, z - 0.5);
     }
   }
 }
@@ -812,11 +826,19 @@ function drawWarnings(s, t) {
   // LAG SPIKE: where it is about to put you back
   if (s.rule.id === 'lag' && s.lag.state === 'warn') {
     const past = lagTarget(s);
-    if (past) ghostBall(px(past.th, past.r), py(past.th, past.r), px(b.th, b.r), py(b.th, b.r), 'LAG', t);
+    if (past) ghostBall(cx + past.x, cy + past.y, cx + b.x, cy + b.y, 'LAG', t);
   }
-  // QUANTUM SHIFT: the far side of the hole
+  // QUANTUM SHIFT: where each piece is about to be
   if (s.rule.id === 'shift' && s.shift.state === 'warn') {
-    ghostBall(px(b.th + Math.PI, b.r), py(b.th + Math.PI, b.r), px(b.th, b.r), py(b.th, b.r), 'SHIFT', t);
+    ctx.save();
+    ctx.globalAlpha = Math.floor(t * 12) % 2 ? 0.9 : 0.4;
+    ctx.setLineDash([4, 6]);
+    ctx.strokeStyle = C.amber; ctx.lineWidth = 1.5;
+    for (const o of s.objs) {
+      if (!shiftLands(s, o)) continue;
+      ctx.beginPath(); ctx.arc(cx - o.x, cy - o.y, o.rad, 0, TAU); ctx.stroke();
+    }
+    ctx.restore();
   }
 }
 function ghostBall(x, y, fromX, fromY, label, t) {
@@ -843,16 +865,16 @@ function drawBall(s, t) {
     ctx.stroke(); ctx.setLineDash([]);
   }
   if (s.phase === 'over') return;
-  const x = px(b.th, b.r), y = py(b.th, b.r);
+  const x = cx + b.x, y = cy + b.y;
   if (b.inv > 0 && s.phase === 'play' && Math.floor(t * 14) % 2) return;       // a new ball blinks
   const dim = b.mourn > 0 ? 0.5 + 0.5 * (1 - b.mourn / TUNE.MOURN) : 1;
-  const w = omega(b.r) * b.r;
-  const vx = -Math.sin(b.th) * w + Math.cos(b.th) * b.vr, vy = Math.cos(b.th) * w + Math.sin(b.th) * b.vr;
   const trailSkin = Look.get('trail'), ballSkin = Look.get('ball');
   const look = (trailSkin !== 'default' || ballSkin !== 'default') && {
     rgb: Look.rgb, hex: Look.hex, t, heat: s.heat / 100, quality: glowK < 0.5 ? 0.5 : 1,
-    vx: vx / 60, vy: vy / 60, r: TUNE.BALL_R, charge: 2, speed: Math.hypot(vx, vy) / 60, rally: s.chain
+    vx: b.vx / 60, vy: b.vy / 60, r: TUNE.BALL_R, charge: 2, speed: Math.hypot(b.vx, b.vy) / 60, rally: s.chain
   };
+  const hx = Math.cos(b.a), hy = Math.sin(b.a);
+  const thrusting = s.phase === 'play' && (view === run ? input.thrust : botHold.thrust);
   ctx.save();
   if (trailSkin !== 'default') { ctx.globalAlpha = dim; Look.draw.trail(ctx, fx.trail, look); }
   else for (let i = fx.trail.length - 1; i > 0; i--) {
@@ -863,6 +885,14 @@ function drawBall(s, t) {
     ctx.fillRect(p.x - z / 2, p.y - z / 2, z, z);
   }
   ctx.globalAlpha = dim;
+  // the thrust: a flame out of the back
+  if (thrusting) {
+    const k = 11 + Math.random() * 8;
+    ctx.fillStyle = rgba(C.amber, 0.85);
+    ctx.beginPath();
+    ctx.moveTo(x - hx * 5 - hy * 4, y - hy * 5 + hx * 4); ctx.lineTo(x - hx * (6 + k), y - hy * (6 + k)); ctx.lineTo(x - hx * 5 + hy * 4, y - hy * 5 - hx * 4);
+    ctx.fill();
+  }
   if (ballSkin !== 'default') Look.draw.ball(ctx, x, y, TUNE.BALL_R + 1, look);
   else {
     glow(Look.hex, b.showoff ? 30 : 18);
@@ -872,22 +902,17 @@ function drawBall(s, t) {
     ctx.fillStyle = '#fff';
     ctx.beginPath(); ctx.arc(x - 2, y - 2, TUNE.BALL_R * 0.4, 0, TAU); ctx.fill();
   }
+  // which way it is facing: a white chevron ahead of it
+  ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; ctx.lineJoin = 'round';
+  glow(Look.hex, 8);
+  ctx.beginPath();
+  ctx.moveTo(x + hx * 10 - hy * 5, y + hy * 10 + hx * 5); ctx.lineTo(x + hx * 17, y + hy * 17); ctx.lineTo(x + hx * 10 + hy * 5, y + hy * 10 - hx * 5);
+  ctx.stroke();
+  noGlow();
   ctx.globalAlpha = 1;
   if (s.shield) {
     ctx.strokeStyle = C.cyan; ctx.lineWidth = 2; glow(C.cyan, 12);
-    ctx.beginPath(); ctx.arc(x, y, TUNE.BALL_R + 6 + Math.sin(t * 8), 0, TAU); ctx.stroke(); noGlow();
-  }
-  if (s.magnet > 0) {
-    ctx.strokeStyle = rgba(C.pink, 0.2 + 0.1 * Math.sin(t * 6)); ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.arc(x, y, TUNE.MAGNET_R, 0, TAU); ctx.stroke();
-  }
-  // the thrust: a little flame pointing at the hole
-  if (input.thrust && view === run && s.phase === 'play') {
-    ctx.fillStyle = rgba(C.amber, 0.8);
-    const fxn = -Math.cos(b.th), fyn = -Math.sin(b.th), k = 9 + Math.random() * 7;
-    ctx.beginPath();
-    ctx.moveTo(x + fyn * 3.5, y - fxn * 3.5); ctx.lineTo(x + fxn * k, y + fyn * k); ctx.lineTo(x - fyn * 3.5, y + fxn * 3.5);
-    ctx.fill();
+    ctx.beginPath(); ctx.arc(x, y, TUNE.BALL_R + 13 + Math.sin(t * 8), 0, TAU); ctx.stroke(); noGlow();
   }
   ctx.restore();
   // what the ball has to say
@@ -895,7 +920,7 @@ function drawBall(s, t) {
     ctx.font = '15px "Share Tech Mono", monospace';
     ctx.textAlign = x > cx ? 'right' : 'left'; ctx.textBaseline = 'middle';
     ctx.globalAlpha = Math.min(1, fx.bubble.t * 2);
-    const tx = x + (x > cx ? -16 : 16), ty = y - 18;
+    const tx = x + (x > cx ? -20 : 20), ty = y - 24;
     const tw = ctx.measureText(fx.bubble.text).width;
     ctx.fillStyle = 'rgba(3,4,10,0.75)';
     ctx.fillRect(x > cx ? tx - tw - 5 : tx - 5, ty - 10, tw + 10, 20);
@@ -914,7 +939,7 @@ function drawParts() {
   ctx.globalAlpha = 1;
 }
 
-// KERNEL PANIC: the ball lights a small circle; a bit lights the screen for a moment
+// KERNEL PANIC: the ball and its shots carry a little light; a hit lights the screen for a moment
 function drawDark(s) {
   const b = s.ball, k = dark.width / LW;
   const lit = Math.min(1, fx.panic / 0.4);
@@ -924,19 +949,21 @@ function drawDark(s) {
   dctx.fillStyle = `rgba(1,1,6,${0.9 * (1 - lit * 0.85)})`;
   dctx.fillRect(0, 0, dark.width, dark.height);
   dctx.globalCompositeOperation = 'destination-out';
-  const x = px(b.th, b.r) * k, y = py(b.th, b.r) * k, R = 140 * k;
-  const g = dctx.createRadialGradient(x, y, R * 0.25, x, y, R);
-  g.addColorStop(0, 'rgba(0,0,0,1)'); g.addColorStop(1, 'rgba(0,0,0,0)');
-  dctx.fillStyle = g;
-  dctx.beginPath(); dctx.arc(x, y, R, 0, TAU); dctx.fill();
+  const hole = (x, y, R) => {
+    const g = dctx.createRadialGradient(x, y, R * 0.25, x, y, R);
+    g.addColorStop(0, 'rgba(0,0,0,1)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+    dctx.fillStyle = g;
+    dctx.beginPath(); dctx.arc(x, y, R, 0, TAU); dctx.fill();
+  };
+  hole((cx + b.x) * k, (cy + b.y) * k, 150 * k);
+  // each shot carries a little light with it
+  for (const sh of s.shots) hole((cx + sh.x) * k, (cy + sh.y) * k, 46 * k);
   ctx.drawImage(dark, 0, 0, LW, LH);
-  // what still shows in the dark: the horizon, the glass, and a glint off each bit
+  // what still shows in the dark: the horizon and the edge of the screen
   ctx.strokeStyle = 'rgba(243,233,255,0.5)'; ctx.lineWidth = 1.5;
   ctx.beginPath(); ctx.arc(cx, cy, s.holeR, 0, TAU); ctx.stroke();
   ctx.strokeStyle = rgba(C.cyan, 0.35);
   ctx.beginPath(); ctx.arc(cx, cy, TUNE.R_OUT + 3, 0, TAU); ctx.stroke();
-  ctx.fillStyle = 'rgba(234,255,255,0.4)';
-  for (const o of s.objs) if (o.kind === 'bit' || o.kind === 'core') ctx.fillRect(px(o.th, o.r) - 1.5, py(o.th, o.r) - 1.5, 3, 3);
 }
 
 function drawFloats() {
@@ -1008,7 +1035,7 @@ function click() { audio.init(); audio.sfx('click'); }
 $('btnPlay').onclick = () => { click(); startRun(); };
 $('btnRetry').onclick = () => { click(); audio.bend(1, 18000); startRun(); };
 $('btnOverMenu').onclick = () => { click(); toMenu(); };
-$('btnHow').onclick = () => { click(); $('howKey').textContent = IS_TOUCH ? 'TOUCH' : 'SPACE / CLICK'; show('scrHow'); };
+$('btnHow').onclick = () => { click(); show('scrHow'); };
 $('btnRecord').onclick = () => {
   click();
   const m = Math.floor(save.seconds / 60);
@@ -1077,16 +1104,18 @@ if (Cabinet.active) {
   };
 }
 
-// ── input: one button ──
-const THRUST_KEYS = new Set(['Space', 'ArrowUp', 'KeyW']);
+// ── input: turn, thrust, fire ──
+const KEYS = { ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right', ArrowUp: 'thrust', KeyW: 'thrust', Space: 'fire' };
+function release() { input.left = input.right = input.thrust = input.fire = false; }
 window.addEventListener('keydown', (e) => {
-  if (e.repeat) { if (THRUST_KEYS.has(e.code)) e.preventDefault(); return; }
+  const k = KEYS[e.code];
+  if (e.repeat) { if (k) e.preventDefault(); return; }
   audio.init();
-  if (THRUST_KEYS.has(e.code)) {
-    if (e.target && e.target.tagName === 'BUTTON' && e.code === 'Space') return;      // let a focused button take it
+  if (k) {
+    if (mode !== 'play' && e.target && e.target.tagName === 'BUTTON' && e.code === 'Space') return;   // let a focused button take it
     e.preventDefault();
     input.kind = 'key';
-    if (mode === 'play') input.thrust = true;
+    if (mode === 'play') input[k] = true;
     return;
   }
   if (e.code === 'KeyP' || e.code === 'Escape') {
@@ -1104,15 +1133,23 @@ window.addEventListener('keydown', (e) => {
     else if (mode === 'menu' && $('scrMenu').classList.contains('on')) $('btnPlay').click();
   }
 });
-window.addEventListener('keyup', (e) => { if (THRUST_KEYS.has(e.code)) input.thrust = false; });
-stage.addEventListener('pointerdown', (e) => {
-  audio.init();
-  if (e.target.closest('button, input')) return;
-  input.kind = e.pointerType === 'touch' ? 'touch' : 'mouse';
-  if (mode === 'play') { input.thrust = true; e.preventDefault(); }
+window.addEventListener('keyup', (e) => { const k = KEYS[e.code]; if (k) input[k] = false; });
+// touch: four buttons in the corners, each held like a key
+document.querySelectorAll('#pad button').forEach((btn) => {
+  const k = btn.dataset.k;
+  const set = (on) => (e) => {
+    e.preventDefault();
+    audio.init();
+    input.kind = 'touch';
+    input[k] = on && mode === 'play';
+    btn.classList.toggle('held', input[k]);
+    if (on && btn.setPointerCapture) { try { btn.setPointerCapture(e.pointerId); } catch (err) {} }
+  };
+  btn.addEventListener('pointerdown', set(true));
+  for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) btn.addEventListener(ev, set(false));
 });
-for (const ev of ['pointerup', 'pointercancel']) window.addEventListener(ev, () => { input.thrust = false; });
-window.addEventListener('blur', () => { input.thrust = false; });
+stage.addEventListener('pointerdown', (e) => { audio.init(); if (e.pointerType === 'mouse') input.kind = 'mouse'; });
+window.addEventListener('blur', release);
 stage.addEventListener('contextmenu', (e) => e.preventDefault());
 
 // ── looking away: it pauses for you, renames the tab, and counts ──

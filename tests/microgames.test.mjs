@@ -7,10 +7,6 @@ import { MICROGAMES, simulateFragment } from '../glitchcade-microgames.js';
 // near perfect. They prove each game can be won and that its target is fair.
 const W = 320;
 const PILOTS = {
-  'signal-lost'(s) {
-    const p = s.packets.reduce((a, b) => (Math.hypot(a.x - s.x, a.y - s.y) < Math.hypot(b.x - s.x, b.y - s.y) ? a : b));
-    return { left: p.x < s.x - 2, right: p.x > s.x + 2, up: p.y < s.y - 2, down: p.y > s.y + 2 };
-  },
   firewall(s) {
     const reds = s.packets.filter((p) => p.bad).sort((a, b) => b.y - a.y);
     if (!reds.length) return {};

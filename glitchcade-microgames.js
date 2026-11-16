@@ -11,7 +11,7 @@
 //   g.t            seconds played
 //   inp            held: left right up down a · pressed this frame: pl pr pu pd pa
 // ═══════════════════════════════════════════════════════════════════════════
-import { FRAGMENT_SECONDS, cleanInitials } from './glitchcade-state.js?v=floor-2';
+import { FRAGMENT_SECONDS, cleanInitials } from './glitchcade-state.js?v=floor-3';
 
 const W = 320, H = 240;
 const COL = { cyan: '#71efff', pink: '#ff58d9', purple: '#9a5dff', amber: '#ffd27a', green: '#50fa7b', red: '#ff4d6d', text: '#eef7ff', dim: '#5a4a8a' };
@@ -22,53 +22,10 @@ function box(ctx, x, y, w, h, col) {
   ctx.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
 }
 
-// ── 06 SIGNAL LOST: gather signal packets while the static closes in ──
-const signalLost = {
-  hint: 'MOVE: ARROWS — COLLECT THE SIGNAL, AVOID THE STATIC',
-  init(g) {
-    const s = { x: W / 2, y: H / 2, packets: [], blobs: [], stun: 0 };
-    for (let i = 0; i < 3; i++) s.packets.push({ x: 30 + g.rand() * (W - 60), y: 40 + g.rand() * (H - 70) });
-    s.blobs.push({ x: 20, y: 40 }, { x: W - 20, y: H - 20 });
-    return s;
-  },
-  update(s, dt, inp, g) {
-    s.stun = Math.max(0, s.stun - dt);
-    const sp = s.stun > 0 ? 40 : 115;
-    s.x = clamp(s.x + ((inp.right ? 1 : 0) - (inp.left ? 1 : 0)) * sp * dt, 8, W - 8);
-    s.y = clamp(s.y + ((inp.down ? 1 : 0) - (inp.up ? 1 : 0)) * sp * dt, 34, H - 8);
-    s.packets.forEach((p) => {
-      if (Math.hypot(p.x - s.x, p.y - s.y) < 11) {
-        g.add(1); g.blip('good');
-        p.x = 20 + g.rand() * (W - 40); p.y = 40 + g.rand() * (H - 60);
-      }
-    });
-    const chase = 42 + g.t * 1.6;
-    s.blobs.forEach((b) => {
-      const d = Math.hypot(s.x - b.x, s.y - b.y) || 1;
-      b.x += ((s.x - b.x) / d) * chase * dt;
-      b.y += ((s.y - b.y) / d) * chase * dt;
-      if (d < 13 && s.stun <= 0) {
-        g.add(-1); g.blip('bad'); s.stun = 0.8;
-        b.x = g.rand() < 0.5 ? 10 : W - 10; b.y = 40 + g.rand() * (H - 60);
-      }
-    });
-  },
-  draw(s, ctx, g) {
-    s.packets.forEach((p) => {
-      box(ctx, p.x - 4, p.y - 4, 8, 8, COL.green);
-      box(ctx, p.x - 1, p.y - 7, 2, 14, 'rgba(80,250,123,.5)');
-    });
-    s.blobs.forEach((b) => {
-      for (let i = 0; i < 14; i++) {
-        const a = g.rand() * Math.PI * 2, r = g.rand() * 12;
-        box(ctx, b.x + Math.cos(a) * r, b.y + Math.sin(a) * r, 3, 3, g.rand() < 0.5 ? '#ffffff' : '#8a8a9a');
-      }
-    });
-    box(ctx, s.x - 5, s.y - 5, 10, 10, s.stun > 0 && Math.floor(g.t * 20) % 2 ? COL.red : g.accent);
-  }
-};
+// (SIGNAL LOST was a fragment here until it became a whole game: cabinet 04,
+// in signal/. FIREWALL runs on the cabinet it left, 06.)
 
-// ── 04 FIREWALL: block the red packets, let the green ones through ──
+// ── 06 FIREWALL: block the red packets, let the green ones through ──
 const firewall = {
   hint: 'MOVE: ◀ ▶ — BLOCK RED PACKETS, LET GREEN ONES PASS',
   init() { return { col: 2, packets: [], next: 0.4, flash: 0 }; },
@@ -303,7 +260,6 @@ const missileDefense = {
 };
 
 export const MICROGAMES = {
-  'signal-lost': signalLost,
   firewall,
   defrag,
   'stack-overflow': stackOverflow,

@@ -32,15 +32,15 @@ export function todayStr(d = new Date()) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-// ── Cabinets 04–10: what each one costs to bring back, and its ROM fragment ──
+// ── Cabinets 05–10: what each one costs to bring back, and its ROM fragment ──
 // `target` is the score that earns the full payout in the 30-second fragment.
-// Cabinet 03 used to be SIGNAL LOST's and cabinet 06 ran a 30-second
-// BLACK-HOLE NEXUS. That fragment is now a whole game on cabinet 03, next to
-// Breakpoint, and SIGNAL LOST took the cabinet it left (see sanitizeFloor).
+// Two fragments have become whole games and left the list: BLACK-HOLE NEXUS
+// (cabinet 03) and SIGNAL LOST (cabinet 04). Each time, the fragment that had
+// the new game's cabinet moved to the one the old fragment left: SIGNAL LOST
+// went from 03 to 06, and then FIREWALL from 04 to 06 (see sanitizeFloor).
 export const FRAGMENTS = {
-  4: { id: 'firewall', title: 'FIREWALL', target: 18 },
   5: { id: 'defrag', title: 'DEFRAG', target: 22 },
-  6: { id: 'signal-lost', title: 'SIGNAL LOST', target: 14 },
+  6: { id: 'firewall', title: 'FIREWALL', target: 18 },
   7: { id: 'stack-overflow', title: 'STACK OVERFLOW', target: 18 },
   8: { id: 'packet-hop', title: 'PACKET HOP', target: 7 },
   9: { id: 'swarm-protocol', title: 'SWARM PROTOCOL', target: 24 },
@@ -50,7 +50,7 @@ export const REPAIRABLE_SLOTS = Object.keys(FRAGMENTS).map(Number);
 export const CHIP_PRIZE = 'overclock-chip';
 export const FRAGMENT_SECONDS = 30;
 export const FRAGMENT_DAILY_CAP = 6;      // coins one cabinet pays out per day
-export const BASE_ONLINE = 3;             // Glitch Pong, Breakpoint and Black-Hole Nexus
+export const BASE_ONLINE = 4;             // Glitch Pong, Breakpoint, Black-Hole Nexus and Signal Lost
 export const TOTAL_CABINETS = 10;
 
 // Each repair costs a little more than the last one.
@@ -128,7 +128,12 @@ export const DAILY_POOL = [
   { id: 'three-cabinets', reward: 15, parts: [
     { stat: 'gpMatches', goal: 1, label: 'PLAY A GLITCH PONG MATCH' },
     { stat: 'bpCoins', goal: 2, label: 'EARN 2 COINS IN BREAKPOINT' },
-    { stat: 'nxCoins', goal: 2, label: 'EARN 2 COINS IN BLACK-HOLE NEXUS' }] }
+    { stat: 'nxCoins', goal: 2, label: 'EARN 2 COINS IN BLACK-HOLE NEXUS' }] },
+  { id: 'on-air', reward: 12, parts: [
+    { stat: 'sgCoins', goal: 4, label: 'EARN 4 COINS IN SIGNAL LOST' }] },
+  { id: 'chase-and-rally', reward: 15, parts: [
+    { stat: 'gpWins', goal: 1, label: 'WIN A GLITCH PONG MATCH' },
+    { stat: 'sgCoins', goal: 2, label: 'EARN 2 COINS IN SIGNAL LOST' }] }
 ];
 
 export function dailyChallenge(date = todayStr()) {
@@ -138,20 +143,23 @@ export function dailyChallenge(date = todayStr()) {
 
 // The numbers a daily challenge can measure. `wallet` is the coin wallet,
 // `gp` is Glitch Pong's progression record, `floor` is this module's state,
-// `nexus` is Black-Hole Nexus's record (it counts the coins it has paid).
-// Breakpoint's coins are whatever the wallet earned that neither a Glitch
-// Pong win (10 each), the arcade floor itself nor Black-Hole Nexus paid out.
-export function statSnapshot(wallet, gp, floor, nexus) {
+// `nexus` and `signal` are Black-Hole Nexus's and Signal Lost's records (each
+// counts the coins it has paid). Breakpoint's coins are whatever the wallet
+// earned that nothing else paid out: not a Glitch Pong win (10 each), not the
+// arcade floor itself, not either of those two cabinets.
+export function statSnapshot(wallet, gp, floor, nexus, signal) {
   const w = wallet || {};
   const p = gp || {};
   const f = floor || {};
   const nx = Math.max(0, Math.floor(Number(nexus && nexus.coins) || 0));
+  const sg = Math.max(0, Math.floor(Number(signal && signal.coins) || 0));
   return {
     gpWins: Math.max(0, p.wins || 0),
     gpMatches: Math.max(0, p.matchesPlayed || 0),
     gpBoss: Math.max(0, p.bossSurvivals || 0),
-    bpCoins: Math.max(0, (w.earned || 0) - 10 * (w.wins || 0) - (f.floorEarned || 0) - nx),
+    bpCoins: Math.max(0, (w.earned || 0) - 10 * (w.wins || 0) - (f.floorEarned || 0) - nx - sg),
     nxCoins: nx,
+    sgCoins: sg,
     hockeyWins: Math.max(0, (f.hockey && f.hockey.wins) || 0),
     fragments: Math.max(0, f.fragmentsPlayed || 0)
   };
@@ -208,9 +216,9 @@ export const GAUNTLET_REWARD = 50;
 // ── The record itself ──
 export function defaultFloor() {
   return {
-    v: 2,                         // 2: cabinet 03 became Black-Hole Nexus, SIGNAL LOST moved to 06
+    v: 3,                         // 2: cabinet 03 became Black-Hole Nexus. 3: cabinet 04 became Signal Lost
     initials: '',
-    repaired: [],                 // slot numbers 4–10
+    repaired: [],                 // slot numbers 5–10
     chipUsed: false,              // the Overclock Chip's one free repair
     scores: {},                   // cabinet id → [{ n, s }] best first
     fragmentsPlayed: 0,
@@ -245,7 +253,10 @@ export function sanitizeFloor(v) {
   if (Array.isArray(v.repaired)) {
     // A record from before cabinet 03 became a whole game: the cabinet that
     // was repaired there ran SIGNAL LOST, and SIGNAL LOST now lives at 06.
-    const moved = int(v.v) < 2 ? v.repaired.map((n) => (int(n) === 3 ? 6 : n)) : v.repaired;
+    let moved = int(v.v) < 2 ? v.repaired.map((n) => (int(n) === 3 ? 6 : n)) : v.repaired;
+    // ...and from before cabinet 04 became one: the SIGNAL LOST fragment on 06
+    // is gone, and FIREWALL, which was on 04, has that cabinet now.
+    if (int(v.v) < 3) moved = moved.filter((n) => int(n) !== 6).map((n) => (int(n) === 4 ? 6 : n));
     out.repaired = [...new Set(moved.map((n) => int(n)).filter((n) => REPAIRABLE_SLOTS.includes(n)))];
   }
   out.chipUsed = !!v.chipUsed;

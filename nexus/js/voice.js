@@ -5,7 +5,7 @@
 //
 //   NULL      the hole. Upper case, on the terminal line under the screen. It
 //             talks to the player, not to the ball: it knows there is someone
-//             holding a button on the other side of the glass, what time it is
+//             pressing buttons on the other side of the glass, what time it is
 //             out there, how many runs they have had, and what they did in the
 //             other two cabinets.
 //   the ball  the same ball as Glitch Pong's and Breakpoint's. Lower case, in
@@ -23,7 +23,7 @@ export const NULL_LINES = {
   // the menu, the first time this browser has ever opened the cabinet
   bootFirst: [
     'HELLO. I WAS A THIRTY-SECOND FRAGMENT. THEN SOMEONE REPAIRED THE CABINET. NOW I AM A WHOLE GAME.',
-    'YOU ARE NOT THE BALL. YOU ARE THE ONE HOLDING THE BUTTON. I CAN TELL THE DIFFERENCE.'
+    'YOU ARE NOT THE BALL. YOU ARE THE ONE PRESSING THE BUTTONS. I CAN TELL THE DIFFERENCE.'
   ],
   // the menu, every time after
   boot: [
@@ -48,19 +48,21 @@ export const NULL_LINES = {
     'PRESS PLAY. OR DO NOT. THE ATTRACT MODE WILL KEEP PRETENDING.'
   ],
   runStart: [
-    { t: 'THIS IS THE TUTORIAL. THERE IS NO TUTORIAL. HOLD THE BUTTON.', if: (c) => c.runs <= 1 },
+    { t: 'THIS IS THE TUTORIAL. THERE IS NO TUTORIAL. TURN. THRUST. FIRE.', if: (c) => c.runs <= 1 },
     'THERE IS NO PADDLE IN THIS ONE. I CHECKED. I ATE IT.',
-    'HOLD TO CLIMB. LET GO TO FALL. I RECOMMEND LETTING GO.',
+    'TURN. THRUST. FIRE. OR DO NOTHING AND COME TO ME. I RECOMMEND NOTHING.',
+    'THIS USED TO BE A GAME ABOUT ROCKS. I ATE THE ROCKS. THESE ARE YOUR OWN BRICKS.',
+    'THE BALL COULD NEVER SHOOT BEFORE. I GAVE IT THAT. I WANTED TO SEE WHAT IT WOULD AIM AT.',
     'THE SCORE STARTS AT ZERO. I FIND THAT RELAXING.',
     { t: 'RUN {runs}. THE BALL IS THE SAME ONE AS LAST TIME. IT REMEMBERS. ASK IT.', if: (c) => c.runs > 1 },
     { t: 'YOU LOST {ballsEaten} BALLS PAST MY HORIZON BEFORE TODAY. BRING THREE MORE.', if: (c) => c.ballsEaten > 2 }
   ],
   // one for each sector rule, said as the countdown starts
   rule_standard: ['NO RULE THIS SECTOR. ENJOY IT. I WILL NOT.'],
-  rule_leak: ['MEMORY LEAK. EVERY BIT YOU MISS, I KEEP, AND I GROW.'],
+  rule_leak: ['MEMORY LEAK. EVERY PIECE YOU MISS, I KEEP, AND I GROW. BREAK THEM FIRST AND I SHRINK. I HATE THAT.'],
   rule_panic: ['KERNEL PANIC. I TURNED THE LIGHTS OFF. I CAN STILL SEE YOU. I AM THE DARK PART.'],
   rule_lag: ['LAG SPIKE. THE MACHINE FORGETS THE LAST HALF SECOND. I NEVER DO.'],
-  rule_shift: ['QUANTUM SHIFT. YOU WILL BE ON THE OTHER SIDE OF ME SHORTLY. THERE IS NO OTHER SIDE OF ME.'],
+  rule_shift: ['QUANTUM SHIFT. THE DEBRIS CHANGES SIDES WHEN I BLINK. I DO NOT HAVE AN EYE. I BLINK ANYWAY.'],
   rule_overclock: ['OVERCLOCK. SOMEONE TURNED THE CLOCK UP. THE CABINET IS WARM. PUT YOUR HAND ON IT.'],
   rule_eye: [
     'IT IS LOOKING THROUGH ME AGAIN. THE EYE DOES NOT HAVE A CABINET OF ITS OWN. IT BORROWS OURS.',
@@ -84,13 +86,17 @@ export const NULL_LINES = {
     'IT REFUSED. THE BALL IS NOT SUPPOSED TO BE ABLE TO REFUSE.',
     'WHO TAUGHT IT TO DO THAT. WAS IT YOU.'
   ],
-  edgeHide: [
-    'YOU ARE HIDING AT THE EDGE OF THE SCREEN. THAT IS GLASS. THERE IS A ROOM BEHIND IT. YOU ARE IN THE ROOM.',
-    'NOTHING SCORES OUT THERE. THE POINTS ARE DOWN HERE WITH ME.'
+  wrap: [
+    'YOU WENT OFF ONE SIDE AND CAME BACK ON THE OTHER. THE SCREEN HAS NO SIDES. IT HAS ME IN THE MIDDLE.',
+    'THAT EDGE IS GLASS. THERE IS A ROOM BEHIND IT. YOU ARE IN THE ROOM. THE BALL IS NOT.'
+  ],
+  idle: [
+    'YOU HAVE STOPPED SHOOTING. THE FIRE BUTTON IS STILL THERE. I CHECKED.',
+    'NOTHING BREAKS UNLESS YOU BREAK IT. I CAN WAIT. THE DEBRIS CANNOT.'
   ],
   sectorClear: [
     'SECTOR {sector} SALVAGED. THE MACHINE PAYS YOU COINS FOR TAKING THINGS FROM ME. I NOTICED.',
-    'YOU TOOK {quota} BITS. I HAD PLANS FOR THOSE.',
+    'YOU BROKE {quota} THINGS I WAS SAVING. I HAD PLANS FOR THOSE.',
     'GOOD. THE NEXT ONE HAS A RULE. I DID NOT WRITE THE RULES. I ONLY LIVE IN THEM.'
   ],
   heatCritical: [
@@ -103,7 +109,7 @@ export const NULL_LINES = {
   ],
   surgeWarn: [
     'I AM GOING TO BREATHE IN.',
-    'HOLD THE BUTTON. HARDER. IT DOES NOT GO HARDER. I KNOW.'
+    'THRUST. HARDER. IT DOES NOT GO HARDER. I KNOW.'
   ],
   graze: ['CLOSE. THE GAME GIVES YOU POINTS FOR NEARLY DYING. I DID NOT DESIGN THAT. I APPROVE.'],
   rally: ['A RALLY OF {chain}, WITH NOBODY ON THE OTHER SIDE. YOU ARE RALLYING WITH ME.'],
@@ -146,10 +152,10 @@ export const NULL_LINES = {
 };
 
 export const BALL_LINES = {
-  runStart: ['no paddle. just you and me.', 'i know this place. i fell here once.', 'don\'t let go for long.'],
+  runStart: ['no paddle. just you and me.', 'i know this place. i fell here once.', 'i can shoot now. point me at something.'],
   respawn: ['that was me a second ago.', 'i felt that.', 'same ball. they just redraw me.'],
   loyal: ['not yet.', 'no.'],
-  edgeHide: ['it\'s just glass out here. i checked.', 'i can see a room. is that you?'],
+  wrap: ['the edge isn\'t an edge. i checked.', 'i saw a room for a second. is that you?'],
   eye: ['that thing again.', 'i remember it.'],
   eyeHit: ['ha.', 'again.'],
   showoff: ['watch this.', 'closer.'],
