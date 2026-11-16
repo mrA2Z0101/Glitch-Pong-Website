@@ -65,9 +65,17 @@ None of this is in `js/rules.js`: the look can change without the game changing.
 
 | | Keyboard | Touch |
 |---|---|---|
-| Steer | Arrows or W A S D | Swipe anywhere. Each swipe is a turn; one drag can make several. |
+| Steer | Arrows or W A S D | Slide a thumb round the pad, or swipe anywhere on the screen. Both work at once. |
 | Dash | Space | The DASH button |
 | Pause | P or Esc | The II button |
+
+**On a phone.** A direction is a turn the ball takes when it reaches an opening, so nothing has to be held and a turn can be given early.
+
+- **The pad** is one round control, not four buttons: the way from its middle to the thumb is the way the ball goes, so a thumb can slide from one direction to the next without lifting. Leaving the direction already chosen takes a clear move toward another (`dragDir`), so a thumb resting on a diagonal does not flicker between two.
+- **A swipe** works anywhere that is not a button, including outside the maze. A flick of about a thirtieth of the screen's width is enough, and one drag can make several turns.
+- **Where they sit.** Held upright, a phone has height to spare, so the screen grows downward (`layout`) and the pad and DASH sit under the maze, where a thumb does not cover the game. The static's line moves to just under the maze. On its side the cabinet is drawn small with empty glass either side, so the pad and DASH are sized for a thumb rather than for the cabinet (about 40% of the screen's height) and sit out in that space.
+- **What you are shown.** The pad lights the arrow for the turn the ball has been given, and a small amber chevron beside the ball shows a turn that is waiting for an opening. Where the phone can, a turn is also a short tick in the hand (off with *Screen FX: Reduced*).
+- **Settings → Touch pad**: *Left* (pad under the left thumb, DASH under the right), *Right* (swapped), or *Off* (no pad; swipe only, and the screen keeps its shorter shape). The setting only shows on a touch screen.
 
 ## The maze
 
@@ -268,6 +276,7 @@ And one thing was learned about the game from the bot's first version, which did
 |---|---|
 | How fast everything is | `TUNE` in `js/rules.js`: `SPEED`, `CHASER`, `CHASER_STEP`, `CHASER_MAX`, `FRIGHT_SPEED`, `TUNNEL_SPEED` |
 | The dash | `TUNE`: `DASH_MULT`, `DASH_T`, `DASH_COOL` |
+| Touch controls | `steer`, `dragDir` and the pad and swipe handlers in `js/game.js`; sizes in `layout`; the look in `#dpad` in `index.html` |
 | How each chaser hunts | `CHASERS` (name, colour, the line shown on screen) and `targetOf` |
 | How often they misjudge, how long they run | `lapseChance`, `frightTime` |
 | Scoring and Heat | `TUNE`, `heatMultiplier` |

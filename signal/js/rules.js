@@ -897,6 +897,7 @@ export function runRecap(s) {
 // carried by Glitch Pong's save export.
 // ═══════════════════════════════════════════════════════════════════════════
 export const SAVE_KEY = 'glitchcade_signal_v1';
+export const PAD_SIDES = ['left', 'right', 'off'];
 export function defaultSave() {
   return {
     v: 1,
@@ -910,7 +911,8 @@ export function defaultSave() {
     coins: 0,             // coins this cabinet has paid (the arcade's daily board subtracts them)
     seconds: 0,
     noSignalSeen: false,  // the NO SIGNAL screen has been played once
-    vol: 70, fx: true, moods: true, talk: true
+    vol: 70, fx: true, moods: true, talk: true,
+    pad: 'left'           // touch screens: which side the steering pad is on, or 'off' for swipes only
   };
 }
 const int = (v, lo = 0, hi = 1e9) => { const n = Number(v); return Number.isFinite(n) ? clamp(Math.floor(n), lo, hi) : lo; };
@@ -921,6 +923,7 @@ export function sanitizeSave(v) {
   out.vol = v.vol === undefined ? 70 : int(v.vol, 0, 100);
   out.noSignalSeen = !!v.noSignalSeen;
   for (const k of ['fx', 'moods', 'talk']) out[k] = v[k] === undefined ? true : !!v[k];
+  out.pad = PAD_SIDES.includes(v.pad) ? v.pad : 'left';
   return out;
 }
 // Fold a finished run into the record. Returns what was new.

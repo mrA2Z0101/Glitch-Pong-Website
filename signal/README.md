@@ -22,7 +22,7 @@ then open `http://localhost:5180/signal/`. It needs a server (the game is ES mod
 | Space | Dash: a short burst of speed, then a 6 second wait |
 | P / Esc | Pause |
 | Enter | Play, play again, or keep going after the tenth maze |
-| Touch | Swipe to steer; the DASH button |
+| Touch | Slide a thumb round the pad, or swipe anywhere, to steer; the DASH button. Settings → Touch pad puts the pad on the left or right, or turns it off. |
 
 ## What is in it
 
