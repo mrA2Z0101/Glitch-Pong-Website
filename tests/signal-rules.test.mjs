@@ -501,6 +501,10 @@ test('the save: junk is dropped, runs are folded in, bests only go up', () => {
   assert.equal(clean.fx, false);
   assert.equal(clean.talk, false);
   assert.equal(clean.moods, true, 'a switch that was never saved is on');
+  assert.equal(clean.pad, 'left', 'the touch pad starts under the left thumb');
+  assert.equal(R.sanitizeSave({ pad: 'right' }).pad, 'right');
+  assert.equal(R.sanitizeSave({ pad: 'off' }).pad, 'off');
+  assert.equal(R.sanitizeSave({ pad: 'sideways' }).pad, 'left');
   assert.equal(clean.noSignalSeen, true);
   assert.equal('evil' in clean, false);
   assert.match(R.SAVE_KEY, /^[a-z0-9_-]{1,40}$/i, 'the key survives the save export\'s filter');
@@ -582,6 +586,8 @@ test('the page loads the arcade\'s shared files at the arcade\'s versions, and i
   assert.ok(html.indexOf('src="../glitchpong-cosmetics.js') < html.indexOf('src="js/game.js'));
   assert.match(html, /id="game"/, 'the arcade checks for this before it shows the frame');
   assert.ok(html.includes('data-k="dash"'), 'a touch button for the dash');
+  for (const d of [0, 1, 2, 3]) assert.ok(html.includes(`<i data-d="${d}">`), `the touch pad has an arrow for direction ${d}`);
+  assert.ok(html.includes('id="setPad"'), 'a setting for where the pad sits');
   assert.ok(html.includes('id="scrWon"'), 'a screen for beating the game');
   // every maze has music, and every file is one the other cabinets already ship
   const audio = src('signal/js/audio.js');

@@ -7,7 +7,7 @@
 // the rules, so what the tests measure is what you play.
 // ═══════════════════════════════════════════════════════════════════════════
 import {
-  TUNE, W, H, DIRS, CHASERS, WALL, DOOR, mazeSpec,
+  TUNE, W, H, DIRS, CHASERS, WALL, DOOR, PAD_SIDES, mazeSpec,
   createRun, step, botInput, continueRun, heatMultiplier, pos, xy, idx, runRecap, recordRun
 } from './rules.js';
 import { STATIC_LINES, BALL_LINES, EXIT_FLICKER, AWAY_TITLE, pick } from './voice.js';
@@ -72,8 +72,30 @@ function layout() {
   wrap.style.width = (LW + 20) + 'px';
   canvas.style.aspectRatio = `${LW} / ${LH}`;
   wrap.style.transform = 'none';
+  // touch: a pad to steer with. A phone held upright has height to spare, so the
+  // screen grows downward and the controls sit under the maze, not on it.
+  const padOn = IS_TOUCH && save.pad !== 'off';
+  if (portrait && padOn) {
+    const chrome = wrap.offsetHeight - canvas.offsetHeight;
+    LH = Math.max(900, Math.min(1010, Math.floor(wrap.offsetWidth * vh / vw) - chrome));
+    canvas.style.aspectRatio = `${LW} / ${LH}`;
+  }
+  let padSize = portrait ? Math.max(170, Math.min(250, LH - cy - (H * TS) / 2 - 116)) : 178, padX = 14, padY = 14;
+  for (const side of PAD_SIDES) document.body.classList.toggle('pad-' + side, IS_TOUCH && save.pad === side);
   const scale = Math.min(vw / wrap.offsetWidth, vh / wrap.offsetHeight, IS_TOUCH ? 3 : 1.7) * 0.985;
   wrap.style.transform = `scale(${scale})`;
+  if (IS_TOUCH && !portrait) {
+    // On its side a phone shows the cabinet small, with empty glass either side of it.
+    // The controls are sized for a thumb, not for the cabinet, and go out into that space.
+    const r = stage.getBoundingClientRect(), real = Math.max(104, Math.min(168, vh * 0.4));
+    padSize = real / scale;
+    if (r.left >= real + 12) { padX = ((r.left - real) / 2 - r.left) / scale; padY = (r.bottom - (vh - 10)) / scale; }
+    else padX = (8 - r.left) / scale;
+  }
+  stage.style.setProperty('--pad', padSize + 'px');
+  stage.style.setProperty('--dash', (padOn ? Math.round(padSize * 0.74) : portrait ? 112 : Math.round(padSize * 0.9)) + 'px');
+  stage.style.setProperty('--pad-x', padX + 'px');
+  stage.style.setProperty('--pad-y', padY + 'px');
   const dpr = Math.min(window.devicePixelRatio || 1, Power.saving ? 1 : 2);
   ratio = Math.max(0.5, Math.min(3, scale * dpr));
   canvas.width = Math.round(LW * ratio);
@@ -532,6 +554,9 @@ function hud() {
     const btn = document.querySelector('#pad [data-k="dash"]');
     if (btn) btn.classList.toggle('ready', dash >= 100);
   }
+  // the pad shows which way the ball has been told to go, however it was told
+  const want = mine && mode === 'play' ? s.ball.want : -1;
+  if (cache.want !== want) { cache.want = want; for (const a of padArrows) a.classList.toggle('on', Number(a.dataset.d) === want); }
   const boss = !!s.eye && mine && s.phase === 'play';
   if (cache.boss !== boss) { cache.boss = boss; $('bossBar').classList.toggle('on', boss); }
   if (boss) {
@@ -1011,6 +1036,13 @@ function drawBall(s, t) {
     ctx.beginPath(); ctx.arc(x, y, R, 0, TAU); ctx.fill();
     ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 1; ctx.stroke();
   }
+  // touch: the turn it has been told to take and has not reached yet, so a swipe is seen to have landed
+  if (view === run && input.kind === 'touch' && s.phase === 'play' && b.want >= 0 && b.want !== b.dir) {
+    const w = DIRS[b.want], bx = x + w.x * 14, by = y + w.y * 14;
+    ctx.beginPath();
+    ctx.moveTo(bx - w.y * 5, by - w.x * 5); ctx.lineTo(bx + w.x * 6, by + w.y * 6); ctx.lineTo(bx + w.y * 5, by + w.x * 5);
+    tube(ctx, C.amber, 1.8, 0.95);
+  }
   ctx.restore();
 }
 
@@ -1141,6 +1173,8 @@ function refreshSettings() {
   $('setMoods').textContent = 'Ball moods: ' + (save.moods ? 'On' : 'Off');
   $('setTalk').textContent = 'Static: ' + (save.talk ? 'Talks' : 'Silent');
   $('setTalk').classList.toggle('ghostc', !save.talk);
+  $('setPad').textContent = 'Touch pad: ' + (save.pad === 'off' ? 'Off · swipe only' : save.pad === 'right' ? 'Right' : 'Left');
+  $('setPad').classList.toggle('ghostc', save.pad === 'off');
   $('setSaver').textContent = 'Battery saver: ' + (Power.state === 'on' ? 'On' : Power.state === 'auto' ? 'Auto · low battery' : 'Off');
   $('setSaver').classList.toggle('ghostc', Power.saving);
   const skins = Look.available;
@@ -1201,6 +1235,7 @@ $('setTalk').onclick = () => {
   save.talk = !save.talk; Save.write(); refreshSettings();
   if (!save.talk) { Static.say('talkOff', null, { force: true }); Static.next = null; } else Static.say('resume', null, { force: true });
 };
+$('setPad').onclick = () => { click(); save.pad = PAD_SIDES[(PAD_SIDES.indexOf(save.pad) + 1) % PAD_SIDES.length]; Save.write(); layout(); refreshSettings(); };
 $('setSaver').onclick = () => { click(); Power.setBatterySaver(!Power.batterySaver); layout(); refreshSettings(); };
 $('setSkin').onclick = () => { click(); Look.cycle('ball'); refreshSettings(); };
 $('setTrail').onclick = () => { click(); Look.cycle('trail'); refreshSettings(); };
@@ -1268,22 +1303,56 @@ window.addEventListener('keydown', (e) => {
     else if (mode === 'menu' && $('scrMenu').classList.contains('on')) $('btnPlay').click();
   }
 });
-// touch: swipe anywhere on the maze to steer. Each swipe is a turn; there is nothing to hold.
+// touch, two ways, and both work at once.
+// A direction is a turn the ball takes when it can; there is nothing to hold.
+function steer(d) {
+  input.kind = 'touch';
+  if (mode !== 'play' || d === input.dir) return;
+  input.dir = d;
+  // a tick in the hand, where the phone can do it, so a turn is felt without looking down
+  if (save.fx && navigator.vibrate) { try { navigator.vibrate(8); } catch (err) { /* not allowed here */ } }
+}
+// which of the four a drag means. `cur` is the way already chosen: leaving it takes a
+// clear move toward another, so a thumb resting on a diagonal does not flicker between two.
+function dragDir(dx, dy, cur) {
+  const ax = Math.abs(dx), ay = Math.abs(dy), k = 1.35;
+  const across = cur === 0 || cur === 2 ? ax * k > ay : cur === 1 || cur === 3 ? ax > ay * k : ax > ay;
+  return across ? (dx > 0 ? 0 : 2) : (dy > 0 ? 1 : 3);
+}
+// 1. the pad: touch it and slide. The way from its middle to the thumb is the way the ball goes.
+const dpad = $('dpad'), padArrows = [...dpad.querySelectorAll('i')];
+let padId = null;
+function padAt(e) {
+  const r = dpad.getBoundingClientRect(), dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
+  if (Math.hypot(dx, dy) < r.width * 0.09) return;          // the very middle means nothing
+  steer(dragDir(dx, dy, input.dir));
+}
+dpad.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  audio.init();
+  padId = e.pointerId;
+  try { dpad.setPointerCapture(e.pointerId); } catch (err) { /* an old browser: the thumb must stay on the pad */ }
+  dpad.classList.add('held');
+  padAt(e);
+});
+dpad.addEventListener('pointermove', (e) => { if (e.pointerId === padId) padAt(e); });
+for (const ev of ['pointerup', 'pointercancel']) dpad.addEventListener(ev, (e) => { if (e.pointerId === padId) { padId = null; dpad.classList.remove('held'); } });
+// 2. a swipe, anywhere on the screen that is not a button. One drag can make several turns.
 let swipe = null;
-stage.addEventListener('pointerdown', (e) => {
+window.addEventListener('pointerdown', (e) => {
   audio.init();
   if (e.pointerType === 'mouse') { input.kind = 'mouse'; return; }
-  if (e.target.closest('button, input')) return;
+  if (e.target.closest && e.target.closest('button, input, #dpad')) return;
   input.kind = 'touch';
   swipe = { id: e.pointerId, x: e.clientX, y: e.clientY };
 });
-stage.addEventListener('pointermove', (e) => {
+window.addEventListener('pointermove', (e) => {
   if (!swipe || e.pointerId !== swipe.id || mode !== 'play') return;
   const dx = e.clientX - swipe.x, dy = e.clientY - swipe.y;
-  if (Math.max(Math.abs(dx), Math.abs(dy)) < 18) return;
-  input.dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 0 : 2) : (dy > 0 ? 1 : 3);
-  swipe.x = e.clientX; swipe.y = e.clientY;          // carry on from here, so one drag can make several turns
-  e.preventDefault();
+  // a short flick is enough: about a thirtieth of the screen's shorter side
+  if (Math.max(Math.abs(dx), Math.abs(dy)) < Math.max(10, Math.min(18, Math.min(window.innerWidth, window.innerHeight) * 0.034))) return;
+  steer(dragDir(dx, dy, -1));
+  swipe.x = e.clientX; swipe.y = e.clientY;          // carry on from here
 });
 for (const ev of ['pointerup', 'pointercancel']) window.addEventListener(ev, (e) => { if (swipe && e.pointerId === swipe.id) swipe = null; });
 const dashBtn = document.querySelector('#pad [data-k="dash"]');

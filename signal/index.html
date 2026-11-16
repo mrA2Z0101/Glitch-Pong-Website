@@ -228,16 +228,41 @@ input[type=range]{accent-color:var(--cyan);width:100%}
   font-family:'VT323',monospace;font-size:20px;letter-spacing:0;color:var(--cyan);
   outline:1.5px solid rgba(113,239,255,.35);background:rgba(8,12,28,.6);display:none}
 #btnPauseHud.on{display:block}
-/* touch: swipe to steer, and one round button for the dash */
+/* touch: a round pad for one thumb, a round DASH for the other, and a swipe anywhere still steers.
+   js/game.js sets their size and place (--pad, --dash, --pad-x, --pad-y): under the maze on a phone
+   held upright, which it makes taller for them, and out beside the cabinet on a phone on its side. */
 #pad{display:none}
 body.touch.playing #pad{display:block}
-#pad button{position:absolute;bottom:14px;right:14px;z-index:9;width:112px;height:112px;padding:0;border-radius:50%;
-  font-family:'Orbitron',monospace;font-size:17px;font-weight:900;letter-spacing:1px;color:var(--amber);
+body.touch.playing, body.touch.playing #wrap{touch-action:none}
+#dpad{position:absolute;left:var(--pad-x,14px);bottom:var(--pad-y,14px);z-index:9;width:var(--pad,180px);height:var(--pad,180px);border-radius:50%;
+  background:radial-gradient(circle, rgba(113,239,255,.14) 0 17%, rgba(6,10,22,.66) 18% 100%);
+  outline:2px solid rgba(113,239,255,.4);box-shadow:0 0 22px rgba(113,239,255,.16), inset 0 0 26px rgba(113,239,255,.08);touch-action:none}
+#dpad i{position:absolute;transform:translate(-50%,-50%);pointer-events:none;font-style:normal;line-height:1;
+  font-size:calc(var(--pad,180px) * .2);color:rgba(113,239,255,.5);transition:color .08s}
+#dpad i[data-d="3"]{left:50%;top:20%}
+#dpad i[data-d="1"]{left:50%;top:80%}
+#dpad i[data-d="2"]{left:20%;top:50%}
+#dpad i[data-d="0"]{left:80%;top:50%}
+#dpad i.on{color:#fff;text-shadow:0 0 16px var(--cyan), 0 0 4px var(--cyan)}
+#dpad.held{outline-color:var(--cyan)}
+#pad button{position:absolute;right:var(--pad-x,14px);bottom:calc(var(--pad-y,14px) + (var(--pad,180px) - var(--dash,130px)) / 2);z-index:9;
+  width:var(--dash,130px);height:var(--dash,130px);padding:0;border-radius:50%;
+  font-family:'Orbitron',monospace;font-size:calc(var(--dash,130px) * .15);font-weight:900;letter-spacing:1px;color:var(--amber);
   background:rgba(6,10,22,.62);outline:2px solid rgba(255,210,122,.4);touch-action:none}
 #pad button.ready{outline-color:var(--amber);box-shadow:0 0 18px rgba(255,210,122,.45)}
 #pad button.held{background:rgba(255,210,122,.22)}
-body.touch:not(.portrait) #nullLine{max-width:66%}
+body.pad-right #dpad{left:auto;right:var(--pad-x,14px)}
+body.pad-right #pad button{right:auto;left:var(--pad-x,14px)}
+body.pad-off #dpad{display:none}
+body.pad-off #pad button{bottom:var(--pad-y,14px)}
+/* the pad setting means nothing with a keyboard */
+#setPad, #setPad + .hint{display:none}
+body.touch #setPad{display:inline-block}
+body.touch #setPad + .hint{display:block}
+body.touch:not(.portrait) #nullLine{max-width:58%}
 body.touch.portrait #nullLine{bottom:136px}
+/* upright with the pad: the static's line sits straight under the maze, above the controls */
+body.touch.portrait:not(.pad-off) #nullLine{top:622px;bottom:auto}
 /* touch screens show the cabinet scaled down, so the small print is set larger */
 body.touch .hlab{font-size:13px;letter-spacing:2px;opacity:.9}
 body.touch .hval{font-size:32px}
@@ -284,8 +309,9 @@ body.reduced-fx .px-title{animation:none}
     <div id="bossBar"><div id="bossName">THE EYE</div><div id="bossHp"><div id="bossHpFill"></div></div></div>
     <button id="btnPauseHud" type="button" aria-label="Pause">II</button>
 
-    <!-- touch: swipe anywhere to steer; one button for the dash -->
+    <!-- touch: a pad to steer with (or swipe anywhere), and one button for the dash -->
     <div id="pad">
+      <div id="dpad" role="group" aria-label="Steer"><i data-d="3">▲</i><i data-d="2">◀</i><i data-d="0">▶</i><i data-d="1">▼</i></div>
       <button type="button" data-k="dash" class="pr" aria-label="Dash">DASH</button>
     </div>
 
@@ -322,7 +348,8 @@ body.reduced-fx .px-title{animation:none}
       <div class="klist">
         <div><b>ARROWS &nbsp;/&nbsp; W A S D</b>Steer. Press a direction early and the ball takes that turn when it gets there.</div>
         <div><b>SPACE</b>Dash: a short burst of speed. It takes 6 seconds to come back.</div>
-        <div><b>P / ESC</b>Pause. On a phone, swipe to steer and press DASH.</div>
+        <div><b>P / ESC</b>Pause.</div>
+        <div><b>ON A PHONE</b>Slide a thumb round the pad, or swipe anywhere, to steer. Press DASH to dash.</div>
         <p>Take every <em>packet</em> in the maze to clear it. Four pieces of <em>static</em> hunt you, each in its own way,
            and none of them is as fast as you. Touch one and the ball is gone.</p>
         <p>Take an <em>override</em> (the big ones near the corners) and for a few seconds the static runs from you
@@ -354,6 +381,8 @@ body.reduced-fx .px-title{animation:none}
         <span class="hint">The ball shrugs off one touch a maze on your last ball, holds a grudge, and has things to say.</span>
         <button id="setTalk" class="small" type="button">Static: Talks</button>
         <span class="hint">The line of text under the screen. It also stops touching your HUD.</span>
+        <button id="setPad" class="small" type="button">Touch pad: Left</button>
+        <span class="hint">Which thumb steers. Off: no pad, swipe anywhere instead.</span>
         <button id="setSaver" class="small" type="button">Battery saver: Off</button>
         <span class="hint">Fewer frames and smaller glows. Shared with the whole arcade.</span>
         <button id="setSkin" class="small" type="button">Ball skin</button>
